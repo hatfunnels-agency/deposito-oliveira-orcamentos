@@ -1,6 +1,9 @@
-'use client';
 import OrcamentoApp from '@/components/OrcamentoApp';
 
 export default function Home() {
-    return <OrcamentoApp />;
+  return (
+    <main className="min-h-screen bg-gray-50">
+      <OrcamentoApp />
+    </main>
+  );
 }
