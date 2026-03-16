@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server';
+import { blingFetch, isBlingConfigured } from '@/lib/bling-auth';
 
+// Produtos reais do Deposito Oliveira - usados quando Bling nao esta conectado
 const PRODUTOS_DEMO = [
   { id: '1', nome: 'Cimento CP-II 50kg', preco: 32.90, estoque: 500, unidade: 'saco', categoria: 'Cimento' },
   { id: '2', nome: 'Areia Media (saco 20kg)', preco: 12.50, estoque: 300, unidade: 'saco', categoria: 'Areias' },
@@ -15,61 +17,79 @@ const PRODUTOS_DEMO = [
   { id: '12', nome: 'Bloco de Concreto 14x19x39', preco: 4.50, estoque: 8000, unidade: 'unidade', categoria: 'Tijolos' },
 ];
 
-export async function GET() {
-  const accessToken = process.env.BLING_ACCESS_TOKEN;
+interface BlingProduto {
+  id: number;
+  nome: string;
+  preco?: number;
+  unidade?: string;
+  estoque?: { saldoVirtualTotal?: number };
+  categoria?: { descricao?: string };
+}
 
-  if (!accessToken || accessToken === 'seu_token_aqui') {
-    return NextResponse.json({
-      produtos: PRODUTOS_DEMO,
-      fonte: 'demo',
-      mensagem: 'Usando produtos de demonstracao. Configure BLING_ACCESS_TOKEN para dados reais.'
-    });
-  }
+async function fetchProdutosBling(): Promise<typeof PRODUTOS_DEMO> {
+  const allProdutos: typeof PRODUTOS_DEMO = [];
+  let pagina = 1;
+  let hasMore = true;
 
-  try {
-    // Bling API v3 - buscar produtos
-    const blingRes = await fetch('https://www.bling.com.br/Api/v3/produtos?limite=100&situacao=A&tipo=P', {
-      headers: {
-        'Authorization': `Bearer ${accessToken}`,
-        'Accept': 'application/json',
-      },
-    });
+  while (hasMore) {
+    const res = await blingFetch(
+      `/produtos?limite=100&criterio=5&tipo=P&pagina=${pagina}`
+    );
 
-    if (!blingRes.ok) {
-      const errText = await blingRes.text();
-      console.error('Bling API error:', blingRes.status, errText);
-      return NextResponse.json({
-        produtos: PRODUTOS_DEMO,
-        fonte: 'demo',
-        mensagem: `Erro ao conectar com Bling (${blingRes.status}). Usando dados de demonstracao.`
-      });
+    if (!res.ok) {
+      const errText = await res.text();
+      throw new Error(`Bling API erro ${res.status}: ${errText}`);
     }
 
-    const blingData = await blingRes.json();
-    
-    // Mapear produtos do Bling para formato da aplicacao
-    const produtos = (blingData.data || []).map((p: {
-      id: number;
-      nome: string;
-      preco?: number;
-      unidade?: string;
-      estoque?: { saldoVirtualTotal?: number };
-      categoria?: { descricao?: string };
-    }) => ({
+    const data = await res.json();
+    const items: BlingProduto[] = data.data || [];
+
+    if (items.length === 0) {
+      hasMore = false;
+      break;
+    }
+
+    const mapped = items.map((p) => ({
       id: String(p.id),
       nome: p.nome,
       preco: p.preco || 0,
-      estoque: p.estoque?.saldoVirtualTotal || 99, // Fallback para estoque ficticio
+      estoque: p.estoque?.saldoVirtualTotal ?? 99, // fallback 99 se sem estoque
       unidade: p.unidade || 'unidade',
       categoria: p.categoria?.descricao || 'Geral',
     }));
 
+    allProdutos.push(...mapped);
+    
+    // Se retornou menos de 100, nao tem mais paginas
+    if (items.length < 100) {
+      hasMore = false;
+    } else {
+      pagina++;
+    }
+  }
+
+  return allProdutos;
+}
+
+export async function GET() {
+  // Se Bling nao esta configurado, retorna demo
+  if (!isBlingConfigured()) {
+    return NextResponse.json({
+      produtos: PRODUTOS_DEMO,
+      fonte: 'demo',
+      mensagem: 'Usando produtos de demonstracao. Acesse /api/bling/auth para conectar o Bling.',
+    });
+  }
+
+  try {
+    const produtos = await fetchProdutosBling();
+
     return NextResponse.json({
       produtos: produtos.length > 0 ? produtos : PRODUTOS_DEMO,
       fonte: produtos.length > 0 ? 'bling' : 'demo',
-      mensagem: produtos.length > 0 
-        ? `${produtos.length} produtos carregados do Bling` 
-        : 'Nenhum produto ativo encontrado no Bling. Usando demonstracao.'
+      mensagem: produtos.length > 0
+        ? `${produtos.length} produtos carregados do Bling`
+        : 'Nenhum produto ativo encontrado no Bling. Usando demonstracao.',
     });
 
   } catch (error) {
@@ -77,7 +97,7 @@ export async function GET() {
     return NextResponse.json({
       produtos: PRODUTOS_DEMO,
       fonte: 'demo',
-      mensagem: 'Erro de conexao com Bling. Usando dados de demonstracao.'
+      mensagem: 'Erro ao conectar com Bling. Usando dados de demonstracao.',
     });
   }
 }
