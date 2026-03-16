@@ -1,7 +1,5 @@
-# Depósito Oliveira - Sistema de Orçamentos
+# Depósito Oliveira
 
-Sistema de orçamentos integrado com Bling ERP v3 OAuth2.
+Sistema de orçamentos com Bling ERP OAuth2.
 
-Status: PRODUÇÃO
-
-2026-03-16T22:34:40.323Z
+1773700618440
