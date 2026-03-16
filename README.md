@@ -1,7 +1,7 @@
 # Depósito Oliveira - Sistema de Orçamentos
 
-Sistema de orçamentos integrado com Bling ERP.
+Sistema de orçamentos integrado com Bling ERP v3 OAuth2.
 
-Bling OAuth configurado e funcionando.
+Status: PRODUÇÃO
 
-Deploy final: 2026-03-16T22:32:19.203Z
+2026-03-16T22:34:40.323Z
