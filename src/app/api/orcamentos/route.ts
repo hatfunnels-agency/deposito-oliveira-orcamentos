@@ -14,6 +14,7 @@ export async function POST(request: NextRequest) {
       subtotal,
       total,
       observacoes,
+      data_entrega,
       itens,
     } = body;
 
@@ -26,7 +27,7 @@ export async function POST(request: NextRequest) {
 
     // Upsert cliente (identificado pelo telefone)
     const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
-    
+
     const { data: cliente, error: clienteError } = await supabaseAdmin
       .from('clientes')
       .upsert(
@@ -49,7 +50,7 @@ export async function POST(request: NextRequest) {
 
     // Gera codigo unico
     let codigo = gerarCodigoOrcamento();
-    
+
     // Garante unicidade (tenta 3x)
     for (let i = 0; i < 3; i++) {
       const { data: existing } = await supabaseAdmin
@@ -57,24 +58,31 @@ export async function POST(request: NextRequest) {
         .select('id')
         .eq('codigo', codigo)
         .single();
+
       if (!existing) break;
       codigo = gerarCodigoOrcamento();
     }
 
     // Cria orcamento
+    const insertData: Record<string, unknown> = {
+      codigo,
+      cliente_id: cliente.id,
+      tipo_entrega,
+      valor_frete,
+      subtotal,
+      total,
+      status: 'orcamento',
+      observacoes: observacoes || null,
+      fonte: 'interface',
+    };
+
+    if (data_entrega) {
+      insertData.data_entrega = data_entrega;
+    }
+
     const { data: orcamento, error: orcError } = await supabaseAdmin
       .from('orcamentos')
-      .insert({
-        codigo,
-        cliente_id: cliente.id,
-        tipo_entrega,
-        valor_frete,
-        subtotal,
-        total,
-        status: 'orcamento',
-        observacoes: observacoes || null,
-        fonte: 'interface',
-      })
+      .insert(insertData)
       .select('id, codigo')
       .single();
 
@@ -106,7 +114,6 @@ export async function POST(request: NextRequest) {
 
     if (itensError) {
       console.error('Erro ao criar itens:', itensError);
-      // Nao falha completamente - o orcamento foi criado
     }
 
     return NextResponse.json({
@@ -115,7 +122,6 @@ export async function POST(request: NextRequest) {
       id: orcamento.id,
       mensagem: `Orcamento ${orcamento.codigo} salvo com sucesso`,
     });
-
   } catch (error) {
     console.error('Erro ao salvar orcamento:', error);
     return NextResponse.json({ error: 'Erro interno ao salvar orcamento' }, { status: 500 });
@@ -134,9 +140,23 @@ export async function GET(request: NextRequest) {
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, valor_frete, subtotal, total,
-        status, observacoes, criado_em,
-        clientes ( id, nome, telefone, cidade, estado )
+        id,
+        codigo,
+        tipo_entrega,
+        valor_frete,
+        subtotal,
+        total,
+        status,
+        observacoes,
+        criado_em,
+        data_entrega,
+        clientes (
+          id,
+          nome,
+          telefone,
+          cidade,
+          estado
+        )
       `, { count: 'exact' })
       .order('criado_em', { ascending: false })
       .range(offset, offset + limite - 1);
@@ -146,8 +166,19 @@ export async function GET(request: NextRequest) {
     }
 
     if (busca) {
-      // Busca por codigo ou por nome/telefone do cliente
-      query = query.or(`codigo.ilike.%${busca}%`);
+      // First try to find matching client IDs
+      const { data: matchingClients } = await supabaseAdmin
+        .from('clientes')
+        .select('id')
+        .or(`nome.ilike.%${busca}%,telefone.ilike.%${busca}%`);
+
+      const clientIds = (matchingClients || []).map((c: { id: string }) => c.id);
+
+      if (clientIds.length > 0) {
+        query = query.or(`codigo.ilike.%${busca}%,cliente_id.in.(${clientIds.join(',')})`);
+      } else {
+        query = query.or(`codigo.ilike.%${busca}%`);
+      }
     }
 
     const { data, error, count } = await query;
@@ -163,7 +194,6 @@ export async function GET(request: NextRequest) {
       pagina,
       limite,
     });
-
   } catch (error) {
     console.error('Erro ao listar orcamentos:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
