@@ -1,7 +1,7 @@
 export const dynamic = 'force-dynamic';
 
 import { NextResponse } from 'next/server';
-import { getBlingAccessToken, isBlingConfigured } from '@/lib/bling-auth';
+import { blingFetch, isBlingConfigured } from '@/lib/bling-auth';
 
 export async function GET() {
   if (!isBlingConfigured()) {
@@ -14,18 +14,10 @@ export async function GET() {
   }
 
   try {
-    const token = await getBlingAccessToken();
-
-    // Testa a conexao buscando informacoes basicas
-    const testRes = await fetch('https://api.bling.com.br/Api/v3/produtos?limite=1', {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Accept': 'application/json'
-      },
-    });
+    // Usa blingFetch que tem retry automatico em 401
+    const testRes = await blingFetch('/produtos?limite=1');
 
     if (!testRes.ok) {
-      // Log the error body for debugging
       let errorBody = '';
       try { errorBody = await testRes.text(); } catch {}
       return NextResponse.json({
