@@ -1,4 +1,4 @@
-// v2 - auto-save to Supabase
+// v3 - updated client secret
 import { NextRequest, NextResponse } from 'next/server';
 import { exchangeCodeForTokens, saveRefreshTokenToSupabase } from '@/lib/bling-auth';
 
