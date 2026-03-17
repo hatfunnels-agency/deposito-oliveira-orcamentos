@@ -357,7 +357,7 @@ export default function OrcamentoApp() {
         '',
         '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
-      ].filter(l => l !== false && l !== undefined);
+      ].filter((l): l is string => typeof l === 'string' && l.length > 0);
       return linhas.join('\n');
     }
 
@@ -384,7 +384,7 @@ export default function OrcamentoApp() {
       '',
       '_Orçamento válido por 7 dias_',
       '_Sujeito a disponibilidade de estoque_',
-    ].filter(Boolean);
+    ].filter((l): l is string => !!l);
     return linhas.join('\n');
   };
 
