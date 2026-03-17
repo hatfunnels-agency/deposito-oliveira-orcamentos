@@ -1,6 +1,72 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
 
+// ============================================================
+// Função para criar pedido no Bling (não-bloqueante)
+// ============================================================
+async function criarPedidoBling(orcamento: {
+  codigo: string;
+  cliente_nome: string;
+  cliente_telefone?: string;
+  tipo_entrega?: string;
+  valor_frete?: number;
+  data_entrega?: string;
+  observacoes?: string;
+  itens: Array<{
+    produto_bling_id: number | null;
+    produto_nome: string;
+    quantidade: number;
+    preco_unitario: number;
+  }>;
+}): Promise<number | null> {
+  try {
+    // Filtra itens que têm produto_bling_id válido
+    const itensComBlingId = orcamento.itens.filter(i => i.produto_bling_id);
+    if (itensComBlingId.length === 0) {
+      console.warn('Nenhum item com produto_bling_id para criar pedido Bling');
+      return null;
+    }
+
+    const baseUrl = process.env.NEXT_PUBLIC_VERCEL_URL
+      ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}`
+      : process.env.NEXT_PUBLIC_SUPABASE_URL
+        ? 'https://deposito-oliveira-orcamentos.vercel.app'
+        : 'http://localhost:3000';
+
+    const res = await fetch(`${baseUrl}/api/bling/pedido`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      cache: 'no-store',
+      body: JSON.stringify({
+        cliente_nome: orcamento.cliente_nome,
+        cliente_telefone: orcamento.cliente_telefone,
+        itens: itensComBlingId.map(i => ({
+          produto_bling_id: i.produto_bling_id,
+          produto_nome: i.produto_nome,
+          quantidade: i.quantidade,
+          preco_unitario: i.preco_unitario,
+        })),
+        observacoes: orcamento.observacoes,
+        data_entrega: orcamento.data_entrega,
+        codigo_orcamento: orcamento.codigo,
+        valor_frete: orcamento.valor_frete,
+        tipo_entrega: orcamento.tipo_entrega,
+      }),
+    });
+
+    if (!res.ok) {
+      console.error('Falha ao criar pedido Bling:', res.status);
+      return null;
+    }
+
+    const data = await res.json();
+    return data.bling_pedido_id || null;
+  } catch (error) {
+    console.error('Erro ao chamar API Bling pedido:', error);
+    return null;
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
@@ -50,15 +116,12 @@ export async function POST(request: NextRequest) {
 
     // Gera codigo unico
     let codigo = gerarCodigoOrcamento();
-
-    // Garante unicidade (tenta 3x)
     for (let i = 0; i < 3; i++) {
       const { data: existing } = await supabaseAdmin
         .from('orcamentos')
         .select('id')
         .eq('codigo', codigo)
         .single();
-
       if (!existing) break;
       codigo = gerarCodigoOrcamento();
     }
@@ -91,9 +154,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erro ao salvar orcamento' }, { status: 500 });
     }
 
-    // Cria itens
+    // Cria itens (agora com produto_bling_id)
     const itensToInsert = itens.map((item: {
       produto_id?: string | number;
+      produto_bling_id?: string | number;
       produto_nome: string;
       quantidade: number;
       unidade?: string;
@@ -101,6 +165,7 @@ export async function POST(request: NextRequest) {
     }) => ({
       orcamento_id: orcamento.id,
       produto_id: item.produto_id ? Number(item.produto_id) : null,
+      produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
       produto_nome: item.produto_nome,
       quantidade: item.quantidade,
       unidade: item.unidade || 'unidade',
@@ -116,11 +181,48 @@ export async function POST(request: NextRequest) {
       console.error('Erro ao criar itens:', itensError);
     }
 
+    // Auto-criar pedido no Bling (não-bloqueante - se falhar, orçamento continua salvo)
+    let blingPedidoId: number | null = null;
+    try {
+      blingPedidoId = await criarPedidoBling({
+        codigo: orcamento.codigo,
+        cliente_nome,
+        cliente_telefone: telefoneLimpo,
+        tipo_entrega,
+        valor_frete,
+        data_entrega,
+        observacoes,
+        itens: itens.map((item: {
+          produto_id?: string | number;
+          produto_bling_id?: string | number;
+          produto_nome: string;
+          quantidade: number;
+          preco_unitario: number;
+        }) => ({
+          produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : (item.produto_id ? Number(item.produto_id) : null),
+          produto_nome: item.produto_nome,
+          quantidade: item.quantidade,
+          preco_unitario: item.preco_unitario,
+        })),
+      });
+
+      // Se pedido Bling criado com sucesso, salva o ID no orçamento
+      if (blingPedidoId) {
+        await supabaseAdmin
+          .from('orcamentos')
+          .update({ bling_pedido_id: blingPedidoId })
+          .eq('id', orcamento.id);
+      }
+    } catch (blingError) {
+      console.error('Erro ao criar pedido Bling (não-bloqueante):', blingError);
+    }
+
     return NextResponse.json({
       success: true,
       codigo: orcamento.codigo,
       id: orcamento.id,
-      mensagem: `Orcamento ${orcamento.codigo} salvo com sucesso`,
+      bling_pedido_id: blingPedidoId,
+      mensagem: `Orcamento ${orcamento.codigo} salvo com sucesso${blingPedidoId ? ` | Pedido Bling #${blingPedidoId}` : ''}`,
     });
   } catch (error) {
     console.error('Erro ao salvar orcamento:', error);
@@ -150,6 +252,7 @@ export async function GET(request: NextRequest) {
         observacoes,
         criado_em,
         data_entrega,
+        bling_pedido_id,
         clientes (
           id,
           nome,
@@ -166,7 +269,6 @@ export async function GET(request: NextRequest) {
     }
 
     if (busca) {
-      // First try to find matching client IDs
       const { data: matchingClients } = await supabaseAdmin
         .from('clientes')
         .select('id')
