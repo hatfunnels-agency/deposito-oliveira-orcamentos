@@ -1,19 +1,15 @@
 // src/lib/bling-auth.ts
 // Modulo core de autenticacao OAuth2 com Bling v3
-// O access_token expira a cada 6h - este modulo faz refresh automatico
-// O refresh_token e salvo no Supabase para persistencia sem redeploy
+// OAuth tokens via www.bling.com.br, API calls via api.bling.com.br
 
-// IMPORTANTE: OAuth tokens via www.bling.com.br, API calls via api.bling.com.br
 const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
 const BLING_API_BASE = 'https://api.bling.com.br/Api/v3';
 
-// Cache em memoria do token (reinicia ao redeploy - ok para uso interno)
 let tokenCache: {
   access_token: string;
   expires_at: number;
 } | null = null;
 
-// Busca o refresh_token: primeiro do Supabase, fallback para env var
 async function getRefreshToken(): Promise<string> {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -26,6 +22,7 @@ async function getRefreshToken(): Promise<string> {
           'Authorization': `Bearer ${supabaseKey}`,
           'Accept': 'application/json',
         },
+        cache: 'no-store',
       });
 
       if (res.ok) {
@@ -35,9 +32,7 @@ async function getRefreshToken(): Promise<string> {
         }
       }
     }
-  } catch (e) {
-    // fallback to env var
-  }
+  } catch (e) {}
 
   const envToken = process.env.BLING_REFRESH_TOKEN;
   if (envToken) return envToken;
@@ -45,11 +40,9 @@ async function getRefreshToken(): Promise<string> {
   throw new Error('Nenhum refresh_token disponivel. Execute /api/bling/auth para autorizar.');
 }
 
-// Salva o refresh_token no Supabase (upsert)
 export async function saveRefreshTokenToSupabase(refreshToken: string): Promise<void> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
   if (!supabaseUrl || !supabaseKey) return;
 
   await fetch(`${supabaseUrl}/rest/v1/bling_tokens`, {
@@ -90,6 +83,7 @@ async function getNewTokenFromRefreshToken(): Promise<string> {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
     }).toString(),
+    cache: 'no-store',
   });
 
   if (!res.ok) {
@@ -99,7 +93,6 @@ async function getNewTokenFromRefreshToken(): Promise<string> {
 
   const data = await res.json();
 
-  // Se o Bling retornou um novo refresh_token, salva no Supabase
   if (data.refresh_token && data.refresh_token !== refreshToken) {
     await saveRefreshTokenToSupabase(data.refresh_token).catch(() => {});
   }
@@ -139,6 +132,7 @@ export async function exchangeCodeForTokens(code: string): Promise<{
       grant_type: 'authorization_code',
       code: code,
     }).toString(),
+    cache: 'no-store',
   });
 
   if (!res.ok) {
@@ -160,11 +154,12 @@ export async function blingFetch(endpoint: string, options?: RequestInit): Promi
       'Content-Type': 'application/json',
       ...(options?.headers || {}),
     },
+    cache: 'no-store',
   });
 
   if (res.status === 401) {
     tokenCache = null;
-    const newToken = await getBlingAccessToken();
+    const newToken = await getNewTokenFromRefreshToken();
     return fetch(`${BLING_API_BASE}${endpoint}`, {
       ...options,
       headers: {
@@ -173,6 +168,7 @@ export async function blingFetch(endpoint: string, options?: RequestInit): Promi
         'Content-Type': 'application/json',
         ...(options?.headers || {}),
       },
+      cache: 'no-store',
     });
   }
 
