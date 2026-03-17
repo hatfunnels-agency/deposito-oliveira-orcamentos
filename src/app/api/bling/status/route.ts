@@ -15,10 +15,13 @@ export async function GET() {
 
   try {
     const token = await getBlingAccessToken();
-    
+
     // Testa a conexao buscando informacoes basicas
-    const testRes = await fetch('https://www.bling.com.br/Api/v3/produtos?limite=1', {
-      headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
+    const testRes = await fetch('https://api.bling.com.br/Api/v3/produtos?limite=1', {
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Accept': 'application/json'
+      },
     });
 
     if (!testRes.ok) {
@@ -36,7 +39,6 @@ export async function GET() {
       message: 'Bling conectado e funcionando',
       client_id: process.env.BLING_CLIENT_ID?.substring(0, 8) + '...',
     });
-
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Erro desconhecido';
     return NextResponse.json({
