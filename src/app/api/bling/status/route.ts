@@ -17,7 +17,7 @@ export async function GET() {
     const token = await getBlingAccessToken();
     
     // Testa a conexao buscando informacoes basicas
-    const testRes = await fetch('https://www.bling.com.br/Api/v3/situacoes/modulos', {
+    const testRes = await fetch('https://www.bling.com.br/Api/v3/produtos?limite=1', {
       headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/json' },
     });
 
