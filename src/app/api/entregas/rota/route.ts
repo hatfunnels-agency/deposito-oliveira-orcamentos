@@ -12,10 +12,16 @@ interface EntregaParaRota {
   cliente_telefone: string;
   endereco: string;
   cep: string;
+  numero: string;
+  complemento: string;
+  recebedor: string;
+  bairro: string;
+  cidade: string;
   status: string;
   total: number;
   itens_resumo: string;
   data_entrega: string | null;
+  observacoes: string;
 }
 
 export async function POST(request: NextRequest) {
@@ -26,29 +32,18 @@ export async function POST(request: NextRequest) {
     // Data padrão = hoje
     const dataAlvo = dataFiltro || new Date().toISOString().split('T')[0];
 
-    // Buscar orçamentos com entrega pendente para a data
-    const statusEntrega = ['pagamento_ok', 'separacao', 'entrega_pendente'];
+    // Bug 1 fix: Include em_rota in the status filter so they remain visible
+    const statusEntrega = ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'];
 
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id,
-        codigo,
-        tipo_entrega,
-        status,
-        total,
-        data_entrega,
-        observacoes,
+        id, codigo, tipo_entrega, status, total, data_entrega, observacoes,
         clientes (
-          nome,
-          telefone,
-          cep,
-          endereco
+          nome, telefone, cep, endereco, bairro, cidade, estado, numero, complemento, recebedor
         ),
         orcamento_itens (
-          produto_nome,
-          quantidade,
-          unidade
+          produto_nome, quantidade, unidade
         )
       `)
       .eq('tipo_entrega', 'entrega')
@@ -83,7 +78,6 @@ export async function POST(request: NextRequest) {
     const entregasParaRota: EntregaParaRota[] = entregas.map((e: Record<string, unknown>) => {
       const cliente = e.clientes as Record<string, string> | null;
       const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
-
       const itensResumo = (itens || [])
         .map((i) => `${i.quantidade}${i.unidade === 'unidade' ? 'x' : i.unidade} ${i.produto_nome}`)
         .join(', ');
@@ -95,10 +89,16 @@ export async function POST(request: NextRequest) {
         cliente_telefone: cliente?.telefone || '',
         endereco: cliente?.endereco || '',
         cep: cliente?.cep || '',
+        numero: cliente?.numero || '',
+        complemento: cliente?.complemento || '',
+        recebedor: cliente?.recebedor || '',
+        bairro: cliente?.bairro || '',
+        cidade: cliente?.cidade ? `${cliente.cidade}-${cliente.estado || ''}` : '',
         status: String(e.status),
         total: Number(e.total),
         itens_resumo: itensResumo,
         data_entrega: e.data_entrega ? String(e.data_entrega) : null,
+        observacoes: e.observacoes ? String(e.observacoes) : '',
       };
     });
 
@@ -121,6 +121,7 @@ export async function POST(request: NextRequest) {
 
     // Google Maps Directions API com waypoints otimizados
     const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
+
     if (!GOOGLE_MAPS_API_KEY) {
       return NextResponse.json(
         { error: 'Google Maps API key não configurada' },
@@ -132,13 +133,15 @@ export async function POST(request: NextRequest) {
     const waypoints = entregasComEndereco
       .slice(0, 25)
       .map((e) => {
-        const addr = e.endereco || e.cep;
-        return encodeURIComponent(addr);
+        // Use full address with numero for better accuracy
+        const fullAddr = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.bairro, e.cep].filter(Boolean).join(', ');
+        return encodeURIComponent(fullAddr);
       });
 
-    const waypointsParam = waypoints.length > 0
-      ? `&waypoints=optimize:true|${waypoints.join('|')}`
-      : '';
+    const waypointsParam =
+      waypoints.length > 0
+        ? `&waypoints=optimize:true|${waypoints.join('|')}`
+        : '';
 
     const directionsUrl = `https://maps.googleapis.com/maps/api/directions/json?origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}${waypointsParam}&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
 
@@ -146,21 +149,25 @@ export async function POST(request: NextRequest) {
     const gmapsData = await gmapsRes.json();
 
     if (gmapsData.status !== 'OK') {
-      // Retorna entregas mesmo sem rota otimizada
+      // Bug 2 fix: Better error message with details from Google
+      const errorDetail = gmapsData.error_message || gmapsData.status;
+      console.error('Google Directions API error:', JSON.stringify(gmapsData));
+      
+      // Return deliveries without optimization but still usable
       return NextResponse.json({
         data: dataAlvo,
         total_entregas: entregasParaRota.length,
         distancia_total_km: 0,
         duracao_total_min: 0,
-        rota_otimizada: entregasParaRota,
+        rota_otimizada: entregasParaRota.map((e, idx) => ({ parada: idx + 1, ...e })),
         maps_url: null,
-        mensagem: `Erro ao calcular rota: ${gmapsData.status}. Entregas listadas sem otimização.`,
+        mensagem: `Erro ao calcular rota: ${errorDetail}. Entregas listadas sem otimização. Verifique se a Directions API está habilitada no Google Cloud Console.`,
       });
     }
 
-    // Extrair ordem otimizada e dados de rota
+    // Bug 3 fix: Extract optimized order using waypoint_order
     const route = gmapsData.routes[0];
-    const waypointOrder = route.waypoint_order || [];
+    const waypointOrder: number[] = route.waypoint_order || [];
     let distanciaTotalM = 0;
     let duracaoTotalS = 0;
 
@@ -172,14 +179,14 @@ export async function POST(request: NextRequest) {
     const distanciaTotalKm = Math.round((distanciaTotalM / 1000) * 10) / 10;
     const duracaoTotalMin = Math.round(duracaoTotalS / 60);
 
-    // Reordenar entregas conforme otimização do Google
-    const entregasOtimizadas = waypointOrder.length > 0
+    // Reorder deliveries according to Google's optimization
+    const entregasOtimizadas: EntregaParaRota[] = waypointOrder.length > 0
       ? waypointOrder.map((idx: number) => entregasComEndereco[idx])
       : entregasComEndereco;
 
-    // Montar URL do Google Maps para abrir no navegador
+    // Build Google Maps URL for navigation
     const waypointsForUrl = entregasOtimizadas
-      .map((e: EntregaParaRota) => encodeURIComponent(e.endereco || e.cep))
+      .map((e: EntregaParaRota) => encodeURIComponent([e.endereco, e.numero ? `nº ${e.numero}` : '', e.cep].filter(Boolean).join(', ')))
       .join('|');
 
     const mapsUrl = `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}&waypoints=${waypointsForUrl}&travelmode=driving`;
