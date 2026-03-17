@@ -3,7 +3,9 @@
 // O access_token expira a cada 6h - este modulo faz refresh automatico
 // O refresh_token e salvo no Supabase para persistencia sem redeploy
 
-const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
+// IMPORTANTE: Usar api.bling.com.br para TUDO (token + API)
+// www.bling.com.br gera tokens que nao funcionam em api.bling.com.br
+const BLING_TOKEN_URL = 'https://api.bling.com.br/Api/v3/oauth/token';
 const BLING_API_BASE = 'https://api.bling.com.br/Api/v3';
 
 // Cache em memoria do token (reinicia ao redeploy - ok para uso interno)
