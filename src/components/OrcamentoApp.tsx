@@ -48,6 +48,8 @@ interface OrcamentoDetalhe {
   criado_em: string;
   atualizado_em: string;
   data_entrega: string | null;
+  data_entrega_original: string | null;
+  reagendamentos: number;
   bling_pedido_id: number | null;
   clientes: {
     id: string;
@@ -58,6 +60,9 @@ interface OrcamentoDetalhe {
     bairro: string | null;
     cidade: string | null;
     estado: string | null;
+    numero: string | null;
+    complemento: string | null;
+    recebedor: string | null;
   } | null;
   orcamento_itens: OrcamentoItem[];
 }
@@ -85,10 +90,16 @@ interface EntregaRota {
   cliente_telefone: string;
   endereco: string;
   cep: string;
+  numero: string;
+  complemento: string;
+  recebedor: string;
+  bairro: string;
+  cidade: string;
   status: string;
   total: number;
   itens_resumo: string;
   data_entrega: string | null;
+  observacoes: string;
 }
 
 interface RotaResponse {
@@ -122,6 +133,16 @@ const UNIT_MAP: Record<string, string> = {
   'vergalhao': 'barra',
   'vergalhão': 'barra',
 };
+
+const MEIO_METRO_PRODUCTS = ['areia', 'areia ensacada', 'pedra brita', 'pedra', 'brita', 'pedrisco', 'po de pedra', 'pó de pedra'];
+
+function isMeioMetro(productName: string): boolean {
+  const nameLower = productName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  return MEIO_METRO_PRODUCTS.some(key => {
+    const keyNorm = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    return nameLower.includes(keyNorm);
+  });
+}
 
 function mapUnit(productName: string, originalUnit: string): string {
   const nameLower = productName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -196,11 +217,23 @@ export default function OrcamentoApp() {
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  // Feature 8 - Address detail fields
+  const [numeroEndereco, setNumeroEndereco] = useState('');
+  const [complementoEndereco, setComplementoEndereco] = useState('');
+  const [recebedor, setRecebedor] = useState('');
+  // Feature 7 - Address search
+  const [buscaEndereco, setBuscaEndereco] = useState('');
+  const [buscandoEndereco, setBuscandoEndereco] = useState(false);
+  // Feature 9 - Reschedule
+  const [mostrarReagendar, setMostrarReagendar] = useState(false);
+  const [novaDataEntrega, setNovaDataEntrega] = useState('');
+  const [reagendandoId, setReagendandoId] = useState<string | null>(null);
   // Entregas state
   const [entregasRota, setEntregasRota] = useState<RotaResponse | null>(null);
   const [loadingEntregas, setLoadingEntregas] = useState(false);
   const [dataEntregas, setDataEntregas] = useState('');
   const [marcandoRota, setMarcandoRota] = useState(false);
+
   const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -210,16 +243,15 @@ export default function OrcamentoApp() {
         const prods = (data.produtos || []).map((p: Produto) => ({
           ...p,
           unidade: mapUnit(p.nome, p.unidade),
+          // Bug 10 fix: double stock for meio metro products
+          estoque: isMeioMetro(p.nome) ? p.estoque * 2 : p.estoque,
         }));
         setProdutos(prods);
         setFonteProdutos(data.fonte || 'demo');
         setMensagemAPI(data.mensagem || '');
         setLoading(false);
       })
-      .catch(() => {
-        setLoading(false);
-        setMensagemAPI('Erro ao carregar produtos.');
-      });
+      .catch(() => { setLoading(false); setMensagemAPI('Erro ao carregar produtos.'); });
   }, []);
 
   const carregarHistorico = useCallback(async () => {
@@ -241,6 +273,7 @@ export default function OrcamentoApp() {
   }, [abaAtiva, carregarHistorico]);
 
   const categorias = ['Todas', ...Array.from(new Set(produtos.map(p => p.categoria)))];
+
   const produtosFiltrados = produtos.filter(p => {
     const matchBusca = p.nome.toLowerCase().includes(busca.toLowerCase());
     const matchCategoria = categoriaSelecionada === 'Todas' || p.categoria === categoriaSelecionada;
@@ -258,12 +291,27 @@ export default function OrcamentoApp() {
   const removerItem = (produtoId: string) => {
     setItens(prev => {
       const existing = prev.find(i => i.produto.id === produtoId);
-      if (existing && existing.quantidade > 1) return prev.map(i => i.produto.id === produtoId ? { ...i, quantidade: i.quantidade - 1 } : i);
+      if (existing && existing.quantidade > 1)
+        return prev.map(i => i.produto.id === produtoId ? { ...i, quantidade: i.quantidade - 1 } : i);
       return prev.filter(i => i.produto.id !== produtoId);
     });
   };
 
+  // Feature 11 - Set exact quantity
+  const setQuantidade = (produtoId: string, qty: number) => {
+    if (qty <= 0) {
+      setItens(prev => prev.filter(i => i.produto.id !== produtoId));
+      return;
+    }
+    setItens(prev => {
+      const existing = prev.find(i => i.produto.id === produtoId);
+      if (existing) return prev.map(i => i.produto.id === produtoId ? { ...i, quantidade: qty } : i);
+      return prev;
+    });
+  };
+
   const getQuantidade = (produtoId: string) => itens.find(i => i.produto.id === produtoId)?.quantidade || 0;
+
   const subtotal = itens.reduce((acc, item) => acc + (item.produto.preco * item.quantidade), 0);
   const totalFrete = tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete ? dadosFrete.frete : 0;
   const total = subtotal + totalFrete;
@@ -282,6 +330,27 @@ export default function OrcamentoApp() {
       if (!data.erro) setEnderecoViaCEP(`${data.logradouro}, ${data.bairro}, ${data.localidade}-${data.uf}`);
     } catch {}
   }, []);
+
+  // Feature 7 - Search address by street name
+  const buscarEnderecoPorRua = async () => {
+    if (!buscaEndereco || buscaEndereco.trim().length < 5) return;
+    setBuscandoEndereco(true);
+    setErroFrete('');
+    try {
+      const res = await fetch(`/api/endereco?q=${encodeURIComponent(buscaEndereco)}`);
+      const data = await res.json();
+      if (data.error) {
+        setErroFrete(data.error);
+      } else {
+        if (data.cep) setCepDestino(data.cep);
+        if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
+        if (data.bairro) setBuscaEndereco('');
+      }
+    } catch {
+      setErroFrete('Erro ao buscar endereço.');
+    }
+    setBuscandoEndereco(false);
+  };
 
   const calcularFrete = async () => {
     if (!cepDestino || cepDestino.replace(/\D/g, '').length !== 8) {
@@ -306,9 +375,7 @@ export default function OrcamentoApp() {
         setDadosFrete(data);
         if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
       }
-    } catch {
-      setErroFrete('Erro ao calcular frete.');
-    }
+    } catch { setErroFrete('Erro ao calcular frete.'); }
     setCalculandoFrete(false);
   };
 
@@ -321,6 +388,9 @@ export default function OrcamentoApp() {
         cliente_telefone: whatsappCliente || '00000000000',
         cliente_cep: cepDestino || null,
         cliente_endereco: enderecoViaCEP || null,
+        cliente_numero: numeroEndereco || null,
+        cliente_complemento: complementoEndereco || null,
+        cliente_recebedor: recebedor || null,
         tipo_entrega: tipoEntrega,
         valor_frete: totalFrete,
         subtotal,
@@ -330,7 +400,8 @@ export default function OrcamentoApp() {
           produto_id: i.produto.id,
           produto_bling_id: i.produto.id,
           produto_nome: i.produto.nome,
-          quantidade: i.quantidade,
+          quantidade: isMeioMetro(i.produto.nome) ? i.quantidade * 0.5 : i.quantidade,
+          quantidade_display: i.quantidade,
           unidade: i.produto.unidade,
           preco_unitario: i.produto.preco,
         })),
@@ -393,17 +464,41 @@ export default function OrcamentoApp() {
           setOrcamentoDetalhe({ ...orcamentoDetalhe, bling_pedido_id: data.bling_pedido_id });
         }
         alert(`Pedido Bling criado com sucesso! ID: ${data.bling_pedido_id}`);
-      } else {
-        alert('Erro ao criar pedido no Bling. Tente novamente.');
+      } else { alert('Erro ao criar pedido no Bling. Tente novamente.'); }
+    } catch (e) { console.error('Erro ao reenviar ao Bling', e); alert('Erro ao reenviar ao Bling.'); }
+  };
+
+  // Feature 9 - Reschedule delivery
+  const reagendarEntrega = async (id: string, novaData: string) => {
+    try {
+      const res = await fetch(`/api/orcamentos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data_entrega: novaData, reagendar: true }),
+      });
+      if (res.ok) {
+        setMostrarReagendar(false);
+        setReagendandoId(null);
+        setNovaDataEntrega('');
+        if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
+          setOrcamentoDetalhe({ ...orcamentoDetalhe, data_entrega: novaData, reagendamentos: (orcamentoDetalhe.reagendamentos || 0) + 1 });
+        }
+        carregarHistorico();
+        if (abaAtiva === 'entregas') carregarEntregas();
+        alert('Entrega reagendada com sucesso!');
       }
-    } catch (e) {
-      console.error('Erro ao reenviar ao Bling', e);
-      alert('Erro ao reenviar ao Bling.');
-    }
+    } catch (e) { console.error('Erro ao reagendar', e); alert('Erro ao reagendar entrega.'); }
   };
 
   const gerarTextoWhatsApp = (detalhe?: OrcamentoDetalhe | null) => {
     if (detalhe) {
+      const endCompleto = [
+        detalhe.clientes?.endereco,
+        detalhe.clientes?.numero ? `nº ${detalhe.clientes.numero}` : '',
+        detalhe.clientes?.complemento,
+        detalhe.clientes?.bairro,
+        detalhe.clientes?.cidade ? `${detalhe.clientes.cidade}-${detalhe.clientes.estado}` : '',
+      ].filter(Boolean).join(', ');
       const linhas = [
         '*ORÇAMENTO - Depósito Oliveira*',
         `Código: ${detalhe.codigo}`,
@@ -412,12 +507,14 @@ export default function OrcamentoApp() {
         '',
         `*Cliente:* ${detalhe.clientes?.nome || 'Cliente'}`,
         detalhe.clientes?.telefone ? `*Telefone:* ${detalhe.clientes.telefone}` : '',
+        detalhe.clientes?.recebedor ? `*Recebedor:* ${detalhe.clientes.recebedor}` : '',
         '',
         '*Produtos:*',
         ...detalhe.orcamento_itens.map(i => `· ${i.produto_nome} x${i.quantidade} = R$ ${formatBRL(i.subtotal)}`),
         '',
         `*Subtotal:* R$ ${formatBRL(detalhe.subtotal)}`,
         detalhe.tipo_entrega === 'entrega' && detalhe.valor_frete > 0 ? `*Frete:* R$ ${formatBRL(detalhe.valor_frete)}` : '*Retirada na loja*',
+        detalhe.tipo_entrega === 'entrega' && endCompleto ? `*Endereço:* ${endCompleto}` : '',
         detalhe.data_entrega ? `*Data de entrega:* ${new Date(detalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
         '',
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
@@ -436,6 +533,7 @@ export default function OrcamentoApp() {
       '',
       nomeCliente ? `*Cliente:* ${nomeCliente}` : '',
       whatsappCliente ? `*Telefone:* ${whatsappCliente}` : '',
+      recebedor ? `*Recebedor:* ${recebedor}` : '',
       '',
       '*Produtos:*',
       ...itens.map(i => `· ${i.produto.nome} x${i.quantidade} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
@@ -480,7 +578,7 @@ export default function OrcamentoApp() {
     const tot = d ? d.total : total;
     const tipo = d ? d.tipo_entrega : tipoEntrega;
     const frete = d ? d.valor_frete : totalFrete;
-    const end = d ? (d.clientes?.endereco ? `${d.clientes.endereco}${d.clientes.bairro ? `, ${d.clientes.bairro}` : ''}${d.clientes.cidade ? `, ${d.clientes.cidade}-${d.clientes.estado}` : ''}` : '') : enderecoViaCEP;
+    const end = d ? [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ') : enderecoViaCEP;
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Orçamento ${cod}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#333}h1{color:#1d4ed8;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#1d4ed8;color:white;padding:10px 8px;text-align:left}td{padding:8px}tfoot td{font-weight:bold;border-top:2px solid #1d4ed8}.info{margin:12px 0}.info span{font-weight:bold}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:13px}</style></head><body>`);
@@ -526,6 +624,7 @@ export default function OrcamentoApp() {
     setLoadingDetalhe(false);
   };
 
+  // Bug 6 - Restore edit button functionality
   const editarOrcamento = (detalhe: OrcamentoDetalhe) => {
     setEditandoId(detalhe.id);
     setNomeCliente(detalhe.clientes?.nome || '');
@@ -534,6 +633,9 @@ export default function OrcamentoApp() {
     setDataEntrega(detalhe.data_entrega || '');
     if (detalhe.clientes?.endereco) setEnderecoViaCEP(detalhe.clientes.endereco);
     if (detalhe.clientes?.cep) setCepDestino(detalhe.clientes.cep);
+    setNumeroEndereco(detalhe.clientes?.numero || '');
+    setComplementoEndereco(detalhe.clientes?.complemento || '');
+    setRecebedor(detalhe.clientes?.recebedor || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map(oi => ({
       produto: {
         id: String(oi.produto_id || oi.id),
@@ -551,7 +653,7 @@ export default function OrcamentoApp() {
     setAbaAtiva('orcamento');
   };
 
-  // Entregas functions
+  // Bug 1 fix - Entregas now includes em_rota status
   const carregarEntregas = async () => {
     setLoadingEntregas(true);
     try {
@@ -570,15 +672,65 @@ export default function OrcamentoApp() {
     if (!entregasRota || entregasRota.rota_otimizada.length === 0) return;
     setMarcandoRota(true);
     try {
-      const ids = entregasRota.rota_otimizada.map(e => e.id);
-      await fetch('/api/entregas/rota', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids }),
-      });
+      const ids = entregasRota.rota_otimizada.filter(e => e.status !== 'em_rota' && e.status !== 'completo').map(e => e.id);
+      if (ids.length > 0) {
+        await fetch('/api/entregas/rota', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+      }
       await carregarEntregas();
     } catch (e) { console.error('Erro ao marcar em rota', e); }
     setMarcandoRota(false);
+  };
+
+  // Bug 1 fix - Mark individual delivery as complete
+  const marcarEntregaCompleta = async (id: string) => {
+    try {
+      await fetch(`/api/orcamentos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completo' }),
+      });
+      await carregarEntregas();
+    } catch (e) { console.error('Erro ao marcar entrega completa', e); }
+  };
+
+  // Feature 5 - Print routes for driver
+  const imprimirRotas = () => {
+    if (!entregasRota || entregasRota.rota_otimizada.length === 0) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const dataStr = entregasRota.data ? new Date(entregasRota.data + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    let html = `<!DOCTYPE html><html><head><title>Rotas ${dataStr}</title><style>
+      body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}
+      h1{font-size:18px;margin-bottom:2px}
+      .header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}
+      .stats{display:flex;gap:20px;margin:8px 0}
+      .stats div{font-weight:bold}
+      .entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
+      .parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}
+      .check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}
+      .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
+      @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
+    </style></head><body>`;
+    html += `<div class="header"><h1>🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;color:#666">${dataStr}</p><div class="stats"><div>${entregasRota.total_entregas} paradas</div><div>${entregasRota.distancia_total_km} km</div><div>~${entregasRota.duracao_total_min} min</div></div></div>`;
+    entregasRota.rota_otimizada.forEach((e, idx) => {
+      const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
+      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
+      if (e.cliente_telefone) html += ` - ${e.cliente_telefone}`;
+      html += `<br/><span style="color:#555">${endCompleto}</span>`;
+      if (e.recebedor) html += `<br/><em>Recebedor: ${e.recebedor}</em>`;
+      html += `<div class="itens">${e.itens_resumo}</div>`;
+      html += `<div style="display:flex;justify-content:space-between"><span>Valor: <strong>R$ ${formatBRL(e.total)}</strong></span><span>${e.codigo}</span></div>`;
+      if (e.observacoes) html += `<div style="color:#666;font-style:italic;margin-top:2px">Obs: ${e.observacoes}</div>`;
+      html += `</div>`;
+    });
+    html += `</body></html>`;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
   };
 
   const todayStr = new Date().toISOString().split('T')[0];
@@ -631,17 +783,21 @@ export default function OrcamentoApp() {
           ))}
         </div>
 
+        {/* ===== CATALOGO TAB ===== */}
         {abaAtiva === 'produtos' && (
           <div>
             <div className="flex flex-col md:flex-row gap-3 mb-6">
-              <input type="text" placeholder="Buscar produto..." value={busca} onChange={e => setBusca(e.target.value)} className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
-              <select value={categoriaSelecionada} onChange={e => setCategoriaSelecionada(e.target.value)} className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
+              <input type="text" placeholder="Buscar produto..." value={busca} onChange={e => setBusca(e.target.value)}
+                className="flex-1 border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              <select value={categoriaSelecionada} onChange={e => setCategoriaSelecionada(e.target.value)}
+                className="border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400">
                 {categorias.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-8">
               {produtosFiltrados.map(produto => {
                 const qtd = getQuantidade(produto.id);
+                const stepVal = produto.unidade === 'meio metro' ? 0.5 : 1;
                 return (
                   <div key={produto.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition">
                     <div className="mb-2"><span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{produto.categoria}</span></div>
@@ -653,7 +809,9 @@ export default function OrcamentoApp() {
                     ) : (
                       <div className="flex items-center justify-between bg-blue-50 rounded-lg p-1">
                         <button onClick={() => removerItem(produto.id)} className="w-8 h-8 bg-blue-600 text-white rounded-md font-bold hover:bg-blue-700 transition">-</button>
-                        <span className="font-bold text-blue-700 text-lg">{qtd}</span>
+                        <input type="number" value={qtd} min={0} step={stepVal}
+                          onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setQuantidade(produto.id, v); }}
+                          className="w-16 text-center font-bold text-blue-700 text-lg bg-transparent border-none focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                         <button onClick={() => adicionarItem(produto)} className="w-8 h-8 bg-blue-600 text-white rounded-md font-bold hover:bg-blue-700 transition">+</button>
                       </div>
                     )}
@@ -665,6 +823,7 @@ export default function OrcamentoApp() {
           </div>
         )}
 
+        {/* ===== ORCAMENTO TAB ===== */}
         {abaAtiva === 'orcamento' && (
           <div className="max-w-2xl mx-auto pb-8">
             {itens.length === 0 ? (
@@ -678,33 +837,40 @@ export default function OrcamentoApp() {
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
-                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); }} className="text-xs text-yellow-700 underline">Cancelar edição</button>
+                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); }}
+                      className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
-
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                   <div className="p-4 border-b border-gray-100 bg-gray-50"><h2 className="font-bold text-gray-700">Itens do Orçamento</h2></div>
-                  {itens.map(item => (
-                    <div key={item.produto.id} className="flex items-center gap-3 p-4 border-b border-gray-50 last:border-0">
-                      <div className="flex-1">
-                        <p className="font-medium text-gray-800 text-sm">{item.produto.nome}</p>
-                        <p className="text-xs text-gray-500">R$ {formatBRL(item.produto.preco)}/{item.produto.unidade}</p>
+                  {itens.map(item => {
+                    const stepVal = item.produto.unidade === 'meio metro' ? 0.5 : 1;
+                    return (
+                      <div key={item.produto.id} className="flex items-center gap-3 p-4 border-b border-gray-50 last:border-0">
+                        <div className="flex-1">
+                          <p className="font-medium text-gray-800 text-sm">{item.produto.nome}</p>
+                          <p className="text-xs text-gray-500">R$ {formatBRL(item.produto.preco)}/{item.produto.unidade}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <button onClick={() => removerItem(item.produto.id)} className="w-7 h-7 bg-red-100 text-red-600 rounded font-bold hover:bg-red-200 transition text-sm">-</button>
+                          <input type="number" value={item.quantidade} min={0} step={stepVal}
+                            onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v)) setQuantidade(item.produto.id, v); }}
+                            className="w-16 text-center font-bold border border-gray-200 rounded px-1 py-1 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          <button onClick={() => adicionarItem(item.produto)} className="w-7 h-7 bg-green-100 text-green-600 rounded font-bold hover:bg-green-200 transition text-sm">+</button>
+                        </div>
+                        <p className="w-24 text-right font-bold text-blue-700 text-sm">R$ {formatBRL(item.produto.preco * item.quantidade)}</p>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <button onClick={() => removerItem(item.produto.id)} className="w-7 h-7 bg-red-100 text-red-600 rounded font-bold hover:bg-red-200 transition text-sm">-</button>
-                        <span className="w-8 text-center font-bold">{item.quantidade}</span>
-                        <button onClick={() => adicionarItem(item.produto)} className="w-7 h-7 bg-green-100 text-green-600 rounded font-bold hover:bg-green-200 transition text-sm">+</button>
-                      </div>
-                      <p className="w-24 text-right font-bold text-blue-700 text-sm">R$ {formatBRL(item.produto.preco * item.quantidade)}</p>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                   <h2 className="font-bold text-gray-700 mb-3">Dados do Cliente</h2>
                   <div className="space-y-3">
-                    <input type="text" placeholder="Nome do cliente" value={nomeCliente} onChange={e => setNomeCliente(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                    <input type="tel" placeholder="WhatsApp (ex: 11999998888)" value={whatsappCliente} onChange={e => setWhatsappCliente(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    <input type="text" placeholder="Nome do cliente" value={nomeCliente} onChange={e => setNomeCliente(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                    <input type="tel" placeholder="WhatsApp (ex: 11999998888)" value={whatsappCliente} onChange={e => setWhatsappCliente(e.target.value)}
+                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                   </div>
                 </div>
 
@@ -720,11 +886,23 @@ export default function OrcamentoApp() {
                   </div>
                   {tipoEntrega === 'entrega' && (
                     <div className="space-y-3">
+                      {/* Feature 7 - Address search by street */}
+                      <div className="flex gap-2">
+                        <input type="text" placeholder="Buscar por rua, bairro ou cidade..." value={buscaEndereco}
+                          onChange={e => setBuscaEndereco(e.target.value)}
+                          onKeyDown={e => e.key === 'Enter' && buscarEnderecoPorRua()}
+                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        <button onClick={buscarEnderecoPorRua} disabled={buscandoEndereco}
+                          className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-gray-700 transition disabled:opacity-50">
+                          {buscandoEndereco ? '...' : '🔍'}
+                        </button>
+                      </div>
                       <div className="flex gap-2">
                         <input type="text" placeholder="CEP de entrega" value={cepDestino}
                           onChange={e => { setCepDestino(e.target.value); setDadosFrete(null); setEnderecoViaCEP(''); if (e.target.value.replace(/\D/g,'').length === 8) buscarEnderecoCEP(e.target.value); }}
                           className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" maxLength={9} />
-                        <button onClick={calcularFrete} disabled={calculandoFrete} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-50">
+                        <button onClick={calcularFrete} disabled={calculandoFrete}
+                          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-50">
                           {calculandoFrete ? '...' : 'Calcular'}
                         </button>
                       </div>
@@ -739,9 +917,19 @@ export default function OrcamentoApp() {
                           </p>
                         </div>
                       )}
+                      {/* Feature 8 - Numero, complemento, recebedor */}
+                      <div className="grid grid-cols-2 gap-2">
+                        <input type="text" placeholder="Número *" value={numeroEndereco} onChange={e => setNumeroEndereco(e.target.value)}
+                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        <input type="text" placeholder="Complemento (opcional)" value={complementoEndereco} onChange={e => setComplementoEndereco(e.target.value)}
+                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                      </div>
+                      <input type="text" placeholder="Quem vai receber? (opcional)" value={recebedor} onChange={e => setRecebedor(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                       <div>
                         <label className="block text-sm font-medium text-gray-700 mb-1">Data de entrega</label>
-                        <input type="date" value={dataEntrega} min={todayStr} onChange={e => setDataEntrega(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                        <input type="date" value={dataEntrega} min={todayStr} onChange={e => setDataEntrega(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
                       </div>
                     </div>
                   )}
@@ -753,7 +941,6 @@ export default function OrcamentoApp() {
                   {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete === 0 && <div className="flex justify-between mb-1"><span className="text-blue-200 text-sm">Frete:</span><span className="font-medium text-green-300">Grátis!</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-blue-600"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl">R$ {formatBRL(total)}</span></div>
                 </div>
-
                 <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
                   className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
@@ -763,11 +950,15 @@ export default function OrcamentoApp() {
           </div>
         )}
 
+        {/* ===== HISTORICO TAB ===== */}
         {abaAtiva === 'historico' && (
           <div className="pb-8">
             <div className="flex flex-col md:flex-row gap-3 mb-6">
-              <input type="text" placeholder="Buscar por código, nome ou telefone..." value={buscaHistorico} onChange={e => setBuscaHistorico(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregarHistorico()} className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-              <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)} className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+              <input type="text" placeholder="Buscar por código, nome ou telefone..." value={buscaHistorico}
+                onChange={e => setBuscaHistorico(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregarHistorico()}
+                className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+              <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
+                className="border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
                 <option value="">Todos os status</option>
                 {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
@@ -802,7 +993,8 @@ export default function OrcamentoApp() {
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-800">R$ {formatBRL(orc.total)}</p>
                           <p className="text-xs text-gray-500 mb-2">{orc.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</p>
-                          <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value)} className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white">
+                          <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value)}
+                            className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white">
                             {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                           </select>
                         </div>
@@ -815,13 +1007,16 @@ export default function OrcamentoApp() {
           </div>
         )}
 
+        {/* ===== ENTREGAS TAB (Bug 1 fix - shows em_rota items too) ===== */}
         {abaAtiva === 'entregas' && (
           <div className="pb-8">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
               <h2 className="font-bold text-gray-700 mb-3">🚚 Painel de Rotas de Entrega</h2>
               <div className="flex flex-col sm:flex-row gap-3">
-                <input type="date" value={dataEntregas} onChange={e => setDataEntregas(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                <button onClick={carregarEntregas} disabled={loadingEntregas} className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50">
+                <input type="date" value={dataEntregas} onChange={e => setDataEntregas(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+                <button onClick={carregarEntregas} disabled={loadingEntregas}
+                  className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50">
                   {loadingEntregas ? 'Calculando...' : 'Calcular Rota'}
                 </button>
               </div>
@@ -842,26 +1037,17 @@ export default function OrcamentoApp() {
                   <>
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
                       <div className="grid grid-cols-3 gap-4 text-center">
-                        <div>
-                          <p className="text-2xl font-bold text-blue-700">{entregasRota.total_entregas}</p>
-                          <p className="text-xs text-blue-600">Entregas</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-blue-700">{entregasRota.distancia_total_km} km</p>
-                          <p className="text-xs text-blue-600">Distância total</p>
-                        </div>
-                        <div>
-                          <p className="text-2xl font-bold text-blue-700">~{entregasRota.duracao_total_min} min</p>
-                          <p className="text-xs text-blue-600">Tempo estimado</p>
-                        </div>
+                        <div><p className="text-2xl font-bold text-blue-700">{entregasRota.total_entregas}</p><p className="text-xs text-blue-600">Entregas</p></div>
+                        <div><p className="text-2xl font-bold text-blue-700">{entregasRota.distancia_total_km} km</p><p className="text-xs text-blue-600">Distância total</p></div>
+                        <div><p className="text-2xl font-bold text-blue-700">~{entregasRota.duracao_total_min} min</p><p className="text-xs text-blue-600">Tempo estimado</p></div>
                       </div>
                     </div>
 
                     <div className="space-y-3 mb-4">
                       {entregasRota.rota_otimizada.map((entrega, idx) => (
-                        <div key={entrega.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                        <div key={entrega.id} className={`bg-white rounded-xl shadow-sm border p-4 ${entrega.status === 'em_rota' ? 'border-purple-300 bg-purple-50' : entrega.status === 'completo' ? 'border-green-300 bg-green-50 opacity-60' : 'border-gray-100'}`}>
                           <div className="flex items-start gap-3">
-                            <div className="w-8 h-8 bg-blue-600 text-white rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0">
+                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${entrega.status === 'em_rota' ? 'bg-purple-600 text-white' : entrega.status === 'completo' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>
                               {entrega.parada || idx + 1}
                             </div>
                             <div className="flex-1">
@@ -871,14 +1057,32 @@ export default function OrcamentoApp() {
                                   <a href={`tel:${entrega.cliente_telefone}`} className="text-xs text-blue-600 underline">{entrega.cliente_telefone}</a>
                                 )}
                               </div>
-                              <p className="text-xs text-gray-500 mb-1">{entrega.endereco || entrega.cep}</p>
+                              <p className="text-xs text-gray-500 mb-1">
+                                {[entrega.endereco, entrega.numero ? `nº ${entrega.numero}` : '', entrega.complemento, entrega.bairro, entrega.cep].filter(Boolean).join(', ') || entrega.cep}
+                              </p>
+                              {entrega.recebedor && <p className="text-xs text-gray-500">Recebedor: {entrega.recebedor}</p>}
                               <p className="text-xs text-gray-400">{entrega.itens_resumo}</p>
-                              <div className="flex items-center gap-2 mt-2">
+                              <div className="flex items-center gap-2 mt-2 flex-wrap">
                                 <span className="text-xs font-medium text-blue-700">{entrega.codigo}</span>
                                 <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[entrega.status] || 'bg-gray-100 text-gray-600'}`}>
                                   {STATUS_LABELS[entrega.status] || entrega.status}
                                 </span>
                                 <span className="text-xs font-bold text-gray-700">R$ {formatBRL(entrega.total)}</span>
+                              </div>
+                              {/* Bug 1 fix - action buttons per delivery */}
+                              <div className="flex gap-2 mt-2">
+                                {entrega.status === 'em_rota' && (
+                                  <button onClick={() => marcarEntregaCompleta(entrega.id)}
+                                    className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition">
+                                    ✅ Marcar Entregue
+                                  </button>
+                                )}
+                                {['entrega_pendente', 'em_rota', 'ocorrencia'].includes(entrega.status) && (
+                                  <button onClick={() => { setReagendandoId(entrega.id); setMostrarReagendar(true); }}
+                                    className="text-xs bg-yellow-500 text-white px-3 py-1 rounded-lg hover:bg-yellow-600 transition">
+                                    📅 Reagendar
+                                  </button>
+                                )}
                               </div>
                             </div>
                           </div>
@@ -893,14 +1097,17 @@ export default function OrcamentoApp() {
                           🗺️ Abrir no Google Maps
                         </a>
                       )}
+                      <button onClick={imprimirRotas}
+                        className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-bold hover:bg-gray-700 transition">
+                        🖨️ Imprimir Rotas
+                      </button>
                       <button onClick={marcarEmRota} disabled={marcandoRota}
                         className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50">
-                        {marcandoRota ? 'Atualizando...' : '🚚 Marcar como Em Rota'}
+                        {marcandoRota ? 'Atualizando...' : '🚚 Marcar Todos Em Rota'}
                       </button>
                     </div>
                   </>
                 )}
-
                 {entregasRota.total_entregas === 0 && (
                   <div className="text-center py-16 text-gray-400">
                     <p className="text-4xl mb-4">✅</p>
@@ -932,13 +1139,14 @@ export default function OrcamentoApp() {
               <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">📱 Enviar por WhatsApp</button>
               <button onClick={() => imprimirOrcamento()} className="w-full bg-blue-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-blue-600 transition">🖨️ Imprimir</button>
               <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">📋 Copiar Texto</button>
-              <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); }} className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
+              <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); }}
+                className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Modal Detalhe do Orcamento */}
+      {/* Modal Detalhe do Orcamento (Bug 6 fix - edit button restored) */}
       {mostrarDetalhe && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
@@ -961,22 +1169,23 @@ export default function OrcamentoApp() {
                     <p className="text-sm text-purple-600 mt-1">📋 Pedido Bling: #{orcamentoDetalhe.bling_pedido_id}</p>
                   )}
                 </div>
-
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-2">Cliente</h3>
                   <p className="text-sm text-gray-800 font-medium">{orcamentoDetalhe.clientes?.nome || 'Cliente'}</p>
                   {orcamentoDetalhe.clientes?.telefone && <p className="text-sm text-gray-600">📞 {orcamentoDetalhe.clientes.telefone}</p>}
+                  {orcamentoDetalhe.clientes?.recebedor && <p className="text-sm text-gray-600">👤 Recebedor: {orcamentoDetalhe.clientes.recebedor}</p>}
                 </div>
-
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-2">Entrega</h3>
                   <p className="text-sm text-gray-800">{orcamentoDetalhe.tipo_entrega === 'entrega' ? '🚚 Entrega no endereço' : '🏪 Retirada na loja'}</p>
                   {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.clientes?.endereco && (
-                    <p className="text-sm text-gray-600 mt-1">{orcamentoDetalhe.clientes.endereco}{orcamentoDetalhe.clientes.bairro ? `, ${orcamentoDetalhe.clientes.bairro}` : ''}{orcamentoDetalhe.clientes.cidade ? `, ${orcamentoDetalhe.clientes.cidade}-${orcamentoDetalhe.clientes.estado}` : ''}</p>
+                    <p className="text-sm text-gray-600 mt-1">
+                      {[orcamentoDetalhe.clientes.endereco, orcamentoDetalhe.clientes.numero ? `nº ${orcamentoDetalhe.clientes.numero}` : '', orcamentoDetalhe.clientes.complemento, orcamentoDetalhe.clientes.bairro, orcamentoDetalhe.clientes.cidade ? `${orcamentoDetalhe.clientes.cidade}-${orcamentoDetalhe.clientes.estado}` : ''].filter(Boolean).join(', ')}
+                    </p>
                   )}
                   {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                  {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
-
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-3">Produtos</h3>
                   <div className="space-y-2">
@@ -991,32 +1200,36 @@ export default function OrcamentoApp() {
                     ))}
                   </div>
                 </div>
-
                 <div className="p-6 border-b border-gray-100">
                   <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Subtotal:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.subtotal)}</span></div>
                   {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.valor_frete > 0 && <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Frete:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.valor_frete)}</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl text-blue-700">R$ {formatBRL(orcamentoDetalhe.total)}</span></div>
                 </div>
-
                 {orcamentoDetalhe.observacoes && (
                   <div className="p-6 border-b border-gray-100">
                     <h3 className="font-bold text-gray-700 mb-2">Observações</h3>
                     <p className="text-sm text-gray-600">{orcamentoDetalhe.observacoes}</p>
                   </div>
                 )}
-
                 <div className="p-6 space-y-2">
                   <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2.5 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
                   <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-blue-500 text-white py-2.5 rounded-xl font-bold hover:bg-blue-600 transition text-sm">🖨️ Imprimir</button>
+                  {/* Bug 6 fix - Edit button restored for orcamento status */}
                   {orcamentoDetalhe.status === 'orcamento' && (
                     <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
+                  )}
+                  {/* Feature 9 - Reschedule button */}
+                  {['entrega_pendente', 'em_rota', 'ocorrencia'].includes(orcamentoDetalhe.status) && (
+                    <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
+                      className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
                   {!orcamentoDetalhe.bling_pedido_id && (
                     <button onClick={() => reenviarBling(orcamentoDetalhe.id)} className="w-full bg-purple-500 text-white py-2.5 rounded-xl font-bold hover:bg-purple-600 transition text-sm">🔄 Reenviar ao Bling</button>
                   )}
                   <div className="flex items-center gap-2 pt-2">
                     <span className="text-sm text-gray-600">Status:</span>
-                    <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value)} className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white">
+                    <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value)}
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white">
                       {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                   </div>
@@ -1025,6 +1238,24 @@ export default function OrcamentoApp() {
             ) : (
               <div className="p-8 text-center text-gray-400">Erro ao carregar detalhes</div>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Feature 9 - Reschedule Modal */}
+      {mostrarReagendar && reagendandoId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarReagendar(false); setReagendandoId(null); }}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📅 Reagendar Entrega</h2>
+            <input type="date" value={novaDataEntrega} min={todayStr} onChange={e => setNovaDataEntrega(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => { setMostrarReagendar(false); setReagendandoId(null); }}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">Cancelar</button>
+              <button onClick={() => { if (novaDataEntrega && reagendandoId) reagendarEntrega(reagendandoId, novaDataEntrega); }}
+                disabled={!novaDataEntrega}
+                className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold hover:bg-blue-700 transition disabled:opacity-50">Confirmar</button>
+            </div>
           </div>
         </div>
       )}
