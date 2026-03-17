@@ -9,35 +9,16 @@ export async function GET(
     const { data, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
-        id,
-        codigo,
-        tipo_entrega,
-        valor_frete,
-        subtotal,
-        total,
-        status,
-        observacoes,
-        criado_em,
-        atualizado_em,
-        data_entrega,
+        id, codigo, tipo_entrega, valor_frete, subtotal, total, status,
+        observacoes, criado_em, atualizado_em, data_entrega,
+        data_entrega_original, reagendamentos, bling_pedido_id,
         clientes (
-          id,
-          nome,
-          telefone,
-          cep,
-          endereco,
-          bairro,
-          cidade,
-          estado
+          id, nome, telefone, cep, endereco, bairro, cidade, estado,
+          numero, complemento, recebedor
         ),
         orcamento_itens (
-          id,
-          produto_id,
-          produto_nome,
-          quantidade,
-          unidade,
-          preco_unitario,
-          subtotal
+          id, produto_id, produto_bling_id, produto_nome, quantidade, unidade,
+          preco_unitario, subtotal
         )
       `)
       .eq('id', params.id)
@@ -60,7 +41,12 @@ export async function PATCH(
 ) {
   try {
     const body = await request.json();
-    const { status, observacoes, tipo_entrega, valor_frete, subtotal, total, data_entrega, itens, cliente_nome, cliente_telefone, cliente_cep, cliente_endereco } = body;
+    const {
+      status, observacoes, tipo_entrega, valor_frete, subtotal, total,
+      data_entrega, itens, cliente_nome, cliente_telefone, cliente_cep,
+      cliente_endereco, cliente_numero, cliente_complemento, cliente_recebedor,
+      bling_pedido_id, reagendar
+    } = body;
 
     const updateData: Record<string, unknown> = {
       atualizado_em: new Date().toISOString(),
@@ -72,22 +58,54 @@ export async function PATCH(
     if (valor_frete !== undefined) updateData.valor_frete = valor_frete;
     if (subtotal !== undefined) updateData.subtotal = subtotal;
     if (total !== undefined) updateData.total = total;
-    if (data_entrega !== undefined) updateData.data_entrega = data_entrega;
+    if (bling_pedido_id !== undefined) updateData.bling_pedido_id = bling_pedido_id;
 
+    // Feature 9 - Reschedule logic
+    if (data_entrega !== undefined) {
+      updateData.data_entrega = data_entrega;
+      
+      if (reagendar) {
+        // Get current data to check original date
+        const { data: current } = await supabaseAdmin
+          .from('orcamentos')
+          .select('data_entrega, data_entrega_original, reagendamentos, status')
+          .eq('id', params.id)
+          .single();
+        
+        if (current) {
+          // Save original date if first reschedule
+          if (!current.data_entrega_original && current.data_entrega) {
+            updateData.data_entrega_original = current.data_entrega;
+          }
+          updateData.reagendamentos = (current.reagendamentos || 0) + 1;
+          
+          // If status was ocorrencia, move back to entrega_pendente
+          if (current.status === 'ocorrencia') {
+            updateData.status = 'entrega_pendente';
+          }
+        }
+      }
+    }
+
+    // Feature 8 - Update client with new fields
     if (cliente_nome && cliente_telefone) {
       const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
+      const clienteData: Record<string, unknown> = {
+        nome: cliente_nome,
+        telefone: telefoneLimpo,
+        cep: cliente_cep || null,
+        endereco: cliente_endereco || null,
+        atualizado_em: new Date().toISOString(),
+      };
+      
+      // Add new fields if provided
+      if (cliente_numero !== undefined) clienteData.numero = cliente_numero;
+      if (cliente_complemento !== undefined) clienteData.complemento = cliente_complemento;
+      if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
+      
       const { data: cliente } = await supabaseAdmin
         .from('clientes')
-        .upsert(
-          {
-            nome: cliente_nome,
-            telefone: telefoneLimpo,
-            cep: cliente_cep || null,
-            endereco: cliente_endereco || null,
-            atualizado_em: new Date().toISOString(),
-          },
-          { onConflict: 'telefone', ignoreDuplicates: false }
-        )
+        .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
         .select('id')
         .single();
 
@@ -107,6 +125,7 @@ export async function PATCH(
       return NextResponse.json({ error: 'Erro ao atualizar orcamento' }, { status: 500 });
     }
 
+    // Update items if provided
     if (itens && Array.isArray(itens) && itens.length > 0) {
       await supabaseAdmin
         .from('orcamento_itens')
@@ -115,6 +134,7 @@ export async function PATCH(
 
       const itensToInsert = itens.map((item: {
         produto_id?: string | number;
+        produto_bling_id?: string | number;
         produto_nome: string;
         quantidade: number;
         unidade?: string;
@@ -122,6 +142,7 @@ export async function PATCH(
       }) => ({
         orcamento_id: params.id,
         produto_id: item.produto_id ? Number(item.produto_id) : null,
+        produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
         produto_nome: item.produto_nome,
         quantidade: item.quantidade,
         unidade: item.unidade || 'unidade',
