@@ -25,10 +25,13 @@ export async function GET() {
     });
 
     if (!testRes.ok) {
+      // Log the error body for debugging
+      let errorBody = '';
+      try { errorBody = await testRes.text(); } catch {}
       return NextResponse.json({
         connected: false,
         mode: 'DEMO',
-        message: `Bling retornou erro ${testRes.status} ao testar conexao`,
+        message: `Bling retornou erro ${testRes.status}: ${errorBody.substring(0, 200)}`,
         setup_url: '/api/bling/auth',
       });
     }
