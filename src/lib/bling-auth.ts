@@ -4,7 +4,7 @@
 // O refresh_token e salvo no Supabase para persistencia sem redeploy
 
 const BLING_TOKEN_URL = 'https://www.bling.com.br/Api/v3/oauth/token';
-const BLING_API_BASE = 'https://www.bling.com.br/Api/v3';
+const BLING_API_BASE = 'https://api.bling.com.br/Api/v3';
 
 // Cache em memoria do token (reinicia ao redeploy - ok para uso interno)
 let tokenCache: {
@@ -17,6 +17,7 @@ async function getRefreshToken(): Promise<string> {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
     if (supabaseUrl && supabaseKey) {
       const res = await fetch(`${supabaseUrl}/rest/v1/bling_tokens?key=eq.refresh_token&select=value`, {
         headers: {
@@ -25,6 +26,7 @@ async function getRefreshToken(): Promise<string> {
           'Accept': 'application/json',
         },
       });
+
       if (res.ok) {
         const rows = await res.json();
         if (rows && rows.length > 0 && rows[0].value) {
@@ -35,8 +37,10 @@ async function getRefreshToken(): Promise<string> {
   } catch (e) {
     // fallback to env var
   }
+
   const envToken = process.env.BLING_REFRESH_TOKEN;
   if (envToken) return envToken;
+
   throw new Error('Nenhum refresh_token disponivel. Execute /api/bling/auth para autorizar.');
 }
 
@@ -44,6 +48,7 @@ async function getRefreshToken(): Promise<string> {
 export async function saveRefreshTokenToSupabase(refreshToken: string): Promise<void> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   if (!supabaseUrl || !supabaseKey) return;
 
   await fetch(`${supabaseUrl}/rest/v1/bling_tokens`, {
