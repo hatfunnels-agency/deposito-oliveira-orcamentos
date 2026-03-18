@@ -6,10 +6,10 @@ interface Produto {
   id: string;
   nome: string;
   preco: number;
-  preco_custo: number;
+  preco_custo?: number;
   estoque: number;
-  estoque_minimo: number;
-  abaixo_minimo: boolean;
+  estoque_minimo?: number;
+  abaixo_minimo?: boolean;
   unidade: string;
   categoria: string;
   codigo?: string;
