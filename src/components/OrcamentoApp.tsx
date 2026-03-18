@@ -266,7 +266,7 @@ export default function OrcamentoApp() {
   const [salvandoEstoque, setSalvandoEstoque] = useState(false);
   const [filtroEstoqueBaixo, setFiltroEstoqueBaixo] = useState(false);
 
-  useEffect(() => {
+  const carregarProdutos = useCallback(() => {
     fetch('/api/produtos')
       .then(r => r.json())
       .then(data => {
@@ -280,6 +280,10 @@ export default function OrcamentoApp() {
       })
       .catch(() => { setLoading(false); });
   }, []);
+
+  useEffect(() => {
+    carregarProdutos();
+  }, [carregarProdutos]);
 
   const carregarHistorico = useCallback(async () => {
     setLoadingHistorico(true);
