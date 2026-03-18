@@ -221,6 +221,7 @@ export default function OrcamentoApp() {
   const [numeroEndereco, setNumeroEndereco] = useState('');
   const [complementoEndereco, setComplementoEndereco] = useState('');
   const [recebedor, setRecebedor] = useState('');
+  const [observacoes, setObservacoes] = useState('');
   // Feature 7 - Address search
   const [buscaEndereco, setBuscaEndereco] = useState('');
   const [buscandoEndereco, setBuscandoEndereco] = useState(false);
@@ -352,6 +353,88 @@ export default function OrcamentoApp() {
     setBuscandoEndereco(false);
   };
 
+
+  // Smart address search - detects CEP vs street name
+  const buscarEnderecoSmart = async (input: string) => {
+    const cleaned = input.replace(/\D/g, '');
+    if (cleaned.length === 8 && /^\d{8}$/.test(cleaned)) {
+      // It's a CEP - fetch via ViaCEP and calculate freight
+      setCepDestino(cleaned);
+      setBuscaEndereco(input);
+      try {
+        const viaRes = await fetch(`https://viacep.com.br/ws/${cleaned}/json/`);
+        const viaData = await viaRes.json();
+        if (!viaData.erro) {
+          setEnderecoViaCEP(`${viaData.logradouro}, ${viaData.bairro}, ${viaData.localidade}-${viaData.uf}`);
+        }
+      } catch {}
+      // Auto-calculate freight
+      setCalculandoFrete(true);
+      setErroFrete('');
+      setDadosFrete(null);
+      try {
+        const res = await fetch('/api/frete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cep: cleaned }),
+        });
+        const data = await res.json();
+        if (data.error) {
+          setErroFrete(data.error);
+        } else if (!data.dentro_area) {
+          setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
+        } else {
+          setDadosFrete(data);
+          if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
+        }
+      } catch {
+        setErroFrete('Erro ao calcular frete.');
+      }
+      setCalculandoFrete(false);
+    } else {
+      // It's a street name - geocoding search
+      if (input.trim().length < 5) return;
+      setBuscandoEndereco(true);
+      setErroFrete('');
+      try {
+        const res = await fetch(`/api/endereco?q=${encodeURIComponent(input)}`);
+        const data = await res.json();
+        if (data.error) {
+          setErroFrete(data.error);
+        } else {
+          if (data.cep) {
+            setCepDestino(data.cep);
+            // Auto-calculate freight with the found CEP
+            setCalculandoFrete(true);
+            try {
+              const freteRes = await fetch('/api/frete', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ cep: data.cep }),
+              });
+              const freteData = await freteRes.json();
+              if (freteData.error) {
+                setErroFrete(freteData.error);
+              } else if (!freteData.dentro_area) {
+                setErroFrete(freteData.mensagem || 'Endereço fora da área de entrega');
+              } else {
+                setDadosFrete(freteData);
+                if (freteData.endereco_completo) setEnderecoViaCEP(freteData.endereco_completo);
+              }
+            } catch {
+              setErroFrete('Erro ao calcular frete.');
+            }
+            setCalculandoFrete(false);
+          }
+          if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
+        }
+      } catch {
+        setErroFrete('Erro ao buscar endereço.');
+      }
+      setBuscandoEndereco(false);
+    }
+  };
+
   const calcularFrete = async () => {
     if (!cepDestino || cepDestino.replace(/\D/g, '').length !== 8) {
       setErroFrete('Digite um CEP válido.');
@@ -391,6 +474,7 @@ export default function OrcamentoApp() {
         cliente_numero: numeroEndereco || null,
         cliente_complemento: complementoEndereco || null,
         cliente_recebedor: recebedor || null,
+        observacoes: observacoes || null,
         tipo_entrega: tipoEntrega,
         valor_frete: totalFrete,
         subtotal,
@@ -519,6 +603,7 @@ export default function OrcamentoApp() {
         '',
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         '',
+        detalhe.observacoes ? `_Obs: ${detalhe.observacoes}_` : '',
         '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
       ].filter((l): l is string => typeof l === 'string' && l.length > 0);
@@ -544,6 +629,7 @@ export default function OrcamentoApp() {
       '',
       `*TOTAL: R$ ${formatBRL(total)}*`,
       '',
+      observacoes ? `_Obs: ${observacoes}_` : '',
       '_Orçamento válido por 7 dias_',
       '_Sujeito a disponibilidade de estoque_',
     ].filter((l): l is string => !!l);
@@ -591,6 +677,8 @@ export default function OrcamentoApp() {
     printWindow.document.write(`<div class="info"><span>Entrega:</span> ${tipo === 'entrega' ? 'Entrega no endereço' : 'Retirada na loja'}</div>`);
     if (tipo === 'entrega' && end) printWindow.document.write(`<div class="info"><span>Endereço:</span> ${end}</div>`);
     if (dataEnt) printWindow.document.write(`<div class="info"><span>Data de entrega:</span> ${new Date(dataEnt + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
+    const obs = d ? d.observacoes : observacoes;
+    if (obs) printWindow.document.write(`<div class="info"><span>Observações:</span> ${obs}</div>`);
     printWindow.document.write(`<table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:center">Unidade</th><th style="text-align:right">Preço Unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;padding:10px 8px">Subtotal:</td><td style="text-align:right;padding:10px 8px">R$ ${formatBRL(sub)}</td></tr>`);
     if (tipo === 'entrega' && frete > 0) printWindow.document.write(`<tr><td colspan="4" style="text-align:right;padding:4px 8px">Frete:</td><td style="text-align:right;padding:4px 8px">R$ ${formatBRL(frete)}</td></tr>`);
     printWindow.document.write(`<tr><td colspan="4" style="text-align:right;padding:10px 8px;font-size:18px;color:#1d4ed8">TOTAL:</td><td style="text-align:right;padding:10px 8px;font-size:18px;color:#1d4ed8">R$ ${formatBRL(tot)}</td></tr></tfoot></table>`);
@@ -632,10 +720,11 @@ export default function OrcamentoApp() {
     setTipoEntrega(detalhe.tipo_entrega as 'retirada' | 'entrega');
     setDataEntrega(detalhe.data_entrega || '');
     if (detalhe.clientes?.endereco) setEnderecoViaCEP(detalhe.clientes.endereco);
-    if (detalhe.clientes?.cep) setCepDestino(detalhe.clientes.cep);
+    if (detalhe.clientes?.cep) { setCepDestino(detalhe.clientes.cep); setBuscaEndereco(detalhe.clientes.cep); }
     setNumeroEndereco(detalhe.clientes?.numero || '');
     setComplementoEndereco(detalhe.clientes?.complemento || '');
     setRecebedor(detalhe.clientes?.recebedor || '');
+    setObservacoes(detalhe.observacoes || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map(oi => ({
       produto: {
         id: String(oi.produto_id || oi.id),
@@ -837,7 +926,7 @@ export default function OrcamentoApp() {
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
-                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); }}
+                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
                       className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
@@ -886,26 +975,31 @@ export default function OrcamentoApp() {
                   </div>
                   {tipoEntrega === 'entrega' && (
                     <div className="space-y-3">
-                      {/* Feature 7 - Address search by street */}
-                      <div className="flex gap-2">
-                        <input type="text" placeholder="Buscar por rua, bairro ou cidade..." value={buscaEndereco}
-                          onChange={e => setBuscaEndereco(e.target.value)}
-                          onKeyDown={e => e.key === 'Enter' && buscarEnderecoPorRua()}
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
-                        <button onClick={buscarEnderecoPorRua} disabled={buscandoEndereco}
-                          className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-gray-700 transition disabled:opacity-50">
-                          {buscandoEndereco ? '...' : '🔍'}
-                        </button>
-                      </div>
-                      <div className="flex gap-2">
-                        <input type="text" placeholder="CEP de entrega" value={cepDestino}
-                          onChange={e => { setCepDestino(e.target.value); setDadosFrete(null); setEnderecoViaCEP(''); if (e.target.value.replace(/\D/g,'').length === 8) buscarEnderecoCEP(e.target.value); }}
-                          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" maxLength={9} />
-                        <button onClick={calcularFrete} disabled={calculandoFrete}
-                          className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-50">
-                          {calculandoFrete ? '...' : 'Calcular'}
-                        </button>
-                      </div>
+                      {/* Unified smart address field - detects CEP vs street */}
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="CEP ou endereço (rua, bairro, cidade...)"
+                        value={buscaEndereco || cepDestino}
+                        onChange={e => {
+                          const val = e.target.value;
+                          setBuscaEndereco(val);
+                          const cleaned = val.replace(/\D/g, '');
+                          if (cleaned.length === 8) setCepDestino(cleaned);
+                          setDadosFrete(null);
+                          setEnderecoViaCEP('');
+                        }}
+                        onKeyDown={e => e.key === 'Enter' && buscarEnderecoSmart(buscaEndereco || cepDestino)}
+                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                      />
+                      <button
+                        onClick={() => buscarEnderecoSmart(buscaEndereco || cepDestino)}
+                        disabled={calculandoFrete || buscandoEndereco}
+                        className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-blue-700 transition disabled:opacity-50"
+                      >
+                        {calculandoFrete || buscandoEndereco ? '...' : 'Buscar'}
+                      </button>
+                    </div>
                       {enderecoViaCEP && !dadosFrete && <p className="text-xs text-gray-500">{enderecoViaCEP}</p>}
                       {erroFrete && <p className="text-xs text-red-500">{erroFrete}</p>}
                       {dadosFrete && dadosFrete.dentro_area && (
@@ -941,7 +1035,15 @@ export default function OrcamentoApp() {
                   {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete === 0 && <div className="flex justify-between mb-1"><span className="text-blue-200 text-sm">Frete:</span><span className="font-medium text-green-300">Grátis!</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-blue-600"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl">R$ {formatBRL(total)}</span></div>
                 </div>
-                <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
+                {/* Observações field */}
+              <textarea
+                placeholder="Observações (ex: ligar antes de entregar, horário preferido...)"
+                value={observacoes}
+                onChange={e => setObservacoes(e.target.value)}
+                rows={3}
+                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 resize-none"
+              />
+              <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
                   className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
                 </button>
@@ -1045,7 +1147,7 @@ export default function OrcamentoApp() {
 
                     <div className="space-y-3 mb-4">
                       {entregasRota.rota_otimizada.map((entrega, idx) => (
-                        <div key={entrega.id} className={`bg-white rounded-xl shadow-sm border p-4 ${entrega.status === 'em_rota' ? 'border-purple-300 bg-purple-50' : entrega.status === 'completo' ? 'border-green-300 bg-green-50 opacity-60' : 'border-gray-100'}`}>
+                        <div key={entrega.id} onClick={() => abrirDetalhe(entrega.id)} className={`bg-white rounded-xl shadow-sm border p-4 cursor-pointer hover:shadow-md transition ${entrega.status === 'em_rota' ? 'border-purple-300 bg-purple-50' : entrega.status === 'completo' ? 'border-green-300 bg-green-50 opacity-60' : 'border-gray-100'}`}>
                           <div className="flex items-start gap-3">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${entrega.status === 'em_rota' ? 'bg-purple-600 text-white' : entrega.status === 'completo' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>
                               {entrega.parada || idx + 1}
@@ -1072,13 +1174,13 @@ export default function OrcamentoApp() {
                               {/* Bug 1 fix - action buttons per delivery */}
                               <div className="flex gap-2 mt-2">
                                 {entrega.status === 'em_rota' && (
-                                  <button onClick={() => marcarEntregaCompleta(entrega.id)}
+                                  <button onClick={(e) => { e.stopPropagation(); marcarEntregaCompleta(entrega.id); }}
                                     className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition">
                                     ✅ Marcar Entregue
                                   </button>
                                 )}
                                 {['entrega_pendente', 'em_rota', 'ocorrencia'].includes(entrega.status) && (
-                                  <button onClick={() => { setReagendandoId(entrega.id); setMostrarReagendar(true); }}
+                                  <button onClick={(e) => { e.stopPropagation(); setReagendandoId(entrega.id); setMostrarReagendar(true); }}
                                     className="text-xs bg-yellow-500 text-white px-3 py-1 rounded-lg hover:bg-yellow-600 transition">
                                     📅 Reagendar
                                   </button>
@@ -1139,7 +1241,7 @@ export default function OrcamentoApp() {
               <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">📱 Enviar por WhatsApp</button>
               <button onClick={() => imprimirOrcamento()} className="w-full bg-blue-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-blue-600 transition">🖨️ Imprimir</button>
               <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">📋 Copiar Texto</button>
-              <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); }}
+              <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
                 className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
             </div>
           </div>
