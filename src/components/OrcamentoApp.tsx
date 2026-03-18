@@ -118,21 +118,21 @@ interface RotaResponse {
 
 const UNIT_MAP: Record<string, string> = {
   'arame': 'KG',
-  'areia': 'meio metro',
-  'areia ensacada': 'meio metro',
+  'areia': 'm³',
+  'areia ensacada': 'm³',
   'ferro': 'metro',
-  'pedra brita': 'meio metro',
-  'pedra': 'meio metro',
-  'brita': 'meio metro',
+  'pedra brita': 'm³',
+  'pedra': 'm³',
+  'brita': 'm³',
   'prego': 'KG',
   'pregos': 'KG',
-  'pedrisco': 'meio metro',
-  'po de pedra': 'meio metro',
-  'pó de pedra': 'meio metro',
+  'pedrisco': 'm³',
+  'po de pedra': 'm³',
+  'pó de pedra': 'm³',
   'cimento': 'saco',
   'telha': 'unidade',
   'parafuso': 'unidade',
-  'tijolo': 'milheiro',
+  'tijolo': 'milhéiro',
   'barra de ferro': 'barra',
   'vergalhao': 'barra',
   'vergalhão': 'barra',
@@ -155,7 +155,7 @@ function formatBRL(value: number): string {
 }
 
 const PESO_MEDIO_KG: Record<string, number> = {
-  saco: 50, unidade: 5, barra: 15, metro: 10, rolo: 20, 'meio metro': 800, kg: 1, milheiro: 2500,
+  saco: 50, unidade: 5, barra: 15, metro: 10, rolo: 20, 'm³': 800, kg: 1, milheiro: 2500,
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -587,7 +587,7 @@ export default function OrcamentoApp() {
         detalhe.clientes?.recebedor ? `*Recebedor:* ${detalhe.clientes.recebedor}` : '',
         '',
         '*Produtos:*',
-        ...detalhe.orcamento_itens.map(i => `· ${i.produto_nome} x${i.quantidade} = R$ ${formatBRL(i.subtotal)}`),
+        ...detalhe.orcamento_itens.map(i => `· ${i.produto_nome} ${i.quantidade}${i.unidade === 'm³' ? 'm³' : (i.unidade ? ' ' + i.unidade : '')} = R$ ${formatBRL(i.subtotal)}`),
         '',
         `*Subtotal:* R$ ${formatBRL(detalhe.subtotal)}`,
         detalhe.tipo_entrega === 'entrega' && detalhe.valor_frete > 0 ? `*Frete:* R$ ${formatBRL(detalhe.valor_frete)}` : '*Retirada na loja*',
@@ -614,7 +614,7 @@ export default function OrcamentoApp() {
       recebedor ? `*Recebedor:* ${recebedor}` : '',
       '',
       '*Produtos:*',
-      ...itens.map(i => `· ${i.produto.nome} x${i.quantidade} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
+      ...itens.map(i => `· ${i.produto.nome} ${i.quantidade}${i.produto.unidade === 'm³' ? 'm³' : (i.produto.unidade ? ' ' + i.produto.unidade : '')} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
       '',
       `*Subtotal:* R$ ${formatBRL(subtotal)}`,
       tipoEntrega === 'entrega' && dadosFrete ? `*Frete:* R$ ${formatBRL(dadosFrete.frete || 0)}` : '*Retirada na loja*',
@@ -1007,14 +1007,14 @@ export default function OrcamentoApp() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-8">
               {produtosFiltrados.map(produto => {
                 const qtd = getQuantidade(produto.id);
-                const stepVal = produto.unidade === 'meio metro' ? 0.5 : 1;
+                const stepVal = produto.unidade === 'm³' ? 0.5 : 1;
                 return (
                   <div key={produto.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition">
                     <div className="mb-2"><span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{produto.categoria}</span></div>
                     <h3 className="font-semibold text-gray-800 text-sm mb-1 min-h-[40px]">{produto.nome}</h3>
                     <p className="text-blue-700 font-bold text-lg mb-1">R$ {formatBRL(produto.preco)}<span className="text-xs text-gray-400 font-normal">/{produto.unidade}</span></p>
                     <p className={`text-xs mb-3 ${produto.estoque <= 0 ? 'text-red-600 font-bold' : produto.abaixo_minimo ? 'text-red-500 font-medium' : produto.estoque <= produto.estoque_minimo * 2 ? 'text-yellow-600' : 'text-green-600'}`}>
-                    {produto.estoque <= 0 ? '⛔ Sem estoque' : `${produto.abaixo_minimo ? '⚠️ ' : produto.estoque <= produto.estoque_minimo * 2 ? '🟡 ' : '🟢 '}Estoque: ${produto.estoque} ${produto.unidade}${produto.estoque !== 1 ? 's' : ''}`}
+                    {produto.estoque <= 0 ? '⛔ Sem estoque' : `${produto.abaixo_minimo ? '⚠️ ' : produto.estoque <= produto.estoque_minimo * 2 ? '🟡 ' : '🟢 '}Estoque: ${produto.estoque} ${produto.unidade === 'm³' ? 'm³' : (produto.estoque !== 1 ? produto.unidade + 's' : produto.unidade)}`}
                   </p>
                     {qtd === 0 ? (
                       <button onClick={() => adicionarItem(produto)} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition">+ Adicionar</button>
@@ -1056,7 +1056,7 @@ export default function OrcamentoApp() {
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                   <div className="p-4 border-b border-gray-100 bg-gray-50"><h2 className="font-bold text-gray-700">Itens do Orçamento</h2></div>
                   {itens.map(item => {
-                    const stepVal = item.produto.unidade === 'meio metro' ? 0.5 : 1;
+                    const stepVal = item.produto.unidade === 'm³' ? 0.5 : 1;
                     return (
                       <div key={item.produto.id} className="flex items-center gap-3 p-4 border-b border-gray-50 last:border-0">
                         <div className="flex-1">
