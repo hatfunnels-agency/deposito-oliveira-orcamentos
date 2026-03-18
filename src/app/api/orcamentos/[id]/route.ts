@@ -125,6 +125,102 @@ export async function PATCH(
       return NextResponse.json({ error: 'Erro ao atualizar orcamento' }, { status: 500 });
     }
 
+    // Stock management: deduct on pagamento_ok, restore on cancelado
+    if (status) {
+      // Get the order items with product references
+      const { data: orderItems } = await supabaseAdmin
+        .from('orcamento_itens')
+        .select('produto_nome, quantidade, produto_supabase_id')
+        .eq('orcamento_id', params.id);
+
+      // Get the PREVIOUS status before this update
+      const { data: prevOrder } = await supabaseAdmin
+        .from('orcamentos')
+        .select('status')
+        .eq('id', params.id)
+        .single();
+      
+      const previousStatus = body._previous_status; // sent from frontend
+
+      if (status === 'pagamento_ok' && orderItems && orderItems.length > 0) {
+        // Deduct stock for each item
+        for (const item of orderItems) {
+          if (!item.produto_supabase_id) continue;
+          
+          const { data: produto } = await supabaseAdmin
+            .from('produtos')
+            .select('estoque_atual, fator_conversao')
+            .eq('id', item.produto_supabase_id)
+            .single();
+          
+          if (produto) {
+            const fator = Number(produto.fator_conversao) || 1;
+            const qtdEstoque = Number(item.quantidade) * fator;
+            const estoqueAnterior = Number(produto.estoque_atual);
+            const estoqueNovo = Math.max(0, estoqueAnterior - qtdEstoque);
+            
+            await supabaseAdmin
+              .from('produtos')
+              .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
+              .eq('id', item.produto_supabase_id);
+            
+            await supabaseAdmin
+              .from('movimentacoes_estoque')
+              .insert({
+                produto_id: item.produto_supabase_id,
+                tipo: 'saida',
+                quantidade: qtdEstoque,
+                estoque_anterior: estoqueAnterior,
+                estoque_novo: estoqueNovo,
+                referencia_tipo: 'orcamento',
+                referencia_id: params.id,
+                observacoes: `Venda - ${item.produto_nome} x${item.quantidade}`,
+              });
+          }
+        }
+      }
+
+      if (status === 'cancelado' && previousStatus && 
+          ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'].includes(previousStatus) &&
+          orderItems && orderItems.length > 0) {
+        // Restore stock for each item (only if payment was already confirmed)
+        for (const item of orderItems) {
+          if (!item.produto_supabase_id) continue;
+          
+          const { data: produto } = await supabaseAdmin
+            .from('produtos')
+            .select('estoque_atual, fator_conversao')
+            .eq('id', item.produto_supabase_id)
+            .single();
+          
+          if (produto) {
+            const fator = Number(produto.fator_conversao) || 1;
+            const qtdEstoque = Number(item.quantidade) * fator;
+            const estoqueAnterior = Number(produto.estoque_atual);
+            const estoqueNovo = estoqueAnterior + qtdEstoque;
+            
+            await supabaseAdmin
+              .from('produtos')
+              .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
+              .eq('id', item.produto_supabase_id);
+            
+            await supabaseAdmin
+              .from('movimentacoes_estoque')
+              .insert({
+                produto_id: item.produto_supabase_id,
+                tipo: 'cancelamento',
+                quantidade: qtdEstoque,
+                estoque_anterior: estoqueAnterior,
+                estoque_novo: estoqueNovo,
+                referencia_tipo: 'orcamento',
+                referencia_id: params.id,
+                observacoes: `Cancelamento - ${item.produto_nome} x${item.quantidade}`,
+              });
+          }
+        }
+      }
+    }
+
     // Update items if provided
     if (itens && Array.isArray(itens) && itens.length > 0) {
       await supabaseAdmin
@@ -144,6 +240,7 @@ export async function PATCH(
         produto_id: item.produto_id ? Number(item.produto_id) : null,
         produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
         produto_nome: item.produto_nome,
+        produto_supabase_id: item.produto_supabase_id || null,
         quantidade: item.quantidade,
         unidade: item.unidade || 'unidade',
         preco_unitario: item.preco_unitario,
