@@ -35,7 +35,6 @@ interface DadosFrete {
 interface OrcamentoItem {
   id: string;
   produto_id: number | null;
-  produto_bling_id: number | null;
   produto_nome: string;
   quantidade: number;
   unidade: string;
@@ -139,15 +138,6 @@ const UNIT_MAP: Record<string, string> = {
   'vergalhão': 'barra',
 };
 
-const MEIO_METRO_PRODUCTS = ['areia', 'areia ensacada', 'pedra brita', 'pedra', 'brita', 'pedrisco', 'po de pedra', 'pó de pedra'];
-
-function isMeioMetro(productName: string): boolean {
-  const nameLower = productName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  return MEIO_METRO_PRODUCTS.some(key => {
-    const keyNorm = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    return nameLower.includes(keyNorm);
-  });
-}
 
 function mapUnit(productName: string, originalUnit: string): string {
   const nameLower = productName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
@@ -283,15 +273,12 @@ export default function OrcamentoApp() {
         const prods = (data.produtos || []).map((p: Produto) => ({
           ...p,
           unidade: mapUnit(p.nome, p.unidade),
-          // Bug 10 fix: double stock for meio metro products
-          estoque: isMeioMetro(p.nome) ? p.estoque * 2 : p.estoque,
+          estoque: p.estoque,
         }));
         setProdutos(prods);
-        setFonteProdutos(data.fonte || 'demo');
-        setMensagemAPI(data.mensagem || '');
         setLoading(false);
       })
-      .catch(() => { setLoading(false); setMensagemAPI('Erro ao carregar produtos.'); });
+      .catch(() => { setLoading(false); });
   }, []);
 
   const carregarHistorico = useCallback(async () => {
@@ -1446,9 +1433,6 @@ export default function OrcamentoApp() {
                     <button onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                   </div>
                   <p className="text-sm text-gray-500">Criado em: {new Date(orcamentoDetalhe.criado_em).toLocaleDateString('pt-BR')} {new Date(orcamentoDetalhe.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                  {orcamentoDetalhe.bling_pedido_id && (
-                    <p className="text-sm text-purple-600 mt-1">📋 Pedido Bling: #{orcamentoDetalhe.bling_pedido_id}</p>
-                  )}
                 </div>
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-2">Cliente</h3>
