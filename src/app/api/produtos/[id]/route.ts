@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // GET /api/produtos/[id] - Product details + last 20 movements
 export async function GET(
@@ -14,17 +9,17 @@ export async function GET(
   { params }: { params: { id: string } }
 ) {
   try {
-    const { data: produto, error } = await supabase
+    const { data: produto, error } = await supabaseAdmin
       .from('produtos')
       .select('*')
       .eq('id', params.id)
       .single();
 
     if (error || !produto) {
-      return NextResponse.json({ error: 'Produto não encontrado' }, { status: 404 });
+      return NextResponse.json({ error: 'Produto nao encontrado' }, { status: 404 });
     }
 
-    const { data: movimentacoes } = await supabase
+    const { data: movimentacoes } = await supabaseAdmin
       .from('movimentacoes_estoque')
       .select('*')
       .eq('produto_id', params.id)
@@ -64,7 +59,7 @@ export async function PUT(
     if (body.fator_conversao !== undefined) updateData.fator_conversao = body.fator_conversao;
     if (body.ativo !== undefined) updateData.ativo = body.ativo;
 
-    const { data: produto, error } = await supabase
+    const { data: produto, error } = await supabaseAdmin
       .from('produtos')
       .update(updateData)
       .eq('id', params.id)
