@@ -11,13 +11,13 @@ export async function GET(
       .select(`
         id, codigo, tipo_entrega, valor_frete, subtotal, total,
         status, observacoes, criado_em, atualizado_em, data_entrega,
-        data_entrega_original, reagendamentos, bling_pedido_id,
+        data_entrega_original, reagendamentos, bling_pedido_id, motorista_id,
         clientes (
           id, nome, telefone, cep, endereco, bairro, cidade, estado,
           numero, complemento, recebedor
         ),
         orcamento_itens (
-          id, produto_id, produto_bling_id, produto_nome, produto_supabase_id,
+          id, produto_id, produto_bling_id, produto_nome,
           quantidade, unidade, preco_unitario, subtotal
         )
       `)
@@ -253,6 +253,54 @@ export async function PATCH(
     return NextResponse.json(data);
   } catch (error) {
     console.error('Erro ao atualizar orcamento:', error);
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+  }
+}
+
+// DELETE /api/orcamentos/[id] — só permite excluir se status = 'orcamento' ou 'cancelado'
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const { data: orc, error: fetchError } = await supabaseAdmin
+      .from('orcamentos')
+      .select('id, status')
+      .eq('id', params.id)
+      .single();
+
+    if (fetchError || !orc) {
+      return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 });
+    }
+
+    if (orc.status !== 'orcamento' && orc.status !== 'cancelado') {
+      return NextResponse.json(
+        { error: 'Só é possível excluir orçamentos com status "orçamento" ou "cancelado"' },
+        { status: 400 }
+      );
+    }
+
+    const { error: deleteItensError } = await supabaseAdmin
+      .from('orcamento_itens')
+      .delete()
+      .eq('orcamento_id', params.id);
+
+    if (deleteItensError) {
+      return NextResponse.json({ error: 'Erro ao deletar itens' }, { status: 500 });
+    }
+
+    const { error: deleteError } = await supabaseAdmin
+      .from('orcamentos')
+      .delete()
+      .eq('id', params.id);
+
+    if (deleteError) {
+      return NextResponse.json({ error: 'Erro ao deletar orçamento' }, { status: 500 });
+    }
+
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Erro no DELETE orcamento:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
 }
