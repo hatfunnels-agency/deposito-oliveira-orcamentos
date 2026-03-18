@@ -16,6 +16,7 @@ interface Produto {
   fator_conversao?: number;
   unidade_armazenamento?: string;
   estoque_armazenamento?: number;
+  estoque_compartilhado_com?: string | null;
 }
 
 interface ItemOrcamento {
@@ -56,6 +57,7 @@ interface OrcamentoDetalhe {
   data_entrega: string | null;
   data_entrega_original: string | null;
   reagendamentos: number;
+  motorista_id?: string | null;
   clientes: {
     id: string;
     nome: string;
@@ -106,6 +108,14 @@ interface EntregaRota {
   observacoes: string;
 }
 
+interface Motorista {
+  id: string;
+  nome: string;
+  telefone?: string | null;
+  veiculo?: string | null;
+  ativo: boolean;
+}
+
 interface RotaResponse {
   data: string;
   total_entregas: number;
@@ -132,7 +142,7 @@ const UNIT_MAP: Record<string, string> = {
   'cimento': 'saco',
   'telha': 'unidade',
   'parafuso': 'unidade',
-  'tijolo': 'milhéiro',
+  'tijolo': 'unidade',
   'barra de ferro': 'barra',
   'vergalhao': 'barra',
   'vergalhão': 'barra',
@@ -231,6 +241,15 @@ export default function OrcamentoApp() {
   const [marcandoRota, setMarcandoRota] = useState(false);
 
   const printRef = useRef<HTMLDivElement>(null);
+  // Motoristas state
+  const [motoristas, setMotoristas] = useState<Motorista[]>([]);
+  const [filtroMotorista, setFiltroMotorista] = useState<string>('todos');
+  const [mostrarGestaoMotoristas, setMostrarGestaoMotoristas] = useState(false);
+  const [novoMotoristaNome, setNovoMotoristaNome] = useState('');
+  const [novoMotoristaVeiculo, setNovoMotoristaVeiculo] = useState('');
+  const [atribuindoMotorista, setAtribuindoMotorista] = useState<string | null>(null);
+  const [mostrarAtribuirMotorista, setMostrarAtribuirMotorista] = useState(false);
+  const [entregaSelecionadaId, setEntregaSelecionadaId] = useState<string | null>(null);
 
   // Estoque management state
   const [mostrarEntrada, setMostrarEntrada] = useState(false);
@@ -265,6 +284,8 @@ export default function OrcamentoApp() {
   const [movimentacoes, setMovimentacoes] = useState<Array<{id:string;tipo:string;quantidade:number;estoque_anterior:number;estoque_novo:number;observacoes:string;criado_em:string}>>([]);
   const [salvandoEstoque, setSalvandoEstoque] = useState(false);
   const [filtroEstoqueBaixo, setFiltroEstoqueBaixo] = useState(false);
+  const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  const [excluindoProdutoId, setExcluindoProdutoId] = useState<string | null>(null);
 
   const carregarProdutos = useCallback(() => {
     fetch('/api/produtos')
@@ -284,6 +305,20 @@ export default function OrcamentoApp() {
   useEffect(() => {
     carregarProdutos();
   }, [carregarProdutos]);
+
+  const carregarMotoristas = useCallback(async () => {
+    try {
+      const res = await fetch('/api/motoristas', { cache: 'no-store' });
+      const data = await res.json();
+      setMotoristas(data.motoristas || []);
+    } catch (e) {
+      console.error('Erro ao carregar motoristas', e);
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarMotoristas();
+  }, [carregarMotoristas]);
 
   const carregarHistorico = useCallback(async () => {
     setLoadingHistorico(true);
@@ -699,9 +734,17 @@ export default function OrcamentoApp() {
     setLoadingDetalhe(true);
     setMostrarDetalhe(true);
     try {
-      const res = await fetch(`/api/orcamentos/${id}`);
+      const res = await fetch(`/api/orcamentos/${id}`, { cache: 'no-store' });
       const data = await res.json();
-      setOrcamentoDetalhe(data);
+      if (data && !data.error) {
+        setOrcamentoDetalhe({
+          ...data,
+          reagendamentos: data.reagendamentos ?? 0,
+          orcamento_itens: data.orcamento_itens || [],
+          observacoes: data.observacoes || null,
+          clientes: data.clientes || null,
+        });
+      }
     } catch (e) { console.error('Erro ao carregar detalhe', e); }
     setLoadingDetalhe(false);
   };
@@ -737,6 +780,86 @@ export default function OrcamentoApp() {
     setMostrarDetalhe(false);
     setOrcamentoDetalhe(null);
     setAbaAtiva('orcamento');
+  };
+
+  const excluirOrcamento = async (id: string) => {
+    if (!confirm('Tem certeza? Esta ação não pode ser desfeita.')) return;
+    setExcluindoId(id);
+    try {
+      const res = await fetch(`/api/orcamentos/${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.error) {
+        alert('Erro: ' + data.error);
+      } else {
+        setMostrarDetalhe(false);
+        setOrcamentoDetalhe(null);
+        carregarHistorico();
+        if (abaAtiva === 'entregas') carregarEntregas();
+      }
+    } catch (e) {
+      console.error('Erro ao excluir orçamento', e);
+      alert('Erro ao excluir orçamento.');
+    }
+    setExcluindoId(null);
+  };
+
+  const excluirProduto = async (id: string) => {
+    if (!confirm('Tem certeza? O produto será desativado e não aparecerá mais no catálogo.')) return;
+    setExcluindoProdutoId(id);
+    try {
+      await fetch(`/api/produtos/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ativo: false }),
+      });
+      setMostrarEditProduto(false);
+      setProdutoSelecionado(null);
+      carregarProdutos();
+    } catch (e) {
+      console.error('Erro ao excluir produto', e);
+    }
+    setExcluindoProdutoId(null);
+  };
+
+  const atribuirMotorista = async (orcamentoId: string, motoristaId: string | null) => {
+    setAtribuindoMotorista(orcamentoId);
+    try {
+      await fetch(`/api/orcamentos/${orcamentoId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ motorista_id: motoristaId }),
+      });
+      await carregarEntregas();
+    } catch (e) {
+      console.error('Erro ao atribuir motorista', e);
+    }
+    setAtribuindoMotorista(null);
+    setMostrarAtribuirMotorista(false);
+    setEntregaSelecionadaId(null);
+  };
+
+  const atribuirTodosMotorista = async (motoristaId: string) => {
+    if (!entregasRota) return;
+    const entregasSemMotorista = entregasRota.rota_otimizada.filter((e: EntregaRota & { motorista_id?: string | null }) => !e.motorista_id);
+    for (const e of entregasSemMotorista) {
+      await atribuirMotorista(e.id, motoristaId);
+    }
+  };
+
+  const criarMotorista = async () => {
+    if (!novoMotoristaNome.trim()) return;
+    try {
+      await fetch('/api/motoristas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nome: novoMotoristaNome, veiculo: novoMotoristaVeiculo }),
+      });
+      setNovoMotoristaNome('');
+      setNovoMotoristaVeiculo('');
+      carregarMotoristas();
+    } catch (e) {
+      console.error('Erro ao criar motorista', e);
+    }
   };
 
   // Bug 1 fix - Entregas now includes em_rota status
@@ -785,10 +908,12 @@ export default function OrcamentoApp() {
 
   // Feature 5 - Print routes for driver
   const imprimirRotas = () => {
-    if (!entregasRota || entregasRota.rota_otimizada.length === 0) return;
+    const rotaParaImprimir = entregasFiltradas || entregasRota;
+    if (!rotaParaImprimir || rotaParaImprimir.rota_otimizada.length === 0) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
-    const dataStr = entregasRota.data ? new Date(entregasRota.data + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    const dataStr = rotaParaImprimir.data ? new Date(rotaParaImprimir.data + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    const motoristaAtual = motoristas.find(m => m.id === filtroMotorista);
     let html = `<!DOCTYPE html><html><head><title>Rotas ${dataStr}</title><style>
       body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}
       h1{font-size:18px;margin-bottom:2px}
@@ -801,8 +926,8 @@ export default function OrcamentoApp() {
       .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
       @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
     </style></head><body>`;
-    html += `<div class="header"><h1>🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;color:#666">${dataStr}</p><div class="stats"><div>${entregasRota.total_entregas} paradas</div><div>${entregasRota.distancia_total_km} km</div><div>~${entregasRota.duracao_total_min} min</div></div></div>`;
-    entregasRota.rota_otimizada.forEach((e, idx) => {
+    html += `<div class="header"><h1>🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
+    rotaParaImprimir.rota_otimizada.forEach((e, idx) => {
       const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
       html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
       if (e.cliente_telefone) html += ` - ${e.cliente_telefone}`;
@@ -1244,6 +1369,19 @@ export default function OrcamentoApp() {
                   className="bg-blue-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition disabled:opacity-50">
                   {loadingEntregas ? 'Calculando...' : 'Calcular Rota'}
                 </button>
+                <button onClick={() => setMostrarGestaoMotoristas(true)} className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-gray-700 transition">⚙️ Motoristas</button>
+              </div>
+              <div className="flex gap-2 mt-2 flex-wrap items-center">
+                <select value={filtroMotorista} onChange={e => setFiltroMotorista(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
+                  <option value="todos">Todos os motoristas</option>
+                  <option value="nenhum">Não atribuídos</option>
+                  {motoristas.map(m => <option key={m.id} value={m.id}>{m.nome}{m.veiculo ? ' (' + m.veiculo + ')' : ''}</option>)}
+                </select>
+                {filtroMotorista !== 'todos' && filtroMotorista !== 'nenhum' && (
+                  <button onClick={() => atribuirTodosMotorista(filtroMotorista)} className="text-xs bg-blue-100 text-blue-700 px-3 py-1 rounded-lg hover:bg-blue-200">
+                    Atribuir todos (não atribuídos) a {motoristas.find(m => m.id === filtroMotorista)?.nome || '...'}
+                  </button>
+                )}
               </div>
               <p className="text-xs text-gray-500 mt-2">Deixe a data vazia para ver todas as entregas pendentes</p>
             </div>
@@ -1252,13 +1390,13 @@ export default function OrcamentoApp() {
               <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div></div>
             )}
 
-            {entregasRota && !loadingEntregas && (
+            {entregasRota && !loadingEntregas && entregasFiltradas && (
               <div>
-                {entregasRota.mensagem && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-sm text-yellow-800">{entregasRota.mensagem}</div>
+                {entregasFiltradas && entregasFiltradas.mensagem && (
+                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-sm text-yellow-800">{entregasFiltradas!.mensagem}</div>
                 )}
 
-                {entregasRota.total_entregas > 0 && (
+                {entregasFiltradas!.total_entregas > 0 && (
                   <>
                     <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
                       <div className="grid grid-cols-3 gap-4 text-center">
@@ -1269,7 +1407,7 @@ export default function OrcamentoApp() {
                     </div>
 
                     <div className="space-y-3 mb-4">
-                      {entregasRota.rota_otimizada.map((entrega, idx) => (
+                      {entregasFiltradas!.rota_otimizada.map((entrega: EntregaRota & { motorista_id?: string | null }, idx) => (
                         <div key={entrega.id} onClick={() => abrirDetalhe(entrega.id)} className={`bg-white rounded-xl shadow-sm border p-4 cursor-pointer hover:shadow-md transition ${entrega.status === 'em_rota' ? 'border-purple-300 bg-purple-50' : entrega.status === 'completo' ? 'border-green-300 bg-green-50 opacity-60' : 'border-gray-100'}`}>
                           <div className="flex items-start gap-3">
                             <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${entrega.status === 'em_rota' ? 'bg-purple-600 text-white' : entrega.status === 'completo' ? 'bg-green-600 text-white' : 'bg-blue-600 text-white'}`}>
@@ -1308,6 +1446,12 @@ export default function OrcamentoApp() {
                                     📅 Reagendar
                                   </button>
                                 )}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setEntregaSelecionadaId(entrega.id); setMostrarAtribuirMotorista(true); }}
+                                  className="text-xs bg-purple-100 text-purple-700 px-3 py-1 rounded-lg hover:bg-purple-200 transition"
+                                >
+                                  🚗 {entrega.motorista_id ? (motoristas.find((m: Motorista) => m.id === entrega.motorista_id)?.nome || 'Motorista') : 'Atribuir'}
+                                </button>
                               </div>
                             </div>
                           </div>
@@ -1333,7 +1477,7 @@ export default function OrcamentoApp() {
                     </div>
                   </>
                 )}
-                {entregasRota.total_entregas === 0 && (
+                {entregasFiltradas!.total_entregas === 0 && (
                   <div className="text-center py-16 text-gray-400">
                     <p className="text-4xl mb-4">✅</p>
                     <p>Nenhuma entrega pendente para esta data</p>
@@ -1383,7 +1527,7 @@ export default function OrcamentoApp() {
                     const estoqueColor = p.estoque <= 0 ? 'text-red-700 bg-red-50' : p.abaixo_minimo ? 'text-red-600 bg-red-50' : p.estoque <= p.estoque_minimo * 2 ? 'text-yellow-700 bg-yellow-50' : 'text-green-700 bg-green-50';
                     return (
                       <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}</p></td>
+                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}</p></td>
                         <td className="px-2 py-3 text-center"><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque} {p.unidade}</span><p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p></td>
                         <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
                         <td className="px-2 py-3 text-right text-gray-500">R$ {formatBRL(p.preco_custo || 0)}</td>
@@ -1495,6 +1639,15 @@ export default function OrcamentoApp() {
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
                       className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
+                  {['orcamento', 'cancelado'].includes(orcamentoDetalhe.status) && (
+                    <button
+                      onClick={() => excluirOrcamento(orcamentoDetalhe.id)}
+                      disabled={excluindoId === orcamentoDetalhe.id}
+                      className="w-full bg-red-500 text-white py-2.5 rounded-xl font-bold hover:bg-red-600 transition text-sm disabled:opacity-50"
+                    >
+                      {excluindoId === orcamentoDetalhe.id ? 'Excluindo...' : '🗑️ Excluir Orçamento'}
+                    </button>
+                  )}
                   
                   <div className="flex items-center gap-2 pt-2">
                     <span className="text-sm text-gray-600">Status:</span>
@@ -1595,6 +1748,7 @@ export default function OrcamentoApp() {
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setMostrarEditProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
+              <button onClick={() => produtoSelecionado && excluirProduto(produtoSelecionado.id)} disabled={!!excluindoProdutoId} className="px-4 bg-red-100 text-red-700 py-2 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50">{excluindoProdutoId ? '...' : '🗑️'}</button>
               <button onClick={salvarEdicaoProduto} disabled={salvandoEstoque} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Salvar'}</button>
             </div>
           </div>
@@ -1629,6 +1783,65 @@ export default function OrcamentoApp() {
             <div className="flex gap-3 mt-4">
               <button onClick={() => setMostrarNovoProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
               <button onClick={criarNovoProduto} disabled={!novoNome || !novoPrecoVenda || salvandoEstoque} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Criando...' : 'Criar Produto'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Atribuir Motorista */}
+      {mostrarAtribuirMotorista && entregaSelecionadaId && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarAtribuirMotorista(false); setEntregaSelecionadaId(null); }}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">🚗 Atribuir Motorista</h2>
+            <div className="space-y-2 mb-4">
+              <button onClick={() => atribuirMotorista(entregaSelecionadaId, null)} disabled={atribuindoMotorista === entregaSelecionadaId} className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm text-gray-600">
+                ✕ Remover atribuição
+              </button>
+              {motoristas.map(m => (
+                <button key={m.id} onClick={() => atribuirMotorista(entregaSelecionadaId, m.id)} disabled={atribuindoMotorista === entregaSelecionadaId} className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-blue-50 hover:border-blue-300 text-sm">
+                  <span className="font-medium">{m.nome}</span>{m.veiculo && <span className="text-gray-500 ml-2">({m.veiculo})</span>}
+                </button>
+              ))}
+            </div>
+            <button onClick={() => { setMostrarAtribuirMotorista(false); setEntregaSelecionadaId(null); }} className="w-full bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Gestão de Motoristas */}
+      {mostrarGestaoMotoristas && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarGestaoMotoristas(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">⚙️ Gestão de Motoristas</h2>
+            <div className="space-y-2 mb-6">
+              {motoristas.map(m => (
+                <div key={m.id} className="flex items-center justify-between p-3 rounded-lg border border-gray-200">
+                  <div>
+                    <p className="font-medium text-sm">{m.nome}</p>
+                    {m.veiculo && <p className="text-xs text-gray-500">{m.veiculo}</p>}
+                  </div>
+                  <button
+                    onClick={() => {
+                      fetch('/api/motoristas', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: m.id, ativo: false }) })
+                        .then(() => carregarMotoristas());
+                    }}
+                    className="text-xs text-red-500 hover:text-red-700 px-2 py-1"
+                  >
+                    Desativar
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="border-t pt-4">
+              <h3 className="font-medium text-gray-700 mb-3">Adicionar Motorista</h3>
+              <div className="space-y-2">
+                <input type="text" placeholder="Nome *" value={novoMotoristaNome} onChange={e => setNovoMotoristaNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="text" placeholder="Veículo (ex: Caminhão 3)" value={novoMotoristaVeiculo} onChange={e => setNovoMotoristaVeiculo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button onClick={() => setMostrarGestaoMotoristas(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-sm">Fechar</button>
+                <button onClick={criarMotorista} disabled={!novoMotoristaNome.trim()} className="flex-1 bg-blue-600 text-white py-2 rounded-lg text-sm font-bold disabled:opacity-50">Adicionar</button>
+              </div>
             </div>
           </div>
         </div>
