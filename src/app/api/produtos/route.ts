@@ -46,6 +46,7 @@ export async function GET() {
         fator_conversao: fatorConversao,
         unidade_armazenamento: p.unidade,
         estoque_armazenamento: estoqueAtual,
+        estoque_compartilhado_com: p.estoque_compartilhado_com || null,
       };
     });
 
