@@ -1,16 +1,11 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
-
 export async function GET() {
   try {
-    const { data: produtos, error } = await supabase
+    const { data: produtos, error } = await supabaseAdmin
       .from('produtos')
       .select('*')
       .eq('ativo', true)
@@ -25,14 +20,17 @@ export async function GET() {
       );
     }
 
-    const produtosFormatados = (produtos || []).map(p => {
-      const estoqueVenda = p.fator_conversao !== 1.0
-        ? Number(p.estoque_atual) / Number(p.fator_conversao)
-        : Number(p.estoque_atual);
-      
-      const estoqueMinVenda = p.fator_conversao !== 1.0
-        ? Number(p.estoque_minimo) / Number(p.fator_conversao)
-        : Number(p.estoque_minimo);
+    const produtosFormatados = (produtos || []).map((p: Record<string, unknown>) => {
+      const fatorConversao = Number(p.fator_conversao) || 1;
+      const estoqueAtual = Number(p.estoque_atual) || 0;
+      const estoqueMinimo = Number(p.estoque_minimo) || 0;
+
+      const estoqueVenda = fatorConversao !== 1.0
+        ? estoqueAtual / fatorConversao
+        : estoqueAtual;
+      const estoqueMinVenda = fatorConversao !== 1.0
+        ? estoqueMinimo / fatorConversao
+        : estoqueMinimo;
 
       return {
         id: p.id,
@@ -45,9 +43,9 @@ export async function GET() {
         unidade: p.unidade_venda,
         estoque_minimo: Math.round(estoqueMinVenda * 100) / 100,
         abaixo_minimo: estoqueVenda <= estoqueMinVenda,
-        fator_conversao: Number(p.fator_conversao),
+        fator_conversao: fatorConversao,
         unidade_armazenamento: p.unidade,
-        estoque_armazenamento: Number(p.estoque_atual),
+        estoque_armazenamento: estoqueAtual,
       };
     });
 
@@ -68,8 +66,8 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    
-    const { data: produto, error } = await supabase
+
+    const { data: produto, error } = await supabaseAdmin
       .from('produtos')
       .insert({
         nome: body.nome,
@@ -94,7 +92,7 @@ export async function POST(request: Request) {
 
     // If there's initial stock, create an entry movement
     if (body.estoque_inicial && body.estoque_inicial > 0) {
-      await supabase.from('movimentacoes_estoque').insert({
+      await supabaseAdmin.from('movimentacoes_estoque').insert({
         produto_id: produto.id,
         tipo: 'entrada',
         quantidade: body.estoque_inicial,
