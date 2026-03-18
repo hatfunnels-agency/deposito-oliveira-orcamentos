@@ -6,10 +6,10 @@ interface Produto {
   id: string;
   nome: string;
   preco: number;
-  preco_custo?: number;
+  preco_custo: number;
   estoque: number;
-  estoque_minimo?: number;
-  abaixo_minimo?: boolean;
+  estoque_minimo: number;
+  abaixo_minimo: boolean;
   unidade: string;
   categoria: string;
   codigo?: string;
@@ -727,7 +727,10 @@ export default function OrcamentoApp() {
         estoque: 999,
         unidade: oi.unidade,
         categoria: 'Geral',
-      },
+                  preco_custo: 0,
+            estoque_minimo: 0,
+            abaixo_minimo: false,
+          },
       quantidade: oi.quantidade,
     }));
     setItens(cartItems);
