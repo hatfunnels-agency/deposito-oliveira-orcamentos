@@ -17,7 +17,7 @@ export default function LoginPage() {
     });
   }, [router]);
 
-  const handleLogin = async (e) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErro('');
     setCarregando(true);
