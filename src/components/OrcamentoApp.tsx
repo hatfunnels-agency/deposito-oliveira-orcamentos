@@ -1,4 +1,4 @@
-'use client';
+'use client'; // v2
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 
