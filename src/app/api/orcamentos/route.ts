@@ -5,10 +5,20 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
     const {
-      cliente_nome, cliente_telefone, cliente_cep, cliente_endereco,
-      cliente_numero, cliente_complemento, cliente_recebedor,
-      tipo_entrega, valor_frete = 0, subtotal, total,
-      observacoes, data_entrega, itens,
+      cliente_nome,
+      cliente_telefone,
+      cliente_cep,
+      cliente_endereco,
+      cliente_numero,
+      cliente_complemento,
+      cliente_recebedor,
+      tipo_entrega,
+      valor_frete = 0,
+      subtotal,
+      total,
+      observacoes,
+      data_entrega,
+      itens,
     } = body;
 
     if (!cliente_nome || !cliente_telefone || !subtotal || !itens || itens.length === 0) {
@@ -18,7 +28,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Upsert cliente with new fields (Feature 8)
+    // Upsert cliente
     const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
     const clienteData: Record<string, unknown> = {
       nome: cliente_nome,
@@ -27,6 +37,7 @@ export async function POST(request: NextRequest) {
       endereco: cliente_endereco || null,
       atualizado_em: new Date().toISOString(),
     };
+
     if (cliente_numero !== undefined) clienteData.numero = cliente_numero;
     if (cliente_complemento !== undefined) clienteData.complemento = cliente_complemento;
     if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
@@ -66,6 +77,7 @@ export async function POST(request: NextRequest) {
       observacoes: observacoes || null,
       fonte: 'interface',
     };
+
     if (data_entrega) {
       insertData.data_entrega = data_entrega;
     }
@@ -110,109 +122,6 @@ export async function POST(request: NextRequest) {
       console.error('Erro ao criar itens:', itensError);
     }
 
-
-    return NextResponse.json({ error: 'Erro ao salvar cliente' }, { status: 500 });
-    }
-
-    // Gera codigo unico
-    let codigo = gerarCodigoOrcamento();
-    for (let i = 0; i < 3; i++) {
-      const { data: existing } = await supabaseAdmin
-        .from('orcamentos')
-        .select('id')
-        .eq('codigo', codigo)
-        .single();
-      if (!existing) break;
-      codigo = gerarCodigoOrcamento();
-    }
-
-    // Cria orcamento
-    const insertData: Record<string, unknown> = {
-      codigo,
-      cliente_id: cliente.id,
-      tipo_entrega,
-      valor_frete,
-      subtotal,
-      total,
-      status: 'orcamento',
-      observacoes: observacoes || null,
-      fonte: 'interface',
-    };
-    if (data_entrega) {
-      insertData.data_entrega = data_entrega;
-    }
-
-    const { data: orcamento, error: orcError } = await supabaseAdmin
-      .from('orcamentos')
-      .insert(insertData)
-      .select('id, codigo')
-      .single();
-
-    if (orcError) {
-      console.error('Erro ao criar orcamento:', orcError);
-      return NextResponse.json({ error: 'Erro ao salvar orcamento' }, { status: 500 });
-    }
-
-    // Cria itens
-    const itensToInsert = itens.map((item: {
-      produto_id?: string | number;
-      produto_bling_id?: string | number;
-      produto_nome: string;
-      quantidade: number;
-      unidade?: string;
-      preco_unitario: number;
-    }) => ({
-      orcamento_id: orcamento.id,
-      produto_id: item.produto_id ? Number(item.produto_id) : null,
-      produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
-      produto_nome: item.produto_nome,
-      quantidade: item.quantidade,
-      unidade: item.unidade || 'unidade',
-      preco_unitario: item.preco_unitario,
-      subtotal: item.quantidade * item.preco_unitario,
-    }));
-
-    const { error: itensError } = await supabaseAdmin
-      .from('orcamento_itens')
-      .insert(itensToInsert);
-
-    if (itensError) {
-      console.error('Erro ao criar itens:', itensError);
-    }
-
-    // Auto-criar pedido no Bling (não-bloqueante)
-    try {
-      blingPedidoId = await criarPedidoBling({
-        codigo: orcamento.codigo,
-        cliente_nome,
-        cliente_telefone: telefoneLimpo,
-        tipo_entrega,
-        valor_frete,
-        data_entrega,
-        observacoes,
-        itens: itens.map((item: {
-          produto_id?: string | number;
-          produto_bling_id?: string | number;
-          produto_nome: string;
-          quantidade: number;
-          preco_unitario: number;
-        }) => ({
-          produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : (item.produto_id ? Number(item.produto_id) : null),
-          produto_nome: item.produto_nome,
-          quantidade: item.quantidade,
-          preco_unitario: item.preco_unitario,
-        })),
-      });
-      if (blingPedidoId) {
-        await supabaseAdmin
-          .from('orcamentos')
-          .update({ bling_pedido_id: blingPedidoId })
-          .eq('id', orcamento.id);
-      }
-    } catch (blingError) {
-      console.error('Erro ao criar pedido Bling (não-bloqueante):', blingError);
-    }
-
     return NextResponse.json({
       success: true,
       codigo: orcamento.codigo,
@@ -237,9 +146,11 @@ export async function GET(request: NextRequest) {
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, valor_frete, subtotal, total, status,
-        observacoes, criado_em, data_entrega, bling_pedido_id,
-        clientes ( id, nome, telefone, cidade, estado )
+        id, codigo, tipo_entrega, valor_frete, subtotal, total,
+        status, observacoes, criado_em, data_entrega, bling_pedido_id,
+        clientes (
+          id, nome, telefone, cidade, estado
+        )
       `, { count: 'exact' })
       .order('criado_em', { ascending: false })
       .range(offset, offset + limite - 1);
@@ -253,6 +164,7 @@ export async function GET(request: NextRequest) {
         .from('clientes')
         .select('id')
         .or(`nome.ilike.%${busca}%,telefone.ilike.%${busca}%`);
+
       const clientIds = (matchingClients || []).map((c: { id: string }) => c.id);
       if (clientIds.length > 0) {
         query = query.or(`codigo.ilike.%${busca}%,cliente_id.in.(${clientIds.join(',')})`);
