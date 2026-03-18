@@ -9,16 +9,16 @@ export async function GET(
     const { data, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, valor_frete, subtotal, total, status,
-        observacoes, criado_em, atualizado_em, data_entrega,
+        id, codigo, tipo_entrega, valor_frete, subtotal, total,
+        status, observacoes, criado_em, atualizado_em, data_entrega,
         data_entrega_original, reagendamentos, bling_pedido_id,
         clientes (
           id, nome, telefone, cep, endereco, bairro, cidade, estado,
           numero, complemento, recebedor
         ),
         orcamento_itens (
-          id, produto_id, produto_bling_id, produto_nome, quantidade, unidade,
-          preco_unitario, subtotal
+          id, produto_id, produto_bling_id, produto_nome, produto_supabase_id,
+          quantidade, unidade, preco_unitario, subtotal
         )
       `)
       .eq('id', params.id)
@@ -42,10 +42,23 @@ export async function PATCH(
   try {
     const body = await request.json();
     const {
-      status, observacoes, tipo_entrega, valor_frete, subtotal, total,
-      data_entrega, itens, cliente_nome, cliente_telefone, cliente_cep,
-      cliente_endereco, cliente_numero, cliente_complemento, cliente_recebedor,
-      bling_pedido_id, reagendar
+      status,
+      observacoes,
+      tipo_entrega,
+      valor_frete,
+      subtotal,
+      total,
+      data_entrega,
+      itens,
+      cliente_nome,
+      cliente_telefone,
+      cliente_cep,
+      cliente_endereco,
+      cliente_numero,
+      cliente_complemento,
+      cliente_recebedor,
+      bling_pedido_id,
+      reagendar
     } = body;
 
     const updateData: Record<string, unknown> = {
@@ -63,23 +76,18 @@ export async function PATCH(
     // Feature 9 - Reschedule logic
     if (data_entrega !== undefined) {
       updateData.data_entrega = data_entrega;
-      
       if (reagendar) {
-        // Get current data to check original date
         const { data: current } = await supabaseAdmin
           .from('orcamentos')
           .select('data_entrega, data_entrega_original, reagendamentos, status')
           .eq('id', params.id)
           .single();
-        
+
         if (current) {
-          // Save original date if first reschedule
           if (!current.data_entrega_original && current.data_entrega) {
             updateData.data_entrega_original = current.data_entrega;
           }
           updateData.reagendamentos = (current.reagendamentos || 0) + 1;
-          
-          // If status was ocorrencia, move back to entrega_pendente
           if (current.status === 'ocorrencia') {
             updateData.status = 'entrega_pendente';
           }
@@ -97,12 +105,11 @@ export async function PATCH(
         endereco: cliente_endereco || null,
         atualizado_em: new Date().toISOString(),
       };
-      
-      // Add new fields if provided
+
       if (cliente_numero !== undefined) clienteData.numero = cliente_numero;
       if (cliente_complemento !== undefined) clienteData.complemento = cliente_complemento;
       if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
-      
+
       const { data: cliente } = await supabaseAdmin
         .from('clientes')
         .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
@@ -127,43 +134,34 @@ export async function PATCH(
 
     // Stock management: deduct on pagamento_ok, restore on cancelado
     if (status) {
-      // Get the order items with product references
       const { data: orderItems } = await supabaseAdmin
         .from('orcamento_itens')
         .select('produto_nome, quantidade, produto_supabase_id')
         .eq('orcamento_id', params.id);
 
-      // Get the PREVIOUS status before this update
-      const { data: prevOrder } = await supabaseAdmin
-        .from('orcamentos')
-        .select('status')
-        .eq('id', params.id)
-        .single();
-      
-      const previousStatus = body._previous_status; // sent from frontend
+      const previousStatus = body._previous_status;
 
       if (status === 'pagamento_ok' && orderItems && orderItems.length > 0) {
-        // Deduct stock for each item
         for (const item of orderItems) {
           if (!item.produto_supabase_id) continue;
-          
+
           const { data: produto } = await supabaseAdmin
             .from('produtos')
             .select('estoque_atual, fator_conversao')
             .eq('id', item.produto_supabase_id)
             .single();
-          
+
           if (produto) {
             const fator = Number(produto.fator_conversao) || 1;
             const qtdEstoque = Number(item.quantidade) * fator;
             const estoqueAnterior = Number(produto.estoque_atual);
             const estoqueNovo = Math.max(0, estoqueAnterior - qtdEstoque);
-            
+
             await supabaseAdmin
               .from('produtos')
               .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
               .eq('id', item.produto_supabase_id);
-            
+
             await supabaseAdmin
               .from('movimentacoes_estoque')
               .insert({
@@ -180,30 +178,29 @@ export async function PATCH(
         }
       }
 
-      if (status === 'cancelado' && previousStatus && 
-          ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'].includes(previousStatus) &&
-          orderItems && orderItems.length > 0) {
-        // Restore stock for each item (only if payment was already confirmed)
+      if (status === 'cancelado' && previousStatus &&
+        ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'].includes(previousStatus) &&
+        orderItems && orderItems.length > 0) {
         for (const item of orderItems) {
           if (!item.produto_supabase_id) continue;
-          
+
           const { data: produto } = await supabaseAdmin
             .from('produtos')
             .select('estoque_atual, fator_conversao')
             .eq('id', item.produto_supabase_id)
             .single();
-          
+
           if (produto) {
             const fator = Number(produto.fator_conversao) || 1;
             const qtdEstoque = Number(item.quantidade) * fator;
             const estoqueAnterior = Number(produto.estoque_atual);
             const estoqueNovo = estoqueAnterior + qtdEstoque;
-            
+
             await supabaseAdmin
               .from('produtos')
               .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
               .eq('id', item.produto_supabase_id);
-            
+
             await supabaseAdmin
               .from('movimentacoes_estoque')
               .insert({
@@ -232,6 +229,7 @@ export async function PATCH(
         produto_id?: string | number;
         produto_bling_id?: string | number;
         produto_nome: string;
+        produto_supabase_id?: string;
         quantidade: number;
         unidade?: string;
         preco_unitario: number;
