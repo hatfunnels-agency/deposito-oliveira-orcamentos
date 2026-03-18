@@ -6,9 +6,16 @@ interface Produto {
   id: string;
   nome: string;
   preco: number;
+  preco_custo: number;
   estoque: number;
+  estoque_minimo: number;
+  abaixo_minimo: boolean;
   unidade: string;
   categoria: string;
+  codigo?: string;
+  fator_conversao?: number;
+  unidade_armazenamento?: string;
+  estoque_armazenamento?: number;
 }
 
 interface ItemOrcamento {
@@ -50,7 +57,6 @@ interface OrcamentoDetalhe {
   data_entrega: string | null;
   data_entrega_original: string | null;
   reagendamentos: number;
-  bling_pedido_id: number | null;
   clientes: {
     id: string;
     nome: string;
@@ -78,7 +84,6 @@ interface OrcamentoSalvo {
   observacoes: string | null;
   criado_em: string;
   data_entrega: string | null;
-  bling_pedido_id: number | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null } | null;
 }
 
@@ -190,12 +195,12 @@ const STATUS_COLORS: Record<string, string> = {
 export default function OrcamentoApp() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
-  const [fonteProdutos, setFonteProdutos] = useState('');
-  const [mensagemAPI, setMensagemAPI] = useState('');
+  
+  
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque'>('produtos');
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
   const [dadosFrete, setDadosFrete] = useState<DadosFrete | null>(null);
@@ -206,7 +211,7 @@ export default function OrcamentoApp() {
   const [erroFrete, setErroFrete] = useState('');
   const [enderecoViaCEP, setEnderecoViaCEP] = useState('');
   const [salvandoOrcamento, setSalvandoOrcamento] = useState(false);
-  const [orcamentoSalvo, setOrcamentoSalvo] = useState<{ codigo: string; bling_pedido_id?: number | null } | null>(null);
+  const [orcamentoSalvo, setOrcamentoSalvo] = useState<{ codigo: string } | null>(null);
   const [orcamentos, setOrcamentos] = useState<OrcamentoSalvo[]>([]);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
   const [buscaHistorico, setBuscaHistorico] = useState('');
@@ -236,6 +241,40 @@ export default function OrcamentoApp() {
   const [marcandoRota, setMarcandoRota] = useState(false);
 
   const printRef = useRef<HTMLDivElement>(null);
+
+  // Estoque management state
+  const [mostrarEntrada, setMostrarEntrada] = useState(false);
+  const [mostrarAjuste, setMostrarAjuste] = useState(false);
+  const [mostrarEditProduto, setMostrarEditProduto] = useState(false);
+  const [mostrarNovoProduto, setMostrarNovoProduto] = useState(false);
+  const [mostrarHistoricoProduto, setMostrarHistoricoProduto] = useState(false);
+  const [produtoSelecionado, setProdutoSelecionado] = useState<Produto | null>(null);
+  const [entradaQtd, setEntradaQtd] = useState('');
+  const [entradaObs, setEntradaObs] = useState('');
+  const [ajusteQtd, setAjusteQtd] = useState('');
+  const [ajusteObs, setAjusteObs] = useState('');
+  const [editNome, setEditNome] = useState('');
+  const [editCodigo, setEditCodigo] = useState('');
+  const [editCategoria, setEditCategoria] = useState('');
+  const [editPrecoVenda, setEditPrecoVenda] = useState('');
+  const [editPrecoCusto, setEditPrecoCusto] = useState('');
+  const [editEstoqueMinimo, setEditEstoqueMinimo] = useState('');
+  const [editUnidadeVenda, setEditUnidadeVenda] = useState('');
+  const [editFatorConversao, setEditFatorConversao] = useState('');
+  const [editAtivo, setEditAtivo] = useState(true);
+  const [novoNome, setNovoNome] = useState('');
+  const [novoCodigo, setNovoCodigo] = useState('');
+  const [novoCategoria, setNovoCategoria] = useState('Geral');
+  const [novoPrecoVenda, setNovoPrecoVenda] = useState('');
+  const [novoPrecoCusto, setNovoPrecoCusto] = useState('');
+  const [novoEstoqueInicial, setNovoEstoqueInicial] = useState('');
+  const [novoEstoqueMinimo, setNovoEstoqueMinimo] = useState('');
+  const [novoUnidade, setNovoUnidade] = useState('unidade');
+  const [novoUnidadeVenda, setNovoUnidadeVenda] = useState('unidade');
+  const [novoFatorConversao, setNovoFatorConversao] = useState('1');
+  const [movimentacoes, setMovimentacoes] = useState<Array<{id:string;tipo:string;quantidade:number;estoque_anterior:number;estoque_novo:number;observacoes:string;criado_em:string}>>([]);
+  const [salvandoEstoque, setSalvandoEstoque] = useState(false);
+  const [filtroEstoqueBaixo, setFiltroEstoqueBaixo] = useState(false);
 
   useEffect(() => {
     fetch('/api/produtos')
@@ -482,10 +521,9 @@ export default function OrcamentoApp() {
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
         itens: itens.map(i => ({
           produto_id: i.produto.id,
-          produto_bling_id: i.produto.id,
+          produto_supabase_id: i.produto.id,
           produto_nome: i.produto.nome,
-          quantidade: isMeioMetro(i.produto.nome) ? i.quantidade * 0.5 : i.quantidade,
-          quantidade_display: i.quantidade,
+          quantidade: i.quantidade,
           unidade: i.produto.unidade,
           preco_unitario: i.produto.preco,
         })),
@@ -507,50 +545,14 @@ export default function OrcamentoApp() {
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo, bling_pedido_id: data.bling_pedido_id });
+        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo });
       }
     } catch (e) { console.error('Erro ao salvar orcamento', e); }
     setSalvandoOrcamento(false);
     setMostrarModal(true);
   };
 
-  const reenviarBling = async (orcamentoId: string) => {
-    try {
-      const detRes = await fetch(`/api/orcamentos/${orcamentoId}`);
-      const det = await detRes.json();
-      if (!det || !det.orcamento_itens) return;
-      const res = await fetch('/api/bling/pedido', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          cliente_nome: det.clientes?.nome || 'Cliente',
-          cliente_telefone: det.clientes?.telefone || '',
-          itens: det.orcamento_itens.filter((i: OrcamentoItem) => i.produto_bling_id || i.produto_id).map((i: OrcamentoItem) => ({
-            produto_bling_id: i.produto_bling_id || i.produto_id,
-            produto_nome: i.produto_nome,
-            quantidade: i.quantidade,
-            preco_unitario: i.preco_unitario,
-          })),
-          codigo_orcamento: det.codigo,
-          valor_frete: det.valor_frete,
-          tipo_entrega: det.tipo_entrega,
-          data_entrega: det.data_entrega,
-        }),
-      });
-      const data = await res.json();
-      if (data.bling_pedido_id) {
-        await fetch(`/api/orcamentos/${orcamentoId}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ bling_pedido_id: data.bling_pedido_id }),
-        });
-        if (orcamentoDetalhe && orcamentoDetalhe.id === orcamentoId) {
-          setOrcamentoDetalhe({ ...orcamentoDetalhe, bling_pedido_id: data.bling_pedido_id });
-        }
-        alert(`Pedido Bling criado com sucesso! ID: ${data.bling_pedido_id}`);
-      } else { alert('Erro ao criar pedido no Bling. Tente novamente.'); }
-    } catch (e) { console.error('Erro ao reenviar ao Bling', e); alert('Erro ao reenviar ao Bling.'); }
-  };
+;
 
   // Feature 9 - Reschedule delivery
   const reagendarEntrega = async (id: string, novaData: string) => {
@@ -687,14 +689,15 @@ export default function OrcamentoApp() {
     setTimeout(() => printWindow.print(), 250);
   };
 
-  const atualizarStatusOrcamento = async (id: string, novoStatus: string) => {
+  const atualizarStatusOrcamento = async (id: string, novoStatus: string, statusAnterior?: string) => {
     try {
       await fetch(`/api/orcamentos/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: novoStatus }),
+        body: JSON.stringify({ status: novoStatus, _previous_status: statusAnterior }),
       });
       carregarHistorico();
+      if (novoStatus === 'pagamento_ok' || novoStatus === 'cancelado') carregarProdutos();
       if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
         setOrcamentoDetalhe({ ...orcamentoDetalhe, status: novoStatus });
       }
@@ -822,6 +825,135 @@ export default function OrcamentoApp() {
     setTimeout(() => printWindow.print(), 250);
   };
 
+
+  // ===== Estoque Management Functions =====
+  const registrarEntrada = async () => {
+    if (!produtoSelecionado || !entradaQtd) return;
+    setSalvandoEstoque(true);
+    try {
+      await fetch('/api/estoque', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produto_id: produtoSelecionado.id,
+          tipo: 'entrada',
+          quantidade: parseFloat(entradaQtd),
+          observacoes: entradaObs || null,
+        }),
+      });
+      setMostrarEntrada(false);
+      setProdutoSelecionado(null);
+      setEntradaQtd('');
+      setEntradaObs('');
+      carregarProdutos();
+    } catch (e) { console.error(e); }
+    setSalvandoEstoque(false);
+  };
+
+  const registrarAjuste = async () => {
+    if (!produtoSelecionado || !ajusteQtd) return;
+    setSalvandoEstoque(true);
+    try {
+      await fetch('/api/estoque', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          produto_id: produtoSelecionado.id,
+          tipo: 'ajuste',
+          quantidade: parseFloat(ajusteQtd),
+          observacoes: ajusteObs || 'Ajuste de inventário',
+        }),
+      });
+      setMostrarAjuste(false);
+      setProdutoSelecionado(null);
+      setAjusteQtd('');
+      setAjusteObs('');
+      carregarProdutos();
+    } catch (e) { console.error(e); }
+    setSalvandoEstoque(false);
+  };
+
+  const salvarEdicaoProduto = async () => {
+    if (!produtoSelecionado) return;
+    setSalvandoEstoque(true);
+    try {
+      await fetch(`/api/produtos/${produtoSelecionado.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: editNome,
+          codigo: editCodigo,
+          categoria: editCategoria,
+          unidade_venda: editUnidadeVenda,
+          preco_venda: parseFloat(editPrecoVenda),
+          preco_custo: parseFloat(editPrecoCusto),
+          estoque_minimo: parseFloat(editEstoqueMinimo),
+          fator_conversao: parseFloat(editFatorConversao),
+          ativo: editAtivo,
+        }),
+      });
+      setMostrarEditProduto(false);
+      setProdutoSelecionado(null);
+      carregarProdutos();
+    } catch (e) { console.error(e); }
+    setSalvandoEstoque(false);
+  };
+
+  const criarNovoProduto = async () => {
+    if (!novoNome || !novoPrecoVenda) return;
+    setSalvandoEstoque(true);
+    try {
+      await fetch('/api/produtos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nome: novoNome,
+          codigo: novoCodigo || null,
+          categoria: novoCategoria,
+          unidade: novoUnidade,
+          unidade_venda: novoUnidadeVenda,
+          preco_venda: parseFloat(novoPrecoVenda),
+          preco_custo: parseFloat(novoPrecoCusto) || 0,
+          estoque_inicial: parseFloat(novoEstoqueInicial) || 0,
+          estoque_minimo: parseFloat(novoEstoqueMinimo) || 0,
+          fator_conversao: parseFloat(novoFatorConversao) || 1,
+        }),
+      });
+      setMostrarNovoProduto(false);
+      setNovoNome(''); setNovoCodigo(''); setNovoPrecoVenda(''); setNovoPrecoCusto('');
+      setNovoEstoqueInicial(''); setNovoEstoqueMinimo('');
+      carregarProdutos();
+    } catch (e) { console.error(e); }
+    setSalvandoEstoque(false);
+  };
+
+  const abrirEditProduto = (p: Produto) => {
+    setProdutoSelecionado(p);
+    setEditNome(p.nome);
+    setEditCodigo(p.codigo || '');
+    setEditCategoria(p.categoria);
+    setEditPrecoVenda(String(p.preco));
+    setEditPrecoCusto(String(p.preco_custo || 0));
+    setEditEstoqueMinimo(String(p.estoque_minimo || 0));
+    setEditUnidadeVenda(p.unidade);
+    setEditFatorConversao(String(p.fator_conversao || 1));
+    setEditAtivo(true);
+    setMostrarEditProduto(true);
+  };
+
+  const abrirHistoricoProduto = async (p: Produto) => {
+    setProdutoSelecionado(p);
+    setMostrarHistoricoProduto(true);
+    try {
+      const res = await fetch(`/api/estoque?produto_id=${p.id}`, { cache: 'no-store' });
+      const data = await res.json();
+      setMovimentacoes(data.movimentacoes || []);
+    } catch { setMovimentacoes([]); }
+  };
+
+  const produtosAbaixoMinimo = produtos.filter(p => p.abaixo_minimo);
+  const produtosEstoque = filtroEstoqueBaixo ? produtosAbaixoMinimo : produtos;
+
   const todayStr = new Date().toISOString().split('T')[0];
 
   if (loading) {
@@ -844,8 +976,7 @@ export default function OrcamentoApp() {
             <p className="text-blue-200 text-sm">Sistema de Orçamentos</p>
           </div>
           <div className="flex items-center gap-3">
-            {fonteProdutos === 'demo' && <span className="bg-yellow-500 text-yellow-900 text-xs px-2 py-1 rounded-full font-medium">DEMO</span>}
-            {fonteProdutos === 'bling' && <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full font-medium">BLING</span>}
+            <button onClick={() => setAbaAtiva('estoque')} className="bg-blue-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-500 transition">📦 Estoque</button>
             <button onClick={() => setAbaAtiva('entregas')} className="bg-blue-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-500 transition">🚚 Entregas</button>
             <button onClick={() => setAbaAtiva('historico')} className="bg-blue-600 text-white text-sm px-3 py-2 rounded-lg hover:bg-blue-500 transition">Histórico</button>
             <button onClick={() => setAbaAtiva('orcamento')} className="relative bg-white text-blue-700 font-bold px-4 py-2 rounded-lg hover:bg-blue-50 transition">
@@ -856,18 +987,14 @@ export default function OrcamentoApp() {
         </div>
       </header>
 
-      {mensagemAPI && (
-        <div className={`px-4 py-2 text-sm text-center print:hidden ${fonteProdutos === 'bling' ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
-          {mensagemAPI}
-        </div>
-      )}
+      
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(['produtos', 'orcamento', 'historico', 'entregas'] as const).map(aba => (
+          {(['produtos', 'orcamento', 'historico', 'entregas', 'estoque'] as const).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-blue-600 text-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : '🚚 Entregas'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -892,7 +1019,9 @@ export default function OrcamentoApp() {
                     <div className="mb-2"><span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{produto.categoria}</span></div>
                     <h3 className="font-semibold text-gray-800 text-sm mb-1 min-h-[40px]">{produto.nome}</h3>
                     <p className="text-blue-700 font-bold text-lg mb-1">R$ {formatBRL(produto.preco)}<span className="text-xs text-gray-400 font-normal">/{produto.unidade}</span></p>
-                    <p className="text-xs text-gray-500 mb-3">Estoque: {produto.estoque} {produto.unidade}{produto.estoque !== 1 ? 's' : ''}</p>
+                    <p className={`text-xs mb-3 ${produto.estoque <= 0 ? 'text-red-600 font-bold' : produto.abaixo_minimo ? 'text-red-500 font-medium' : produto.estoque <= produto.estoque_minimo * 2 ? 'text-yellow-600' : 'text-green-600'}`}>
+                    {produto.estoque <= 0 ? '⛔ Sem estoque' : `${produto.abaixo_minimo ? '⚠️ ' : produto.estoque <= produto.estoque_minimo * 2 ? '🟡 ' : '🟢 '}Estoque: ${produto.estoque} ${produto.unidade}${produto.estoque !== 1 ? 's' : ''}`}
+                  </p>
                     {qtd === 0 ? (
                       <button onClick={() => adicionarItem(produto)} className="w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition">+ Adicionar</button>
                     ) : (
@@ -1086,7 +1215,7 @@ export default function OrcamentoApp() {
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[orc.status] || 'bg-gray-100 text-gray-600'}`}>
                               {STATUS_LABELS[orc.status] || orc.status}
                             </span>
-                            {orc.bling_pedido_id && <span className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">📋 Bling #{orc.bling_pedido_id}</span>}
+                            
                           </div>
                           <p className="text-sm font-medium text-gray-800">{orc.clientes?.nome || 'Cliente'}</p>
                           <p className="text-xs text-gray-500">{orc.clientes?.telefone || ''} {orc.clientes?.cidade ? `• ${orc.clientes.cidade}-${orc.clientes.estado}` : ''}</p>
@@ -1095,7 +1224,7 @@ export default function OrcamentoApp() {
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-800">R$ {formatBRL(orc.total)}</p>
                           <p className="text-xs text-gray-500 mb-2">{orc.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</p>
-                          <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value)}
+                          <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value, orc.status)}
                             className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white">
                             {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                           </select>
@@ -1229,13 +1358,63 @@ export default function OrcamentoApp() {
         )}
       </div>
 
+
+      {/* ===== ESTOQUE TAB ===== */}
+      {abaAtiva === 'estoque' && (
+        <div className="pb-8">
+          {produtosAbaixoMinimo.length > 0 && (
+            <button onClick={() => setFiltroEstoqueBaixo(!filtroEstoqueBaixo)} className={`w-full mb-4 p-3 rounded-xl text-sm font-medium transition ${filtroEstoqueBaixo ? 'bg-red-100 border-2 border-red-400 text-red-800' : 'bg-yellow-50 border border-yellow-200 text-yellow-800 hover:bg-yellow-100'}`}>
+              ⚠️ {produtosAbaixoMinimo.length} produto(s) abaixo do estoque mínimo {filtroEstoqueBaixo ? '(ver todos)' : '(filtrar)'}
+            </button>
+          )}
+          <div className="flex flex-wrap gap-3 mb-6">
+            <button onClick={() => setMostrarNovoProduto(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition">➕ Novo Produto</button>
+            <button onClick={() => { setProdutoSelecionado(null); setMostrarEntrada(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">📥 Registrar Entrada</button>
+            <button onClick={() => { setProdutoSelecionado(null); setMostrarAjuste(true); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition">📋 Ajuste Inventário</button>
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead><tr className="bg-gray-50 border-b">
+                  <th className="text-left px-4 py-3 font-medium text-gray-600">Produto</th>
+                  <th className="text-center px-2 py-3 font-medium text-gray-600">Estoque</th>
+                  <th className="text-right px-2 py-3 font-medium text-gray-600">Venda</th>
+                  <th className="text-right px-2 py-3 font-medium text-gray-600">Custo</th>
+                  <th className="text-right px-2 py-3 font-medium text-gray-600">Margem</th>
+                  <th className="text-center px-2 py-3 font-medium text-gray-600">Ações</th>
+                </tr></thead>
+                <tbody>
+                  {produtosEstoque.map(p => {
+                    const margem = p.preco > 0 && p.preco_custo > 0 ? ((p.preco - p.preco_custo) / p.preco * 100).toFixed(0) : '-';
+                    const estoqueColor = p.estoque <= 0 ? 'text-red-700 bg-red-50' : p.abaixo_minimo ? 'text-red-600 bg-red-50' : p.estoque <= p.estoque_minimo * 2 ? 'text-yellow-700 bg-yellow-50' : 'text-green-700 bg-green-50';
+                    return (
+                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
+                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}</p></td>
+                        <td className="px-2 py-3 text-center"><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque} {p.unidade}</span><p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p></td>
+                        <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
+                        <td className="px-2 py-3 text-right text-gray-500">R$ {formatBRL(p.preco_custo || 0)}</td>
+                        <td className="px-2 py-3 text-right"><span className={`text-xs font-bold ${Number(margem) >= 30 ? 'text-green-600' : Number(margem) >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{margem}%</span></td>
+                        <td className="px-2 py-3 text-center"><div className="flex gap-1 justify-center flex-wrap">
+                          <button onClick={() => abrirEditProduto(p)} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">✏️</button>
+                          <button onClick={() => { setProdutoSelecionado(p); setEntradaQtd(''); setEntradaObs(''); setMostrarEntrada(true); }} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">📥</button>
+                          <button onClick={() => abrirHistoricoProduto(p)} className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">📊</button>
+                        </div></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
       {/* Modal Orcamento Gerado */}
       {mostrarModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2 text-center">Orçamento {editandoId ? 'Atualizado' : 'Gerado'}!</h2>
             {orcamentoSalvo && <p className="text-center text-green-600 font-bold mb-2">Código: {orcamentoSalvo.codigo}</p>}
-            {orcamentoSalvo?.bling_pedido_id && <p className="text-center text-purple-600 text-sm mb-4">📋 Pedido Bling: #{orcamentoSalvo.bling_pedido_id}</p>}
+            
             <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono whitespace-pre-wrap text-gray-700 max-h-64 overflow-y-auto">{gerarTextoWhatsApp()}</div>
             <div className="space-y-3">
               <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">📱 Enviar por WhatsApp</button>
@@ -1325,12 +1504,10 @@ export default function OrcamentoApp() {
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
                       className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
-                  {!orcamentoDetalhe.bling_pedido_id && (
-                    <button onClick={() => reenviarBling(orcamentoDetalhe.id)} className="w-full bg-purple-500 text-white py-2.5 rounded-xl font-bold hover:bg-purple-600 transition text-sm">🔄 Reenviar ao Bling</button>
-                  )}
+                  
                   <div className="flex items-center gap-2 pt-2">
                     <span className="text-sm text-gray-600">Status:</span>
-                    <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value)}
+                    <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
                       className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-blue-400 bg-white">
                       {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
@@ -1361,6 +1538,138 @@ export default function OrcamentoApp() {
           </div>
         </div>
       )}
+
+      {/* Modal Registrar Entrada */}
+      {mostrarEntrada && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarEntrada(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📥 Registrar Entrada</h2>
+            <div className="space-y-3">
+              <select value={produtoSelecionado?.id || ''} onChange={e => setProdutoSelecionado(produtos.find(p => p.id === e.target.value) || null)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <option value="">Selecione o produto</option>
+                {produtos.map(p => <option key={p.id} value={p.id}>{p.nome} (atual: {p.estoque_armazenamento || p.estoque} {p.unidade_armazenamento || p.unidade})</option>)}
+              </select>
+              <input type="number" placeholder={`Quantidade (${produtoSelecionado?.unidade_armazenamento || 'unidades'})`} value={entradaQtd} onChange={e => setEntradaQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
+              <input type="text" placeholder="Observações (ex: Fornecedor Luan - NF 12345)" value={entradaObs} onChange={e => setEntradaObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setMostrarEntrada(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
+              <button onClick={registrarEntrada} disabled={!produtoSelecionado || !entradaQtd || salvandoEstoque} className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Registrar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Ajuste Inventário */}
+      {mostrarAjuste && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarAjuste(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📋 Ajuste de Inventário</h2>
+            <div className="space-y-3">
+              <select value={produtoSelecionado?.id || ''} onChange={e => { const p = produtos.find(pp => pp.id === e.target.value); setProdutoSelecionado(p || null); if (p) setAjusteQtd(String(p.estoque_armazenamento || p.estoque)); }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                <option value="">Selecione o produto</option>
+                {produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
+              </select>
+              {produtoSelecionado && <p className="text-xs text-gray-500">Estoque atual: {produtoSelecionado.estoque_armazenamento || produtoSelecionado.estoque} {produtoSelecionado.unidade_armazenamento || produtoSelecionado.unidade}</p>}
+              <input type="number" placeholder="Novo estoque (contagem física)" value={ajusteQtd} onChange={e => setAjusteQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
+              <input type="text" placeholder="Observações (ex: Inventário mensal)" value={ajusteObs} onChange={e => setAjusteObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setMostrarAjuste(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
+              <button onClick={registrarAjuste} disabled={!produtoSelecionado || !ajusteQtd || salvandoEstoque} className="flex-1 bg-orange-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Ajustar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Editar Produto */}
+      {mostrarEditProduto && produtoSelecionado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarEditProduto(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">✏️ Editar Produto</h2>
+            <div className="space-y-3">
+              <input type="text" placeholder="Nome" value={editNome} onChange={e => setEditNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" placeholder="Código" value={editCodigo} onChange={e => setEditCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="text" placeholder="Categoria" value={editCategoria} onChange={e => setEditCategoria(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs text-gray-500">Preço Venda</label><input type="number" value={editPrecoVenda} onChange={e => setEditPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+                <div><label className="text-xs text-gray-500">Preço Custo</label><input type="number" value={editPrecoCusto} onChange={e => setEditPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs text-gray-500">Estoque Mínimo</label><input type="number" value={editEstoqueMinimo} onChange={e => setEditEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
+                <div><label className="text-xs text-gray-500">Unidade Venda</label><input type="text" value={editUnidadeVenda} onChange={e => setEditUnidadeVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setMostrarEditProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
+              <button onClick={salvarEdicaoProduto} disabled={salvandoEstoque} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Salvar'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Novo Produto */}
+      {mostrarNovoProduto && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarNovoProduto(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">➕ Novo Produto</h2>
+            <div className="space-y-3">
+              <input type="text" placeholder="Nome do produto *" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <div className="grid grid-cols-2 gap-2">
+                <input type="text" placeholder="Código" value={novoCodigo} onChange={e => setNovoCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="text" placeholder="Categoria" value={novoCategoria} onChange={e => setNovoCategoria(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs text-gray-500">Preço Venda *</label><input type="number" value={novoPrecoVenda} onChange={e => setNovoPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+                <div><label className="text-xs text-gray-500">Preço Custo</label><input type="number" value={novoPrecoCusto} onChange={e => setNovoPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <div><label className="text-xs text-gray-500">Unidade</label><input type="text" value={novoUnidade} onChange={e => setNovoUnidade(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="text-xs text-gray-500">Un. Venda</label><input type="text" value={novoUnidadeVenda} onChange={e => setNovoUnidadeVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
+                <div><label className="text-xs text-gray-500">Fator Conv.</label><input type="number" value={novoFatorConversao} onChange={e => setNovoFatorConversao(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.1" /></div>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div><label className="text-xs text-gray-500">Estoque Inicial</label><input type="number" value={novoEstoqueInicial} onChange={e => setNovoEstoqueInicial(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
+                <div><label className="text-xs text-gray-500">Estoque Mínimo</label><input type="number" value={novoEstoqueMinimo} onChange={e => setNovoEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
+              </div>
+            </div>
+            <div className="flex gap-3 mt-4">
+              <button onClick={() => setMostrarNovoProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
+              <button onClick={criarNovoProduto} disabled={!novoNome || !novoPrecoVenda || salvandoEstoque} className="flex-1 bg-blue-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Criando...' : 'Criar Produto'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Histórico Movimentações */}
+      {mostrarHistoricoProduto && produtoSelecionado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarHistoricoProduto(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-2">📊 Histórico - {produtoSelecionado.nome}</h2>
+            <p className="text-sm text-gray-500 mb-4">Estoque atual: {produtoSelecionado.estoque} {produtoSelecionado.unidade}</p>
+            {movimentacoes.length === 0 ? (
+              <p className="text-center text-gray-400 py-8">Nenhuma movimentação registrada</p>
+            ) : (
+              <div className="space-y-2">
+                {movimentacoes.map(m => (
+                  <div key={m.id} className={`p-3 rounded-lg border text-sm ${m.tipo === 'entrada' ? 'bg-green-50 border-green-200' : m.tipo === 'saida' ? 'bg-red-50 border-red-200' : m.tipo === 'cancelamento' ? 'bg-blue-50 border-blue-200' : 'bg-yellow-50 border-yellow-200'}`}>
+                    <div className="flex justify-between items-center">
+                      <span className="font-medium">{m.tipo === 'entrada' ? '📥 Entrada' : m.tipo === 'saida' ? '📤 Saída' : m.tipo === 'cancelamento' ? '↩️ Cancelamento' : '📋 Ajuste'}</span>
+                      <span className="text-xs text-gray-500">{new Date(m.criado_em).toLocaleDateString('pt-BR')} {new Date(m.criado_em).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
+                    </div>
+                    <p className="text-xs mt-1">{m.estoque_anterior} → {m.estoque_novo} ({m.tipo === 'saida' ? '-' : '+'}{m.quantidade})</p>
+                    {m.observacoes && <p className="text-xs text-gray-600 mt-1">{m.observacoes}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+            <button onClick={() => setMostrarHistoricoProduto(false)} className="w-full mt-4 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Fechar</button>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
