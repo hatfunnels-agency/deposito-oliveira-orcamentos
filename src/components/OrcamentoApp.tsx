@@ -1140,8 +1140,9 @@ export default function OrcamentoApp() {
           <div className="flex items-center gap-3">
             <img src="/logo.png" alt="Depósito Oliveira" className="h-10 w-auto" style={{filter: 'brightness(0) invert(1)'}} />
             <div>
-            <h1 className="text-2xl font-bold">Depósito Oliveira</h1>
-            <p className="text-white/80 text-sm">Sistema de Orçamentos</p>
+              <h1 className="text-2xl font-bold">Depósito Oliveira</h1>
+              <p className="text-white/80 text-sm">Sistema de Orçamentos</p>
+            </div>
           </div>
           <div className="flex items-center gap-3">
             <button onClick={() => setAbaAtiva('estoque')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">📦 Estoque</button>
