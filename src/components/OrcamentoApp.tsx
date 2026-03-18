@@ -906,6 +906,15 @@ export default function OrcamentoApp() {
     } catch (e) { console.error('Erro ao marcar entrega completa', e); }
   };
 
+  const entregasFiltradas = entregasRota ? {
+    ...entregasRota,
+    rota_otimizada: entregasRota.rota_otimizada.filter((e: EntregaRota & { motorista_id?: string | null }) => {
+      if (filtroMotorista === 'todos') return true;
+      if (filtroMotorista === 'nenhum') return !e.motorista_id;
+      return e.motorista_id === filtroMotorista;
+    }),
+  } : null;
+
   // Feature 5 - Print routes for driver
   const imprimirRotas = () => {
     const rotaParaImprimir = entregasFiltradas || entregasRota;
@@ -1877,3 +1886,4 @@ export default function OrcamentoApp() {
     </div>
   );
 }
+
