@@ -1,12 +1,7 @@
 import { NextResponse } from 'next/server';
-import { createClient } from '@supabase/supabase-js';
+import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
-
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
 
 // POST /api/estoque - Register stock movement
 export async function POST(request: Request) {
@@ -16,7 +11,7 @@ export async function POST(request: Request) {
 
     if (!produto_id || !tipo || quantidade === undefined) {
       return NextResponse.json(
-        { error: 'produto_id, tipo e quantidade são obrigatórios' },
+        { error: 'produto_id, tipo e quantidade sao obrigatorios' },
         { status: 400 }
       );
     }
@@ -29,14 +24,14 @@ export async function POST(request: Request) {
     }
 
     // Get current product
-    const { data: produto, error: prodError } = await supabase
+    const { data: produto, error: prodError } = await supabaseAdmin
       .from('produtos')
       .select('*')
       .eq('id', produto_id)
       .single();
 
     if (prodError || !produto) {
-      return NextResponse.json({ error: 'Produto não encontrado' }, { status: 404 });
+      return NextResponse.json({ error: 'Produto nao encontrado' }, { status: 404 });
     }
 
     const estoqueAnterior = Number(produto.estoque_atual);
@@ -66,7 +61,7 @@ export async function POST(request: Request) {
     }
 
     // Update product stock
-    const { error: updateError } = await supabase
+    const { error: updateError } = await supabaseAdmin
       .from('produtos')
       .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
       .eq('id', produto_id);
@@ -76,7 +71,7 @@ export async function POST(request: Request) {
     }
 
     // Create movement record
-    const { data: movimentacao, error: movError } = await supabase
+    const { data: movimentacao, error: movError } = await supabaseAdmin
       .from('movimentacoes_estoque')
       .insert({
         produto_id,
@@ -92,11 +87,11 @@ export async function POST(request: Request) {
       .single();
 
     if (movError) {
-      console.error('Erro ao registrar movimentação:', movError);
+      console.error('Erro ao registrar movimentacao:', movError);
     }
 
     // Return updated product
-    const { data: produtoAtualizado } = await supabase
+    const { data: produtoAtualizado } = await supabaseAdmin
       .from('produtos')
       .select('*')
       .eq('id', produto_id)
@@ -122,12 +117,12 @@ export async function GET(request: Request) {
 
     if (!produtoId) {
       return NextResponse.json(
-        { error: 'produto_id é obrigatório' },
+        { error: 'produto_id e obrigatorio' },
         { status: 400 }
       );
     }
 
-    const { data: movimentacoes, error } = await supabase
+    const { data: movimentacoes, error } = await supabaseAdmin
       .from('movimentacoes_estoque')
       .select('*')
       .eq('produto_id', produtoId)
@@ -135,7 +130,7 @@ export async function GET(request: Request) {
       .limit(50);
 
     if (error) {
-      return NextResponse.json({ error: 'Erro ao buscar movimentações' }, { status: 500 });
+      return NextResponse.json({ error: 'Erro ao buscar movimentacoes' }, { status: 500 });
     }
 
     return NextResponse.json({ movimentacoes: movimentacoes || [] });
