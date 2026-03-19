@@ -326,6 +326,7 @@ export default function OrcamentoApp() {
   const [logoBase64, setLogoBase64] = useState<string>('');
   // Feature 6 - New quote flow
   const [etapaOrcamento, setEtapaOrcamento] = useState<'catalogo' | 'cliente' | 'produtos' | 'revisao'>('catalogo');
+  const [modalClienteAberto, setModalClienteAberto] = useState(false);
   const [clienteNomeNovo, setClienteNomeNovo] = useState('');
   const [clienteTelefoneNovo, setClienteTelefoneNovo] = useState('');
   const [clienteNotasNovo, setClienteNotasNovo] = useState('');
@@ -1187,18 +1188,18 @@ export default function OrcamentoApp() {
             </button>
           <button onClick={() => {
             if (itens.length > 0) {
-              if (!confirm('Voc� tem um or�amento em andamento. Descartar e come�ar novo?')) return;
+              if (!confirm('Você tem um orçamento em andamento. Descartar e começar novo?')) return;
               setItens([]);
             }
             setClienteNomeNovo('');
             setClienteTelefoneNovo('');
             setClienteNotasNovo('');
-            setEtapaOrcamento('cliente');
+            setModalClienteAberto(true);
             setAbaAtiva('produtos');
           }}
             className="bg-green-500 text-white text-sm px-3 py-2 rounded-lg font-semibold hover:bg-green-600 transition whitespace-nowrap"
           >
-            ? Novo Or�amento
+            ➕ Novo Orçamento
           </button>
           </div>
           <div className="flex items-center gap-2 ml-4 pl-4 border-l border-white/30">
@@ -1224,10 +1225,12 @@ export default function OrcamentoApp() {
         {/* ===== CATALOGO TAB ===== */}
         {abaAtiva === 'produtos' && (
     <>
-      {etapaOrcamento === 'cliente' && (
+      {modalClienteAberto && (
+        <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'}}>
+          <div style={{background:'white',borderRadius:'12px',width:'100%',maxWidth:'500px',marginTop:'20px'}}>(
         <div className="max-w-lg mx-auto pb-8 pt-4">
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-2">?? Novo Or�amento</h2>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">➕ Novo Orçamento</h2>
             <p className="text-sm text-gray-500 mb-6">Preencha os dados do cliente antes de selecionar os produtos</p>
             <div className="space-y-4">
               <div>
@@ -1251,7 +1254,7 @@ export default function OrcamentoApp() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notas / Especifica��es do pedido</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notas / Especificações do pedido</label>
                 <textarea
                   placeholder="Anote os detalhes do pedido (ex: 2 sapatas 20x20, 3 vigas de 4m, ferro 3/8 para coluna...)"
                   value={clienteNotasNovo}
@@ -1263,13 +1266,13 @@ export default function OrcamentoApp() {
               <button
                 onClick={() => {
                   if (!clienteNomeNovo.trim() || !clienteTelefoneNovo.trim()) {
-                    alert('Nome e telefone s�o obrigat�rios');
+                    alert('Nome e telefone são obrigatórios');
                     return;
                   }
                   setNomeCliente(clienteNomeNovo);
                   setWhatsappCliente(clienteTelefoneNovo);
                   if (clienteNotasNovo.trim()) setObservacoes(clienteNotasNovo);
-                  setEtapaOrcamento('produtos');
+                  setModalClienteAberto(false);
                 }}
                 disabled={!clienteNomeNovo.trim() || !clienteTelefoneNovo.trim()}
                 className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold hover:bg-[#E8850A] transition disabled:opacity-50 text-base"
@@ -1277,7 +1280,7 @@ export default function OrcamentoApp() {
                 Continuar para Produtos ?
               </button>
               <button
-                onClick={() => setEtapaOrcamento('catalogo')}
+                onClick={() => setModalClienteAberto(false)}
                 className="w-full bg-gray-200 text-gray-700 py-2 rounded-xl hover:bg-gray-300 transition text-sm"
               >
                 Cancelar
@@ -1285,13 +1288,13 @@ export default function OrcamentoApp() {
             </div>
           </div>
         </div>
-      )}
-      {etapaOrcamento === 'produtos' && (
+      )</div></div>)}
+      (
           <div>
             {etapaOrcamento === 'produtos' && clienteNomeNovo && (
             <div className="bg-[#FFF3E0] border border-[#F7941D] rounded-xl p-3 mb-4 flex items-center justify-between flex-wrap gap-2">
               <div>
-                <span className="text-sm font-bold text-[#F7941D]">?? Or�amento para: {clienteNomeNovo}</span>
+                <span className="text-sm font-bold text-[#F7941D]">📋 Orçamento para: {clienteNomeNovo}</span>
                 <span className="text-xs text-gray-600 ml-3">{clienteTelefoneNovo}</span>
               </div>
               {clienteNotasNovo && (
@@ -1342,7 +1345,7 @@ export default function OrcamentoApp() {
               {produtosFiltrados.length === 0 && <div className="col-span-4 text-center py-12 text-gray-400">Nenhum produto encontrado.</div>}
             </div>
           </div>
-              )}
+              )
     </>
 )}
 
@@ -1976,7 +1979,7 @@ export default function OrcamentoApp() {
 
       
       {/* Feature 2 - Floating Cart Button */}
-      {itens.length > 0 && abaAtiva === 'produtos' && etapaOrcamento === 'produtos' && (
+      {itens.length > 0 && abaAtiva === 'produtos' && (
         <div className="fixed bottom-0 left-0 right-0 z-40 p-3">
           <button
             onClick={() => { setAbaAtiva('orcamento'); setEtapaOrcamento('revisao'); }}
@@ -1984,7 +1987,7 @@ export default function OrcamentoApp() {
           >
             <span>?? {itens.reduce((a, i) => a + i.quantidade, 0)} itens</span>
             <span>R$ {itens.reduce((a, i) => a + i.quantidade * i.produto.preco, 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
-            <span>Ver Or�amento ?</span>
+            <span>Ver Orçamento ?</span>
           </button>
         </div>
       )}
@@ -2022,7 +2025,7 @@ export default function OrcamentoApp() {
                       <input type="text" value={editandoMotoristaNome} onChange={e => setEditandoMotoristaNome(e.target.value)}
                         placeholder="Nome" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
                       <input type="text" value={editandoMotoristaVeiculo} onChange={e => setEditandoMotoristaVeiculo(e.target.value)}
-                        placeholder="Ve�culo" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
+                        placeholder="Veículo" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
                       <input type="text" value={editandoMotoristaTelefone} onChange={e => setEditandoMotoristaTelefone(e.target.value)}
                         placeholder="Telefone" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
                       <div className="flex gap-2">
