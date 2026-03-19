@@ -17,8 +17,7 @@ export async function GET(
           numero, complemento, recebedor
         ),
         orcamento_itens (
-          id, produto_id, produto_bling_id, produto_nome,
-          quantidade, unidade, preco_unitario, subtotal
+          id, produto_id, produto_nome, quantidade, unidade, preco_unitario, subtotal
         )
       `)
       .eq('id', params.id)
@@ -58,7 +57,8 @@ export async function PATCH(
       cliente_complemento,
       cliente_recebedor,
       bling_pedido_id,
-      reagendar
+      reagendar,
+      motorista_id,
     } = body;
 
     const updateData: Record<string, unknown> = {
@@ -72,8 +72,10 @@ export async function PATCH(
     if (subtotal !== undefined) updateData.subtotal = subtotal;
     if (total !== undefined) updateData.total = total;
     if (bling_pedido_id !== undefined) updateData.bling_pedido_id = bling_pedido_id;
+    // Bug 1 fix: handle motorista_id assignment
+    if (motorista_id !== undefined) updateData.motorista_id = motorista_id;
 
-    // Feature 9 - Reschedule logic
+    // Reschedule logic
     if (data_entrega !== undefined) {
       updateData.data_entrega = data_entrega;
       if (reagendar) {
@@ -82,7 +84,6 @@ export async function PATCH(
           .select('data_entrega, data_entrega_original, reagendamentos, status')
           .eq('id', params.id)
           .single();
-
         if (current) {
           if (!current.data_entrega_original && current.data_entrega) {
             updateData.data_entrega_original = current.data_entrega;
@@ -95,7 +96,7 @@ export async function PATCH(
       }
     }
 
-    // Feature 8 - Update client with new fields
+    // Update client info
     if (cliente_nome && cliente_telefone) {
       const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
       const clienteData: Record<string, unknown> = {
@@ -105,7 +106,6 @@ export async function PATCH(
         endereco: cliente_endereco || null,
         atualizado_em: new Date().toISOString(),
       };
-
       if (cliente_numero !== undefined) clienteData.numero = cliente_numero;
       if (cliente_complemento !== undefined) clienteData.complemento = cliente_complemento;
       if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
@@ -115,7 +115,6 @@ export async function PATCH(
         .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
         .select('id')
         .single();
-
       if (cliente) {
         updateData.cliente_id = cliente.id;
       }
@@ -125,129 +124,109 @@ export async function PATCH(
       .from('orcamentos')
       .update(updateData)
       .eq('id', params.id)
-      .select('id, codigo, status, atualizado_em')
+      .select('id, codigo, status, atualizado_em, motorista_id')
       .single();
 
     if (error) {
       return NextResponse.json({ error: 'Erro ao atualizar orcamento' }, { status: 500 });
     }
 
-    // Stock management: deduct on pagamento_ok, restore on cancelado
+    // Stock management
     if (status) {
       const { data: orderItems } = await supabaseAdmin
         .from('orcamento_itens')
-        .select('produto_nome, quantidade, produto_supabase_id')
+        .select('produto_nome, quantidade, produto_id')
         .eq('orcamento_id', params.id);
 
       const previousStatus = body._previous_status;
 
       if (status === 'pagamento_ok' && orderItems && orderItems.length > 0) {
         for (const item of orderItems) {
-          if (!item.produto_supabase_id) continue;
-
+          if (!item.produto_id) continue;
           const { data: produto } = await supabaseAdmin
             .from('produtos')
-            .select('estoque_atual, fator_conversao')
-            .eq('id', item.produto_supabase_id)
+            .select('id, estoque_atual, fator_conversao, estoque_compartilhado_com')
+            .eq('id', item.produto_id)
             .single();
-
           if (produto) {
             const fator = Number(produto.fator_conversao) || 1;
             const qtdEstoque = Number(item.quantidade) * fator;
             const estoqueAnterior = Number(produto.estoque_atual);
             const estoqueNovo = Math.max(0, estoqueAnterior - qtdEstoque);
-
             await supabaseAdmin
               .from('produtos')
               .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
-              .eq('id', item.produto_supabase_id);
-
-            await supabaseAdmin
-              .from('movimentacoes_estoque')
-              .insert({
-                produto_id: item.produto_supabase_id,
-                tipo: 'saida',
-                quantidade: qtdEstoque,
-                estoque_anterior: estoqueAnterior,
-                estoque_novo: estoqueNovo,
-                referencia_tipo: 'orcamento',
-                referencia_id: params.id,
-                observacoes: `Venda - ${item.produto_nome} x${item.quantidade}`,
-              });
+              .eq('id', item.produto_id);
+            if (produto.estoque_compartilhado_com) {
+              const { data: primary } = await supabaseAdmin
+                .from('produtos').select('estoque_atual')
+                .eq('id', produto.estoque_compartilhado_com).single();
+              if (primary) {
+                await supabaseAdmin.from('produtos')
+                  .update({ estoque_atual: Math.max(0, Number(primary.estoque_atual) - qtdEstoque), atualizado_em: new Date().toISOString() })
+                  .eq('id', produto.estoque_compartilhado_com);
+              }
+            }
+            await supabaseAdmin.from('movimentacoes_estoque').insert({
+              produto_id: item.produto_id, tipo: 'saida', quantidade: qtdEstoque,
+              estoque_anterior: estoqueAnterior, estoque_novo: estoqueNovo,
+              referencia_tipo: 'orcamento', referencia_id: params.id,
+              observacoes: `Venda - ${item.produto_nome} x${item.quantidade}`,
+            });
           }
         }
       }
 
       if (status === 'cancelado' && previousStatus &&
-        ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'].includes(previousStatus) &&
-        orderItems && orderItems.length > 0) {
+          ['pagamento_ok','separacao','entrega_pendente','em_rota'].includes(previousStatus) &&
+          orderItems && orderItems.length > 0) {
         for (const item of orderItems) {
-          if (!item.produto_supabase_id) continue;
-
+          if (!item.produto_id) continue;
           const { data: produto } = await supabaseAdmin
             .from('produtos')
-            .select('estoque_atual, fator_conversao')
-            .eq('id', item.produto_supabase_id)
-            .single();
-
+            .select('id, estoque_atual, fator_conversao, estoque_compartilhado_com')
+            .eq('id', item.produto_id).single();
           if (produto) {
             const fator = Number(produto.fator_conversao) || 1;
             const qtdEstoque = Number(item.quantidade) * fator;
             const estoqueAnterior = Number(produto.estoque_atual);
             const estoqueNovo = estoqueAnterior + qtdEstoque;
-
-            await supabaseAdmin
-              .from('produtos')
+            await supabaseAdmin.from('produtos')
               .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
-              .eq('id', item.produto_supabase_id);
-
-            await supabaseAdmin
-              .from('movimentacoes_estoque')
-              .insert({
-                produto_id: item.produto_supabase_id,
-                tipo: 'cancelamento',
-                quantidade: qtdEstoque,
-                estoque_anterior: estoqueAnterior,
-                estoque_novo: estoqueNovo,
-                referencia_tipo: 'orcamento',
-                referencia_id: params.id,
-                observacoes: `Cancelamento - ${item.produto_nome} x${item.quantidade}`,
-              });
+              .eq('id', item.produto_id);
+            if (produto.estoque_compartilhado_com) {
+              const { data: primary } = await supabaseAdmin
+                .from('produtos').select('estoque_atual')
+                .eq('id', produto.estoque_compartilhado_com).single();
+              if (primary) {
+                await supabaseAdmin.from('produtos')
+                  .update({ estoque_atual: Number(primary.estoque_atual) + qtdEstoque, atualizado_em: new Date().toISOString() })
+                  .eq('id', produto.estoque_compartilhado_com);
+              }
+            }
+            await supabaseAdmin.from('movimentacoes_estoque').insert({
+              produto_id: item.produto_id, tipo: 'cancelamento', quantidade: qtdEstoque,
+              estoque_anterior: estoqueAnterior, estoque_novo: estoqueNovo,
+              referencia_tipo: 'orcamento', referencia_id: params.id,
+              observacoes: `Cancelamento - ${item.produto_nome} x${item.quantidade}`,
+            });
           }
         }
       }
     }
 
-    // Update items if provided
     if (itens && Array.isArray(itens) && itens.length > 0) {
-      await supabaseAdmin
-        .from('orcamento_itens')
-        .delete()
-        .eq('orcamento_id', params.id);
-
+      await supabaseAdmin.from('orcamento_itens').delete().eq('orcamento_id', params.id);
       const itensToInsert = itens.map((item: {
-        produto_id?: string | number;
-        produto_bling_id?: string | number;
-        produto_nome: string;
-        produto_supabase_id?: string;
-        quantidade: number;
-        unidade?: string;
-        preco_unitario: number;
+        produto_id?: string; produto_nome: string; quantidade: number;
+        unidade?: string; preco_unitario: number;
       }) => ({
-        orcamento_id: params.id,
-        produto_id: item.produto_id ? Number(item.produto_id) : null,
-        produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
-        produto_nome: item.produto_nome,
-        produto_supabase_id: item.produto_supabase_id || null,
-        quantidade: item.quantidade,
-        unidade: item.unidade || 'unidade',
-        preco_unitario: item.preco_unitario,
+        orcamento_id: params.id, produto_id: item.produto_id || null,
+        produto_nome: item.produto_nome, quantidade: item.quantidade,
+        unidade: item.unidade || 'unidade', preco_unitario: item.preco_unitario,
         subtotal: item.quantidade * item.preco_unitario,
       }));
-
-      await supabaseAdmin
-        .from('orcamento_itens')
-        .insert(itensToInsert);
+      await supabaseAdmin.from('orcamento_itens').insert(itensToInsert);
     }
 
     return NextResponse.json(data);
@@ -257,17 +236,13 @@ export async function PATCH(
   }
 }
 
-// DELETE /api/orcamentos/[id] — só permite excluir se status = 'orcamento' ou 'cancelado'
 export async function DELETE(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
     const { data: orc, error: fetchError } = await supabaseAdmin
-      .from('orcamentos')
-      .select('id, status')
-      .eq('id', params.id)
-      .single();
+      .from('orcamentos').select('id, status').eq('id', params.id).single();
 
     if (fetchError || !orc) {
       return NextResponse.json({ error: 'Orçamento não encontrado' }, { status: 404 });
@@ -280,23 +255,8 @@ export async function DELETE(
       );
     }
 
-    const { error: deleteItensError } = await supabaseAdmin
-      .from('orcamento_itens')
-      .delete()
-      .eq('orcamento_id', params.id);
-
-    if (deleteItensError) {
-      return NextResponse.json({ error: 'Erro ao deletar itens' }, { status: 500 });
-    }
-
-    const { error: deleteError } = await supabaseAdmin
-      .from('orcamentos')
-      .delete()
-      .eq('id', params.id);
-
-    if (deleteError) {
-      return NextResponse.json({ error: 'Erro ao deletar orçamento' }, { status: 500 });
-    }
+    await supabaseAdmin.from('orcamento_itens').delete().eq('orcamento_id', params.id);
+    await supabaseAdmin.from('orcamentos').delete().eq('id', params.id);
 
     return NextResponse.json({ success: true });
   } catch (error) {
