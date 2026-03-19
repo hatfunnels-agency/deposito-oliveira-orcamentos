@@ -1261,7 +1261,7 @@ export default function OrcamentoApp() {
                     return;
                   }
                   setNomeCliente(clienteNomeNovo);
-                  setTelefoneCliente(clienteTelefoneNovo);
+                  setWhatsappCliente(clienteTelefoneNovo);
                   if (clienteNotasNovo.trim()) setObservacoes(clienteNotasNovo);
                   setEtapaOrcamento('produtos');
                 }}
