@@ -1203,7 +1203,6 @@ export default function OrcamentoApp() {
           </button>
           </div>
           <div className="flex items-center gap-2 ml-4 pl-4 border-l border-white/30">
-            <span className="text-white text-sm opacity-90">{nomeUsuario}</span>
             {papelUsuario && <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full capitalize">{papelUsuario}</span>}
             <button onClick={handleSignOut} className="text-xs bg-white text-[#F7941D] font-semibold px-3 py-1.5 rounded-lg hover:bg-orange-50 transition">Sair</button>
           </div>
@@ -1289,7 +1288,6 @@ export default function OrcamentoApp() {
           </div>
         </div>
       )</div></div>)}
-      (
           <div>
             {etapaOrcamento === 'produtos' && clienteNomeNovo && (
             <div className="bg-[#FFF3E0] border border-[#F7941D] rounded-xl p-3 mb-4 flex items-center justify-between flex-wrap gap-2">
@@ -1345,7 +1343,6 @@ export default function OrcamentoApp() {
               {produtosFiltrados.length === 0 && <div className="col-span-4 text-center py-12 text-gray-400">Nenhum produto encontrado.</div>}
             </div>
           </div>
-              )
     </>
 )}
 
