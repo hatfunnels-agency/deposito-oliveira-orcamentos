@@ -698,6 +698,7 @@ export default function OrcamentoApp() {
       '_Sujeito a disponibilidade de estoque_',
       '',
       '_Depósito Oliveira — (11) 4187-1801_',
+      '_Av. Inocêncio Seráfico, 4020 — Carapicuíba/SP_',
     ].filter((l): l is string => !!l);
     return linhas.join('\n');
   };
@@ -734,7 +735,7 @@ export default function OrcamentoApp() {
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Orçamento ${cod}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#333}h1{color:#F7941D;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#F7941D;color:white;padding:10px 8px;text-align:left}td{padding:8px}tfoot td{font-weight:bold;border-top:2px solid #F7941D}.info{margin:12px 0}.info span{font-weight:bold}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:13px}</style></head><body>`);
-    printWindow.document.write(`<h1>Depósito Oliveira</h1><p style="color:#666;margin-top:0">Sistema de Orçamentos</p>`);
+    printWindow.document.write(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><img src="https://github.com/logo.png" alt="Logo" style="height:60px;width:auto" /><div><h1 style="margin:0;font-size:20px">Depósito Oliveira</h1><p style="margin:2px 0;color:#666;font-size:12px">Materiais de Construção</p><p style="margin:2px 0;color:#666;font-size:12px">Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p style="margin:2px 0;color:#666;font-size:12px">Tel: (11) 4187-1801</p></div></div>`);
     printWindow.document.write(`<hr style="border:1px solid #F7941D;margin:16px 0">`);
     if (cod) printWindow.document.write(`<div class="info"><span>Código:</span> ${cod}</div>`);
     printWindow.document.write(`<div class="info"><span>Data:</span> ${dataCriacao}</div>`);
@@ -973,7 +974,7 @@ export default function OrcamentoApp() {
       .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
       @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
     </style></head><body>`;
-    html += `<div class="header"><h1>🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
+    html += `<div class="header"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="https://github.com/logo.png" alt="Logo" style="height:50px;width:auto;border-radius:4px" /><div><h1 style="margin:0;font-size:18px">🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;font-size:11px;color:#555">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p></div></div><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
     rotaParaImprimir.rota_otimizada.forEach((e, idx) => {
       const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
       html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
@@ -1138,7 +1139,7 @@ export default function OrcamentoApp() {
       <header className="bg-[#E8850A] text-white shadow-lg print:hidden">
         <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Depósito Oliveira" className="h-10 w-auto" style={{filter: 'brightness(0) invert(1)'}} />
+            <img src="/logo.png" alt="Depósito Oliveira" className="h-10 w-auto" style={{borderRadius:'4px'}} />
             <div>
               <h1 className="text-2xl font-bold">Depósito Oliveira</h1>
               <p className="text-white/80 text-sm">Sistema de Orçamentos</p>
