@@ -1985,9 +1985,9 @@ export default function OrcamentoApp() {
             onClick={() => { setAbaAtiva('orcamento'); setEtapaOrcamento('revisao'); }}
             className="w-full bg-[#F7941D] text-white py-4 rounded-xl font-bold text-base shadow-lg hover:bg-[#E8850A] transition flex items-center justify-between px-5"
           >
-            <span>?? {itens.reduce((a, i) => a + i.quantidade, 0)} itens</span>
+            <span>🛒 {itens.reduce((a, i) => a + i.quantidade, 0)} itens</span>
             <span>R$ {itens.reduce((a, i) => a + i.quantidade * i.produto.preco, 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
-            <span>Ver Orçamento ?</span>
+            <span>Ver Orçamento →</span>
           </button>
         </div>
       )}
@@ -2051,7 +2051,7 @@ export default function OrcamentoApp() {
                           setEditandoMotoristaNome(m.nome);
                           setEditandoMotoristaVeiculo(m.veiculo || '');
                           setEditandoMotoristaTelefone(m.telefone || '');
-                        }} className="text-xs text-blue-500 hover:text-blue-700 px-2 py-1">?? Editar</button>
+                        }} className="text-xs text-blue-500 hover:text-blue-700 px-2 py-1">✏️ Editar</button>
                         <button onClick={() => {
                           fetch('/api/motoristas', { method: 'PATCH', headers: {'Content-Type':'application/json'},
                             body: JSON.stringify({ id: m.id, ativo: false }) })
