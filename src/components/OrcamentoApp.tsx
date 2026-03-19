@@ -889,11 +889,17 @@ export default function OrcamentoApp() {
   const atribuirMotorista = async (orcamentoId: string, motoristaId: string | null) => {
     setAtribuindoMotorista(orcamentoId);
     try {
-      await fetch(`/api/orcamentos/${orcamentoId}`, {
+      const res = await fetch(`/api/orcamentos/${orcamentoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ motorista_id: motoristaId }),
+        cache: 'no-store',
       });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro ao salvar motorista');
+      }
+      await carregarMotoristas();
       await carregarEntregas();
     } catch (e) {
       console.error('Erro ao atribuir motorista', e);
@@ -1280,7 +1286,7 @@ export default function OrcamentoApp() {
           </div>
         </div>
       )}
-      {etapaOrcamento !== 'cliente' && (
+      {etapaOrcamento === 'produtos' && (
           <div>
             {etapaOrcamento === 'produtos' && clienteNomeNovo && (
             <div className="bg-[#FFF3E0] border border-[#F7941D] rounded-xl p-3 mb-4 flex items-center justify-between flex-wrap gap-2">
@@ -1294,7 +1300,7 @@ export default function OrcamentoApp() {
                   {mostrarNotasColapsado ? '▼ Ver notas' : '▲ Ocultar notas'}
                 </button>
               )}
-              {clienteNotasNovo && mostrarNotasColapsado && (
+              {clienteNotasNovo && !mostrarNotasColapsado && (
                 <div className="w-full bg-yellow-50 rounded p-2 text-xs text-gray-700 whitespace-pre-wrap">{clienteNotasNovo}</div>
               )}
             </div>
@@ -1970,7 +1976,7 @@ export default function OrcamentoApp() {
 
       
       {/* Feature 2 - Floating Cart Button */}
-      {itens.length > 0 && abaAtiva === 'produtos' && etapaOrcamento !== 'cliente' && (
+      {itens.length > 0 && abaAtiva === 'produtos' && etapaOrcamento === 'produtos' && (
         <div className="fixed bottom-0 left-0 right-0 z-40 p-3">
           <button
             onClick={() => { setAbaAtiva('orcamento'); setEtapaOrcamento('revisao'); }}
