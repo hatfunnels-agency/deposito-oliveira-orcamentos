@@ -254,6 +254,8 @@ export default function OrcamentoApp() {
   const [filtroStatus, setFiltroStatus] = useState('');
   const [totalOrcamentos, setTotalOrcamentos] = useState(0);
   const [dataEntrega, setDataEntrega] = useState('');
+  const [dataRetirada, setDataRetirada] = useState('');
+  const [fonteVenda, setFonteVenda] = useState('');
   const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<OrcamentoDetalhe | null>(null);
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
@@ -607,6 +609,9 @@ export default function OrcamentoApp() {
         subtotal,
         total,
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
+            tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
+              data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
+              fonte: fonteVenda || null,
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
           produto_id: i.produto.id,
@@ -760,6 +765,7 @@ export default function OrcamentoApp() {
     const frete = d ? d.valor_frete : totalFrete;
     const end = d ? [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ') : enderecoViaCEP;
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
+    const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
     printWindow.document.write(`<!DOCTYPE html><html><head><title>Orçamento ${cod}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#333}h1{color:#F7941D;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#F7941D;color:white;padding:10px 8px;text-align:left}td{padding:8px}tfoot td{font-weight:bold;border-top:2px solid #F7941D}.info{margin:12px 0}.info span{font-weight:bold}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:13px}</style></head><body>`);
     printWindow.document.write(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:60px;width:auto" /><div><h1 style="margin:0;font-size:20px">Depósito Oliveira</h1><p style="margin:2px 0;color:#666;font-size:12px">Materiais de Construção</p><p style="margin:2px 0;color:#666;font-size:12px">Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p style="margin:2px 0;color:#666;font-size:12px">Tel: (11) 4187-1801</p></div></div>`);
@@ -771,6 +777,9 @@ export default function OrcamentoApp() {
     printWindow.document.write(`<div class="info"><span>Entrega:</span> ${tipo === 'entrega' ? 'Entrega no endereço' : 'Retirada na loja'}</div>`);
     if (tipo === 'entrega' && end) printWindow.document.write(`<div class="info"><span>Endereço:</span> ${end}</div>`);
     if (dataEnt) printWindow.document.write(`<div class="info"><span>Data de entrega:</span> ${new Date(dataEnt + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
+    if (dataRet) printWindow.document.write(`<div class="info"><span>Data de retirada:</span> ${new Date(dataRet + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
+    const fonteVal = d ? (d as any).fonte : fonteVenda;
+    if (fonteVal) printWindow.document.write(`<div class="info"><span>Canal de venda:</span> ${fonteVal}</div>`);
     const obs = d ? d.observacoes : observacoes;
     if (obs) printWindow.document.write(`<div class="info"><span>Observações:</span> ${obs}</div>`);
     printWindow.document.write(`<table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:center">Unidade</th><th style="text-align:right">Preço Unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;padding:10px 8px">Subtotal:</td><td style="text-align:right;padding:10px 8px">R$ ${formatBRL(sub)}</td></tr>`);
@@ -1228,6 +1237,21 @@ export default function OrcamentoApp() {
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'}}>
           <div style={{background:'white',borderRadius:'12px',width:'100%',maxWidth:'500px',marginTop:'20px'}}>(
         <div className="max-w-lg mx-auto pb-8 pt-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Canal de venda</label>
+            <select className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent" value={fonteVenda} onChange={e => setFonteVenda(e.target.value)}>
+              <option value="">Selecione o canal</option>
+              <option value="Ponto (presencial)">Ponto (presencial)</option>
+              <option value="WhatsApp orgânico">WhatsApp orgânico</option>
+              <option value="Google Ads">Google Ads</option>
+              <option value="Google Meu Negócio (GMN)">Google Meu Negócio (GMN)</option>
+              <option value="Prospecção (equipe)">Prospecção (equipe)</option>
+              <option value="Indicação">Indicação</option>
+              <option value="Redes Sociais">Redes Sociais</option>
+              <option value="Retorno / Recompra">Retorno / Recompra</option>
+              <option value="Outro">Outro</option>
+            </select>
+          </div>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2">➕ Novo Orçamento</h2>
             <p className="text-sm text-gray-500 mb-6">Preencha os dados do cliente antes de selecionar os produtos</p>
@@ -1461,6 +1485,18 @@ export default function OrcamentoApp() {
                       </div>
                     </div>
                   )}
+          {tipoEntrega === 'retirada' && (
+            <div className="mt-3">
+              <label className="block text-sm font-medium text-gray-700 mb-1">📅 Data de retirada</label>
+              <input
+                type="date"
+                className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent"
+                value={dataRetirada}
+                min={new Date().toISOString().split('T')[0]}
+                onChange={e => setDataRetirada(e.target.value)}
+              />
+            </div>
+          )}
                 </div>
 
                 <div className="bg-[#E8850A] text-white rounded-xl p-4">
@@ -1529,6 +1565,7 @@ export default function OrcamentoApp() {
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-800">R$ {formatBRL(orc.total)}</p>
                           <p className="text-xs text-gray-500 mb-2">{orc.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</p>
+                          {orc.fonte && <span className="text-xs bg-orange-100 text-orange-700 rounded px-1 py-0.5 ml-1">{orc.fonte}</span>}
                           <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value, orc.status)}
                             className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
                             {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
@@ -1786,6 +1823,8 @@ export default function OrcamentoApp() {
                     </p>
                   )}
                   {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                  {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                  {orcamentoDetalhe.fonte && <p className="text-sm text-gray-600 mt-1">📢 Canal: {orcamentoDetalhe.fonte}</p>}
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
                 <div className="p-6 border-b border-gray-100">
