@@ -233,7 +233,20 @@ export async function PATCH(
       await supabaseAdmin.from('orcamento_itens').insert(itensToInsert);
     }
 
-    return NextResponse.json(data);
+        // GHL Sync (non-blocking)
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+      fetch(`${appUrl}/api/ghl/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orcamento_id: params.id }),
+        cache: 'no-store',
+      }).catch(e => console.log('[GHL Sync] Falha (nao bloqueante):', e));
+    } catch (e) {
+      console.log('[GHL Sync] Falha (nao bloqueante):', e);
+    }
+
+return NextResponse.json(data);
   } catch (error) {
     console.error('Erro ao atualizar orcamento:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
