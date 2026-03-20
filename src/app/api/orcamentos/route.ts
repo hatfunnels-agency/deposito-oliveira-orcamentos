@@ -17,6 +17,8 @@ export async function POST(request: NextRequest) {
       subtotal,
       total,
       observacoes,
+      data_retirada,
+      fonte,
       data_entrega,
       itens,
     } = body;
@@ -75,11 +77,14 @@ export async function POST(request: NextRequest) {
       total,
       status: 'orcamento',
       observacoes: observacoes || null,
-      fonte: 'interface',
+      fonte: fonte || 'interface',
     };
 
     if (data_entrega) {
       insertData.data_entrega = data_entrega;
+    }
+    if (data_retirada) {
+      insertData.data_retirada = data_retirada;
     }
 
     const { data: orcamento, error: orcError } = await supabaseAdmin
