@@ -127,7 +127,20 @@ export async function POST(request: NextRequest) {
       console.error('Erro ao criar itens:', itensError);
     }
 
-    return NextResponse.json({
+        // GHL Sync (non-blocking)
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+      fetch(`${appUrl}/api/ghl/sync`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orcamento_id: orcamento.id }),
+        cache: 'no-store',
+      }).catch(e => console.log('[GHL Sync] Falha (nao bloqueante):', e));
+    } catch (e) {
+      console.log('[GHL Sync] Falha (nao bloqueante):', e);
+    }
+
+return NextResponse.json({
       success: true,
       codigo: orcamento.codigo,
       id: orcamento.id,
