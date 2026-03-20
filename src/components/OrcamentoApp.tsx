@@ -1626,7 +1626,7 @@ export default function OrcamentoApp() {
                                     ✅ Marcar Entregue
                                   </button>
                                 )}
-                                {['entrega_pendente', 'em_rota', 'ocorrencia'].includes(entrega.status) && (
+                                {!['completo', 'cancelado'].includes(entrega.status) && (
                                   <button onClick={(e) => { e.stopPropagation(); setReagendandoId(entrega.id); setMostrarReagendar(true); }}
                                     className="text-xs bg-yellow-500 text-white px-3 py-1 rounded-lg hover:bg-yellow-600 transition">
                                     📅 Reagendar
