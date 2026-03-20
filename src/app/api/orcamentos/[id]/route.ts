@@ -10,7 +10,7 @@ export async function GET(
       .from('orcamentos')
       .select(`
         id, codigo, tipo_entrega, valor_frete, subtotal, total,
-        status, observacoes, criado_em, atualizado_em, data_entrega,
+        status, observacoes, criado_em, atualizado_em, data_entrega, data_retirada, fonte,
         data_entrega_original, reagendamentos, bling_pedido_id, motorista_id,
         clientes (
           id, nome, telefone, cep, endereco, bairro, cidade, estado,
@@ -48,6 +48,8 @@ export async function PATCH(
       subtotal,
       total,
       data_entrega,
+      data_retirada,
+      fonte,
       itens,
       cliente_nome,
       cliente_telefone,
@@ -78,6 +80,8 @@ export async function PATCH(
     // Reschedule logic
     if (data_entrega !== undefined) {
       updateData.data_entrega = data_entrega;
+      if (data_retirada !== undefined) updateData.data_retirada = data_retirada || null;
+      if (fonte !== undefined) updateData.fonte = fonte;
       if (reagendar) {
         const { data: current } = await supabaseAdmin
           .from('orcamentos')
