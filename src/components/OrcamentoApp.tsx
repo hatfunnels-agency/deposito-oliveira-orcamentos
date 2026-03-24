@@ -73,6 +73,7 @@ interface OrcamentoDetalhe {
     recebedor: string | null;
   } | null;
   orcamento_itens: OrcamentoItem[];
+    fonte?: string | null;
 }
 
 interface OrcamentoSalvo {
