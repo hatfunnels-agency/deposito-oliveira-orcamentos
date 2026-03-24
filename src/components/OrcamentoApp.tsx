@@ -56,6 +56,7 @@ interface OrcamentoDetalhe {
   criado_em: string;
   atualizado_em: string;
   data_entrega: string | null;
+  data_retirada?: string | null;
   data_entrega_original: string | null;
   reagendamentos: number;
   motorista_id?: string | null;
