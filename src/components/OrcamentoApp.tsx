@@ -609,9 +609,9 @@ export default function OrcamentoApp() {
         subtotal,
         total,
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
-            tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
-              data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
-              fonte: fonteVenda || null,
+            observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
+            data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
+            fonte: fonteVenda || null,
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
           produto_id: i.produto.id,
