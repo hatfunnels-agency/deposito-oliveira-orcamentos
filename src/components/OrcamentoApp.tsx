@@ -87,8 +87,13 @@ interface OrcamentoSalvo {
   observacoes: string | null;
   criado_em: string;
   data_entrega: string | null;
-  clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null } | null;
-    fonte?: string | null;
+  data_retirada?: string | null;
+  fonte?: string | null;
+  motorista_id?: string | null;
+  reagendamentos?: number;
+  resumo_itens?: string;
+  bling_pedido_id?: string | null;
+  clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null } | null;
 }
 
 interface EntregaRota {
@@ -856,6 +861,8 @@ export default function OrcamentoApp() {
     setWhatsappCliente(detalhe.clientes?.telefone || '');
     setTipoEntrega(detalhe.tipo_entrega as 'retirada' | 'entrega');
     setDataEntrega(detalhe.data_entrega || '');
+    setDataRetirada(detalhe.data_retirada || '');
+    setFonteVenda(detalhe.fonte || '');
     if (detalhe.clientes?.endereco) setEnderecoViaCEP(detalhe.clientes.endereco);
     if (detalhe.clientes?.cep) { setCepDestino(detalhe.clientes.cep); setBuscaEndereco(detalhe.clientes.cep); }
     setNumeroEndereco(detalhe.clientes?.numero || '');
@@ -1638,6 +1645,15 @@ export default function OrcamentoApp() {
                           <p className="text-sm font-medium text-gray-800">{orc.clientes?.nome || 'Cliente'}</p>
                           <p className="text-xs text-gray-500">{orc.clientes?.telefone || ''} {orc.clientes?.cidade ? `• ${orc.clientes.cidade}-${orc.clientes.estado}` : ''}</p>
                           <p className="text-xs text-gray-400 mt-1">{new Date(orc.criado_em).toLocaleDateString('pt-BR')} {new Date(orc.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                          {(orc.tipo_entrega === 'entrega' && orc.data_entrega) && (
+                            <p className="text-xs text-blue-600 mt-1">🚛 Entrega: {new Date(orc.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}{orc.clientes?.endereco ? ' · ' + orc.clientes.endereco + (orc.clientes.numero ? ', ' + orc.clientes.numero : '') + (orc.clientes.bairro ? ' — ' + orc.clientes.bairro : '') : ''}</p>
+                          )}
+                          {(orc.tipo_entrega === 'retirada' && orc.data_retirada) && (
+                            <p className="text-xs text-green-600 mt-1">🏪 Retirada: {new Date(orc.data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                          )}
+                          {orc.resumo_itens && (
+                            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">📦 {orc.resumo_itens}</p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-800">R$ {formatBRL(orc.total)}</p>
@@ -1780,7 +1796,7 @@ export default function OrcamentoApp() {
                                     ✅ Marcar Entregue
                                   </button>
                                 )}
-                                {!['completo', 'cancelado'].includes(entrega.status) && (
+                                {!['completo', 'cancelado', 'ocorrencia'].includes(entrega.status) && (
                                   <button onClick={(e) => { e.stopPropagation(); setReagendandoId(entrega.id); setMostrarReagendar(true); }}
                                     className="text-xs bg-yellow-500 text-white px-3 py-1 rounded-lg hover:bg-yellow-600 transition">
                                     📅 Reagendar
@@ -1989,7 +2005,7 @@ export default function OrcamentoApp() {
                     <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
                   )}
                   {/* Feature 9 - Reschedule button */}
-                  {['entrega_pendente', 'em_rota', 'ocorrencia'].includes(orcamentoDetalhe.status) && (
+                  {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
                       className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
