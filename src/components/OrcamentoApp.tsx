@@ -87,6 +87,7 @@ interface OrcamentoSalvo {
   criado_em: string;
   data_entrega: string | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null } | null;
+    fonte?: string | null;
 }
 
 interface EntregaRota {
