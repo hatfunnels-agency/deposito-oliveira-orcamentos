@@ -9,7 +9,7 @@ interface Produto {
   preco: number;
   preco_custo: number;
   estoque: number;
-  estoque_minimo: number;
+  estoque_minimo: number
   abaixo_minimo: boolean;
   unidade: string;
   categoria: string;
@@ -615,7 +615,6 @@ export default function OrcamentoApp() {
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
           produto_id: i.produto.id,
-          produto_supabase_id: i.produto.id,
           produto_nome: i.produto.nome,
           quantidade: i.quantidade,
           unidade: i.produto.unidade,
