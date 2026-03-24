@@ -272,6 +272,9 @@ export default function OrcamentoApp() {
   const [observacoes, setObservacoes] = useState('');
   // Feature 7 - Address search
   const [buscaEndereco, setBuscaEndereco] = useState('');
+  const [sugestoesEndereco, setSugestoesEndereco] = useState<Array<{place_id: string; description: string}>>([]);
+  const [mostrandoSugestoes, setMostrandoSugestoes] = useState(false);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [buscandoEndereco, setBuscandoEndereco] = useState(false);
   // Feature 9 - Reschedule
   const [mostrarReagendar, setMostrarReagendar] = useState(false);
@@ -1439,7 +1442,7 @@ export default function OrcamentoApp() {
                   {tipoEntrega === 'entrega' && (
                     <div className="space-y-3">
                       {/* Unified smart address field - detects CEP vs street */}
-                    <div className="flex gap-2">
+                    <div className="relative flex gap-2">
                       <input
                         type="text"
                         placeholder="CEP ou endereço (rua, bairro, cidade...)"
@@ -1451,10 +1454,45 @@ export default function OrcamentoApp() {
                           if (cleaned.length === 8) setCepDestino(cleaned);
                           setDadosFrete(null);
                           setEnderecoViaCEP('');
+                        // Debounce autocomplete
+                        if (debounceRef.current) clearTimeout(debounceRef.current);
+                        if (val.length >= 3 && !/^\d{8}$/.test(val.replace(/\D/g, ''))) {
+                          debounceRef.current = setTimeout(async () => {
+                            try {
+                              const res = await fetch(`/api/endereco?type=autocomplete&q=${encodeURIComponent(val)}`, { cache: 'no-store' });
+                              const data = await res.json();
+                              setSugestoesEndereco(data.suggestions || []);
+                              setMostrandoSugestoes((data.suggestions || []).length > 0);
+                            } catch {}
+                          }, 300);
+                        } else {
+                          setSugestoesEndereco([]);
+                          setMostrandoSugestoes(false);
+                        }
                         }}
                         onKeyDown={e => e.key === 'Enter' && buscarEnderecoSmart(buscaEndereco || cepDestino)}
                         className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
                       />
+                    {mostrandoSugestoes && sugestoesEndereco.length > 0 && (
+                      <ul className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-300 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
+                        {sugestoesEndereco.map(s => (
+                          <li key={s.place_id}
+                            className="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0"
+                            onClick={async () => {
+                              try {
+                                const res = await fetch(`/api/endereco?type=details&place_id=${s.place_id}`, { cache: 'no-store' });
+                                const data = await res.json();
+                                if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : ''));
+                                if (data.cep) { setCepDestino(data.cep); setBuscaEndereco(data.cep); }
+                                if (data.localidade) setBuscaEndereco(s.description);
+                              } catch {}
+                              setMostrandoSugestoes(false);
+                              setSugestoesEndereco([]);
+                            }}
+                          >{s.description}</li>
+                        ))}
+                      </ul>
+                    )}
                       <button
                         onClick={() => buscarEnderecoSmart(buscaEndereco || cepDestino)}
                         disabled={calculandoFrete || buscandoEndereco}
