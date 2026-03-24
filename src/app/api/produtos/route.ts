@@ -20,10 +20,26 @@ export async function GET() {
       );
     }
 
+        // Tarefa 5: mapa de produtos para resolver estoque compartilhado
+        const produtoMap = new Map<string, Record<string, unknown>>();
+        for (const p of (produtos || [])) {
+                produtoMap.set(p.id as string, p as Record<string, unknown>);
+        }
+
+    
     const produtosFormatados = (produtos || []).map((p: Record<string, unknown>) => {
       const fatorConversao = Number(p.fator_conversao) || 1;
-      const estoqueAtual = Number(p.estoque_atual) || 0;
-      const estoqueMinimo = Number(p.estoque_minimo) || 0;
+      let   estoqueAtual = Number(p.estoque_atual) || 0;
+      let   estoqueMinimo = Number(p.estoque_minimo) || 0;
+
+            // Tarefa 5: se produto secundario, usar estoque do principal
+            if (p.estoque_compartilhado_com) {
+                      const principal = produtoMap.get(p.estoque_compartilhado_com as string);
+                      if (principal) {
+                                  estoqueAtual = Number(principal.estoque_atual) || 0;
+                                  estoqueMinimo = Number(principal.estoque_minimo) || 0;
+                      }
+            }
 
       const estoqueVenda = fatorConversao !== 1.0
         ? estoqueAtual / fatorConversao
