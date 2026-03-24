@@ -116,6 +116,7 @@ interface EntregaRota {
   data_entrega: string | null;
   observacoes: string;
   motorista_id?: string | null;
+  leva_id?: string | null;
 }
 
 interface Motorista {
@@ -286,6 +287,11 @@ export default function OrcamentoApp() {
   const [levas, setLevas] = useState<Array<{id: string; nome: string; motorista?: string; data: string; volume_total?: number}>>([]);
   const [levaAtualId, setLevaAtualId] = useState<string | null>(null);
   const [carregandoLevas, setCarregandoLevas] = useState(false);
+  const [entregasSelecionadas, setEntregasSelecionadas] = useState<string[]>([]);
+  const [mostrarModalNovaLeva, setMostrarModalNovaLeva] = useState(false);
+  const [novaLevaData, setNovaLevaData] = useState('');
+  const [novaLevaMotorista, setNovaLevaMotorista] = useState('');
+  const [salvandoLeva, setSalvandoLeva] = useState(false);
   const [buscandoEndereco, setBuscandoEndereco] = useState(false);
   // Feature 9 - Reschedule
   const [mostrarReagendar, setMostrarReagendar] = useState(false);
@@ -1724,43 +1730,190 @@ export default function OrcamentoApp() {
                     </div>
 
                       {/* ===== LEVAS DE ENTREGA ===== */}
-                      <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
-                        <div className="flex justify-between items-center mb-2">
-                          <h3 className="font-bold text-blue-800 text-sm">🚚 Levas de Entrega</h3>
-                          <button
-                            className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
-                            onClick={async () => {
-                              const nome = prompt('Nome da leva (ex: Leva 1 - Manhã):');
-                              if (!nome) return;
-                              const res = await fetch('/api/levas', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nome, data: new Date().toISOString().split('T')[0] }) });
-                              const data = await res.json();
-                              if (data.leva) setLevas(prev => [...prev, data.leva]);
-                            }}
-                          >➕ Nova Leva</button>
-                        </div>
-                        {carregandoLevas ? <p className="text-xs text-blue-600">Carregando...</p> : levas.length === 0 ? (
-                          <p className="text-xs text-gray-500">Nenhuma leva criada. Crie uma leva para organizar as entregas do dia.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {levas.map(leva => {
-                              const vol = leva.volume_total || 0;
-                              const pct = Math.min(100, Math.round(vol / CAPACIDADE_CAMINHAO_M3 * 100));
-                              const cor = vol > CAPACIDADE_CAMINHAO_M3 * 0.9 ? 'bg-red-500' : vol > CAPACIDADE_CAMINHAO_M3 * 0.7 ? 'bg-yellow-500' : 'bg-green-500';
-                              return (
-                                <div key={leva.id} className={`border rounded-lg px-3 py-2 text-xs cursor-pointer ${levaAtualId === leva.id ? 'border-blue-500 bg-blue-100' : 'border-gray-200 bg-white'}`}
-                                  onClick={() => setLevaAtualId(levaAtualId === leva.id ? null : leva.id)}>
-                                  <div className="flex justify-between items-center">
-                                    <span className="font-medium">{leva.nome}</span>
-                                    <span className="text-gray-500">{vol.toFixed(1)}/{CAPACIDADE_CAMINHAO_M3} m³</span>
-                                  </div>
-                                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
-                                    <div className={`${cor} h-1.5 rounded-full`} style={{width: pct + '%'}}></div>
-                                  </div>
-                                </div>
-                              );
-                            })}
+                      {/* Modal Nova Leva */}
+                      {mostrarModalNovaLeva && (
+                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+                          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+                            <h3 className="text-lg font-bold text-gray-800 mb-4">Nova Leva de Entrega</h3>
+                            <div className="space-y-3">
+                              <div>
+                                <label className="text-sm font-medium text-gray-700 block mb-1">Data da Leva</label>
+                                <input type="date" value={novaLevaData} onChange={e => setNovaLevaData(e.target.value)}
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                              </div>
+                              <div>
+                                <label className="text-sm font-medium text-gray-700 block mb-1">Motorista</label>
+                                <select value={novaLevaMotorista} onChange={e => setNovaLevaMotorista(e.target.value)}
+                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
+                                  <option value="">Sem motorista</option>
+                                  {motoristas.filter((m: Motorista) => m.ativo).map((m: Motorista) => (
+                                    <option key={m.id} value={m.id}>{m.nome}{m.veiculo ? ' (' + m.veiculo + ')' : ''}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            </div>
+                            <div className="flex gap-3 mt-5">
+                              <button onClick={() => { setMostrarModalNovaLeva(false); setNovaLevaData(''); setNovaLevaMotorista(''); }}
+                                className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50">
+                                Cancelar
+                              </button>
+                              <button onClick={async () => {
+                                if (!novaLevaData) return;
+                                setSalvandoLeva(true);
+                                try {
+                                  const res = await fetch('/api/levas', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ data: novaLevaData, motorista_id: novaLevaMotorista || null }) });
+                                  if (res.ok) {
+                                    const nova = await res.json();
+                                    setLevas(prev => [...prev, { ...nova, orcamentos: [] }]);
+                                    setLevaAtualId(nova.id);
+                                    setMostrarModalNovaLeva(false);
+                                    setNovaLevaData('');
+                                    setNovaLevaMotorista('');
+                                  }
+                                } finally { setSalvandoLeva(false); }
+                              }} disabled={!novaLevaData || salvandoLeva}
+                                className="flex-1 bg-blue-600 text-white py-2 rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50">
+                                {salvandoLeva ? 'Criando...' : 'Criar Leva'}
+                              </button>
+                            </div>
                           </div>
-                        )}
+                        </div>
+                      )}
+
+                      {/* Layout duas colunas */}
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
+
+                        {/* Coluna esquerda: Entregas sem leva */}
+                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
+                          <div className="flex justify-between items-center mb-3">
+                            <h3 className="font-bold text-gray-700 text-sm">📋 Entregas Pendentes</h3>
+                            {entregasSelecionadas.length > 0 && levaAtualId && (
+                              <button onClick={async () => {
+                                const res = await fetch(`/api/levas/${levaAtualId}`, { method: 'PATCH',
+                                  headers: {'Content-Type': 'application/json'},
+                                  body: JSON.stringify({ action: 'add_entregas', orcamento_ids: entregasSelecionadas }) });
+                                if (res.ok) {
+                                  const levaAtualizada = await res.json();
+                                  setLevas(prev => prev.map(l => l.id === levaAtualId ? levaAtualizada : l));
+                                  setEntregasSelecionadas([]);
+                                }
+                              }}
+                                className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">
+                                ➕ Adicionar à Leva
+                              </button>
+                            )}
+                          </div>
+                          {entregasFiltradas && entregasFiltradas.rota_otimizada ? (() => {
+                            const semLeva = entregasFiltradas.rota_otimizada.filter((e: EntregaRota) => !e.leva_id);
+                            if (semLeva.length === 0) return <p className="text-xs text-gray-400 py-4 text-center">Todas as entregas estão em levas</p>;
+                            return (
+                              <div className="space-y-2">
+                                {semLeva.map((entrega: EntregaRota) => (
+                                  <div key={entrega.id} className={`bg-white border rounded-lg px-3 py-2 text-xs cursor-pointer flex items-start gap-2 ${entregasSelecionadas.includes(entrega.id) ? 'border-blue-400 bg-blue-50' : 'border-gray-200'}`}
+                                    onClick={() => setEntregasSelecionadas(prev => prev.includes(entrega.id) ? prev.filter(id => id !== entrega.id) : [...prev, entrega.id])}>
+                                    <input type="checkbox" readOnly checked={entregasSelecionadas.includes(entrega.id)} className="mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1 min-w-0">
+                                      <p className="font-medium text-gray-800 truncate">{entrega.cliente_nome}</p>
+                                      <p className="text-gray-500 truncate">{entrega.endereco}{entrega.numero ? ', ' + entrega.numero : ''}{entrega.bairro ? ' — ' + entrega.bairro : ''}</p>
+                                      <p className="text-gray-400">R$ {formatBRL(entrega.total)}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })() : <p className="text-xs text-gray-400 py-4 text-center">Calcule a rota para ver as entregas</p>}
+                        </div>
+
+                        {/* Coluna direita: Levas */}
+                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                          <div className="flex justify-between items-center mb-3">
+                            <h3 className="font-bold text-blue-800 text-sm">🚚 Levas do Dia</h3>
+                            <button onClick={() => setMostrarModalNovaLeva(true)}
+                              className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">
+                              ➕ Nova Leva
+                            </button>
+                          </div>
+                          {carregandoLevas ? (
+                            <p className="text-xs text-blue-600 py-4 text-center">Carregando...</p>
+                          ) : levas.length === 0 ? (
+                            <p className="text-xs text-gray-500 py-4 text-center">Nenhuma leva criada. Clique em Nova Leva para começar.</p>
+                          ) : (
+                            <div className="space-y-3">
+                              {levas.map(leva => {
+                                const vol = leva.volume_total || 0;
+                                const pct = Math.min(100, Math.round(vol / CAPACIDADE_CAMINHAO_M3 * 100));
+                                const cor = vol > CAPACIDADE_CAMINHAO_M3 * 0.9 ? 'bg-red-500' : vol > CAPACIDADE_CAMINHAO_M3 * 0.7 ? 'bg-yellow-400' : 'bg-green-500';
+                                const isSelected = levaAtualId === leva.id;
+                                return (
+                                  <div key={leva.id} className={`border rounded-xl p-3 text-xs cursor-pointer transition ${isSelected ? 'border-blue-500 bg-white shadow-md' : 'border-blue-200 bg-white'}`}
+                                    onClick={() => setLevaAtualId(isSelected ? null : leva.id)}>
+                                    <div className="flex justify-between items-center mb-1">
+                                      <span className="font-bold text-sm text-blue-800">
+                                        Leva {leva.numero_leva} {leva.motoristas?.nome ? '— ' + leva.motoristas.nome : ''}
+                                      </span>
+                                      <span className={`text-xs font-medium ${vol > CAPACIDADE_CAMINHAO_M3 ? 'text-red-600' : 'text-gray-600'}`}>
+                                        {vol.toFixed(1)}/{CAPACIDADE_CAMINHAO_M3} m³
+                                      </span>
+                                    </div>
+                                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
+                                      <div className={`${cor} h-2 rounded-full transition-all`} style={{width: pct + '%'}} />
+                                    </div>
+                                    {vol > CAPACIDADE_CAMINHAO_M3 && (
+                                      <p className="text-xs text-red-600 font-medium mb-1">⚠️ Excede capacidade!</p>
+                                    )}
+                                    {(leva.orcamentos || []).length > 0 && (
+                                      <div className="space-y-1 mb-2">
+                                        {(leva.orcamentos || []).map((orc: Record<string, unknown>) => (
+                                          <div key={orc.id as string} className="flex items-center justify-between bg-gray-50 rounded px-2 py-1">
+                                            <span className="truncate max-w-[140px]">{(orc.clientes as Record<string, unknown>)?.nome as string}</span>
+                                            <button onClick={async (e) => {
+                                              e.stopPropagation();
+                                              const res = await fetch(`/api/levas/${leva.id}`, { method: 'PATCH',
+                                                headers: {'Content-Type': 'application/json'},
+                                                body: JSON.stringify({ action: 'remove_entrega', orcamento_id: orc.id }) });
+                                              if (res.ok) {
+                                                const levaAtualizada = await res.json();
+                                                setLevas(prev => prev.map(l => l.id === leva.id ? levaAtualizada : l));
+                                              }
+                                            }}
+                                              className="text-red-400 hover:text-red-600 ml-1 flex-shrink-0">✕</button>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {isSelected && (
+                                      <div className="flex flex-wrap gap-1 mt-2">
+                                        <button onClick={async (e) => {
+                                          e.stopPropagation();
+                                          const res = await fetch(`/api/levas/${leva.id}`, { method: 'PATCH',
+                                            headers: {'Content-Type': 'application/json'},
+                                            body: JSON.stringify({ action: 'marcar_em_rota' }) });
+                                          if (res.ok) {
+                                            const levaAtualizada = await res.json();
+                                            setLevas(prev => prev.map(l => l.id === leva.id ? levaAtualizada : l));
+                                          }
+                                        }}
+                                          className="text-xs bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700">
+                                          🚚 Marcar Em Rota
+                                        </button>
+                                        <button onClick={async (e) => {
+                                          e.stopPropagation();
+                                          if (!confirm('Excluir esta leva?')) return;
+                                          const res = await fetch(`/api/levas/${leva.id}`, { method: 'DELETE' });
+                                          if (res.ok) setLevas(prev => prev.filter(l => l.id !== leva.id));
+                                        }}
+                                          className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200">
+                                          🗑️ Excluir
+                                        </button>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+
                       </div>
 
                     <div className="space-y-3 mb-4">
