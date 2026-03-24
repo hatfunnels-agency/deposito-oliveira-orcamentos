@@ -151,7 +151,7 @@ export async function GET(request: Request) {
       const { idPrincipal } = await resolverProdutoPrincipal(produtoId);
 
       // Buscar movimentacoes tanto do produto informado quanto do principal
-      const ids = [...new Set([produtoId, idPrincipal])];
+        const ids = produtoId === idPrincipal ? [produtoId] : [produtoId, idPrincipal];
 
       const { data: movimentacoes, error } = await supabaseAdmin
             .from('movimentacoes_estoque')
