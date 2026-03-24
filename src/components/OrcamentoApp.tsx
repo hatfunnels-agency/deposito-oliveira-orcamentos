@@ -198,6 +198,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const ACRESCIMO_CARTAO = 0.08;
 const MAX_PARCELAS = 6;
+const CAPACIDADE_CAMINHAO_M3 = 10;
 
 export default function OrcamentoApp() {
   // Auth state
@@ -275,6 +276,10 @@ export default function OrcamentoApp() {
   const [sugestoesEndereco, setSugestoesEndereco] = useState<Array<{place_id: string; description: string}>>([]);
   const [mostrandoSugestoes, setMostrandoSugestoes] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Levas state
+  const [levas, setLevas] = useState<Array<{id: string; nome: string; motorista?: string; data: string; volume_total?: number}>>([]);
+  const [levaAtualId, setLevaAtualId] = useState<string | null>(null);
+  const [carregandoLevas, setCarregandoLevas] = useState(false);
   const [buscandoEndereco, setBuscandoEndereco] = useState(false);
   // Feature 9 - Reschedule
   const [mostrarReagendar, setMostrarReagendar] = useState(false);
@@ -468,6 +473,18 @@ export default function OrcamentoApp() {
       if (!data.erro) setEnderecoViaCEP(`${data.logradouro}, ${data.bairro}, ${data.localidade}-${data.uf}`);
     } catch {}
   }, []);
+
+  // Fetch levas
+  useEffect(() => {
+    if (abaAtiva === 'entregas') {
+      setCarregandoLevas(true);
+      fetch('/api/levas', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => setLevas(data.levas || []))
+        .catch(() => {})
+        .finally(() => setCarregandoLevas(false));
+    }
+  }, [abaAtiva]);
 
   // Feature 7 - Search address by street name
   const buscarEnderecoPorRua = async () => {
@@ -1688,6 +1705,46 @@ export default function OrcamentoApp() {
                         <div><p className="text-2xl font-bold text-[#F7941D]">~{entregasRota.duracao_total_min} min</p><p className="text-xs text-[#F7941D]">Tempo estimado</p></div>
                       </div>
                     </div>
+
+                      {/* ===== LEVAS DE ENTREGA ===== */}
+                      <div className="mb-4 bg-blue-50 border border-blue-200 rounded-xl p-3">
+                        <div className="flex justify-between items-center mb-2">
+                          <h3 className="font-bold text-blue-800 text-sm">🚚 Levas de Entrega</h3>
+                          <button
+                            className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700"
+                            onClick={async () => {
+                              const nome = prompt('Nome da leva (ex: Leva 1 - Manhã):');
+                              if (!nome) return;
+                              const res = await fetch('/api/levas', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({ nome, data: new Date().toISOString().split('T')[0] }) });
+                              const data = await res.json();
+                              if (data.leva) setLevas(prev => [...prev, data.leva]);
+                            }}
+                          >➕ Nova Leva</button>
+                        </div>
+                        {carregandoLevas ? <p className="text-xs text-blue-600">Carregando...</p> : levas.length === 0 ? (
+                          <p className="text-xs text-gray-500">Nenhuma leva criada. Crie uma leva para organizar as entregas do dia.</p>
+                        ) : (
+                          <div className="space-y-2">
+                            {levas.map(leva => {
+                              const vol = leva.volume_total || 0;
+                              const pct = Math.min(100, Math.round(vol / CAPACIDADE_CAMINHAO_M3 * 100));
+                              const cor = vol > CAPACIDADE_CAMINHAO_M3 * 0.9 ? 'bg-red-500' : vol > CAPACIDADE_CAMINHAO_M3 * 0.7 ? 'bg-yellow-500' : 'bg-green-500';
+                              return (
+                                <div key={leva.id} className={`border rounded-lg px-3 py-2 text-xs cursor-pointer ${levaAtualId === leva.id ? 'border-blue-500 bg-blue-100' : 'border-gray-200 bg-white'}`}
+                                  onClick={() => setLevaAtualId(levaAtualId === leva.id ? null : leva.id)}>
+                                  <div className="flex justify-between items-center">
+                                    <span className="font-medium">{leva.nome}</span>
+                                    <span className="text-gray-500">{vol.toFixed(1)}/{CAPACIDADE_CAMINHAO_M3} m³</span>
+                                  </div>
+                                  <div className="w-full bg-gray-200 rounded-full h-1.5 mt-1">
+                                    <div className={`${cor} h-1.5 rounded-full`} style={{width: pct + '%'}}></div>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
 
                     <div className="space-y-3 mb-4">
                       {entregasFiltradas!.rota_otimizada.map((entrega: EntregaRota & { motorista_id?: string | null }, idx) => (
