@@ -196,6 +196,9 @@ const STATUS_COLORS: Record<string, string> = {
   cancelado: 'bg-gray-200 text-gray-600',
 };
 
+const ACRESCIMO_CARTAO = 0.08;
+const MAX_PARCELAS = 6;
+
 export default function OrcamentoApp() {
   // Auth state
   const [user, setUser] = useState<any>(null);
@@ -725,6 +728,7 @@ export default function OrcamentoApp() {
       tipoEntrega === 'entrega' && dataEntrega ? `*Data de entrega:* ${new Date(dataEntrega + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
       '',
       `*TOTAL: R$ ${formatBRL(total)}*`,
+      `💳 Cartão (+8%): R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO))} | 2x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 2)} | 6x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 6)}`,
       '',
       observacoes ? `_Obs: ${observacoes}_` : '',
       '_Orçamento válido por 7 dias_',
@@ -1506,6 +1510,17 @@ export default function OrcamentoApp() {
                   {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete === 0 && <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Frete:</span><span className="font-medium text-green-300">Grátis!</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-[#F7941D]"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl">R$ {formatBRL(total)}</span></div>
                 </div>
+              {/* Card pricing */}
+              {(() => {
+                const valorCartao = total * (1 + ACRESCIMO_CARTAO);
+                return (
+                  <div className="mt-2 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista:</span><span className="font-bold text-gray-800">R$ {formatBRL(total)}</span></div>
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💳 No cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
+                    <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
+                  </div>
+                );
+              })()}
                 {/* Observações field */}
               <textarea
                 placeholder="Observações (ex: ligar antes de entregar, horário preferido...)"
@@ -1853,6 +1868,18 @@ export default function OrcamentoApp() {
                   {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.valor_frete > 0 && <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Frete:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.valor_frete)}</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl text-[#F7941D]">R$ {formatBRL(orcamentoDetalhe.total)}</span></div>
                 </div>
+                {/* Card pricing - details modal */}
+                {(() => {
+                  const totalDetalhe = orcamentoDetalhe.total;
+                  const valorCartao = totalDetalhe * (1 + ACRESCIMO_CARTAO);
+                  return (
+                    <div className="mt-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-sm">
+                      <div className="flex justify-between mb-1"><span className="text-gray-600">💵 À vista:</span><span className="font-bold">R$ {formatBRL(totalDetalhe)}</span></div>
+                      <div className="flex justify-between mb-1"><span className="text-gray-600">💳 Cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
+                      <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-white border border-orange-300 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
+                    </div>
+                  );
+                })()}
                 {orcamentoDetalhe.observacoes && (
                   <div className="p-6 border-b border-gray-100">
                     <h3 className="font-bold text-gray-700 mb-2">Observações</h3>
