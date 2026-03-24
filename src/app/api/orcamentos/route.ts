@@ -155,26 +155,39 @@ export async function GET(request: NextRequest) {
 
       let query = supabaseAdmin
             .from('orcamentos')
-            .select(`
-                    id,
-                            codigo,
-                                    tipo_entrega,
-                                            valor_frete,
-                                                    subtotal,
-                                                            total,
-                                                                    status,
-                                                                            observacoes,
-                                                                                    criado_em,
-                                                                                            data_entrega,
-                                                                                                    bling_pedido_id,
-                                                                                                            clientes (
-                                                                                                                      id,
-                                                                                                                                nome,
-                                                                                                                                          telefone,
-                                                                                                                                                    cidade,
-                                                                                                                                                              estado
-                                                                                                                                                                      )
-                                                                                                                                                                            `, { count: 'exact' })
+.select(`
+                id,
+                codigo,
+                tipo_entrega,
+                valor_frete,
+                subtotal,
+                total,
+                status,
+                observacoes,
+                criado_em,
+                data_entrega,
+                data_retirada,
+                fonte,
+                motorista_id,
+                reagendamentos,
+                bling_pedido_id,
+                clientes (
+                  id,
+                  nome,
+                  telefone,
+                  cidade,
+                  estado,
+                  endereco,
+                  numero,
+                  bairro
+                ),
+                orcamento_itens (
+                  id,
+                  produto_nome,
+                  quantidade,
+                  unidade
+                )
+              `, { count: 'exact' })
             .order('criado_em', { ascending: false })
             .range(offset, offset + limite - 1);
 
@@ -202,8 +215,17 @@ export async function GET(request: NextRequest) {
               return NextResponse.json({ error: 'Erro ao buscar orcamentos' }, { status: 500 });
       }
 
+      // Tarefa 1: Enriquecer com resumo_itens server-side
+      const orcamentosEnriquecidos = (data || []).map((orc: Record<string, unknown>) => {
+        const itens = (orc.orcamento_itens as Array<{ produto_nome: string; quantidade: number; unidade: string }>) || [];
+        const resumo = itens.slice(0, 3).map((it) => {
+          const qtd = Number(it.quantidade);
+          return qtd > 1 ? `${it.produto_nome} ${qtd}${it.unidade ? it.unidade : ''}` : it.produto_nome;
+        }).join(', ');
+        return { ...orc, resumo_itens: resumo || '' };
+      });
       return NextResponse.json({
-              orcamentos: data || [],
+              orcamentos: orcamentosEnriquecidos,
               total: count || 0,
               pagina,
               limite,
