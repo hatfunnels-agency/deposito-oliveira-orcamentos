@@ -1894,6 +1894,22 @@ export default function OrcamentoApp() {
                                     )}
                                     {isSelected && (
                                       <div className="flex flex-wrap gap-1 mt-2">
+                                        <button onClick={(e) => {
+                                          e.stopPropagation();
+                                          // Google Maps route for this leva's deliveries
+                                          const orcs = (leva.orcamentos || []) as Array<Record<string, unknown>>;
+                                          if (orcs.length === 0) return;
+                                          const deposito = 'Av. Inocêncio Seráfico, 4020, Carapicuíba, SP';
+                                          const waypoints = orcs.map((o: Record<string,unknown>) => {
+                                            const cl = o.clientes as Record<string,string> | null;
+                                            return encodeURIComponent([cl?.endereco, cl?.numero, cl?.bairro, cl?.cidade].filter(Boolean).join(', '));
+                                          }).join('|');
+                                          const mapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(deposito)}/${waypoints}/${encodeURIComponent(deposito)}`;
+                                          window.open(mapsUrl, '_blank');
+                                        }}
+                                          className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">
+                                          🗺️ Google Maps
+                                        </button>
                                         <button onClick={async (e) => {
                                           e.stopPropagation();
                                           const res = await fetch(`/api/levas/${leva.id}`, { method: 'PATCH',
