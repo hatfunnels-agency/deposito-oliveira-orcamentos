@@ -323,7 +323,7 @@ export default function OrcamentoApp() {  // Auth state
   // Entregas v2 state
   const [entregasPendentes, setEntregasPendentes] = useState<EntregaRota[]>([]);
   const [loadingEntregasPendentes, setLoadingEntregasPendentes] = useState(false);
-  const [rotaGerada, setRotaGerada] = useState<{maps_url: string | null; entregas: EntregaRota[]} | null>(null);
+  const [rotaGerada, setRotaGerada] = useState(null as ({maps_url: string|null; entregas: EntregaRota[]}|null));
   const [gerandoRota, setGerandoRota] = useState(false);
   const [dataFiltroEntregas, setDataFiltroEntregas] = useState(() => new Date().toISOString().slice(0, 10));
 
@@ -1773,26 +1773,20 @@ export default function OrcamentoApp() {  // Auth state
                     <button onClick={() => {
                       const w = window.open('', '_blank');
                       if (!w) return;
-                      const rows = rotaGerada.entregas.map((e, i) => `
-                        <tr style="border-bottom:1px solid #eee">
-                          <td style="padding:8px;font-weight:bold;color:#F7941D">${i+1}</td>
-                          <td style="padding:8px;font-weight:bold">${e.cliente_nome}</td>
-                          <td style="padding:8px">${e.cliente_telefone}</td>
-                          <td style="padding:8px">${[e.endereco, e.numero ? 'nº '+e.numero : '', e.bairro, e.cep].filter(Boolean).join(', ')}</td>
-                          <td style="padding:8px">${e.itens_resumo}</td>
-                          <td style="padding:8px;font-weight:bold">R$ ${formatBRL(e.total)}</td>
-                        </tr>`).join('');
-                      w.document.write(`<!DOCTYPE html><html><head><title>Rota de Entregas</title>
-                        <style>body{font-family:Arial;padding:20px} table{width:100%;border-collapse:collapse} th{background:#F7941D;color:white;padding:8px} @media print{button{display:none}}</style>
-                        </head><body>
-                        <h2 style="color:#F7941D">🚚 Rota de Entregas — Depósito Oliveira</h2>
-                        <p>Data: ${dataFiltroEntregas} | Total de paradas: ${rotaGerada.entregas.length}</p>
-                        ${rotaGerada.maps_url ? '<p><a href="'+rotaGerada.maps_url+'" target="_blank">📍 Link da Rota no Google Maps</a></p>' : ''}
-                        <table><thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Endereço</th><th>Produtos</th><th>Total</th></tr></thead>
-                        <tbody>${rows}</tbody></table>
-                        <br/><button onclick="window.print()">🖨️ Imprimir</button>
-                        </body></html>`);
-                      w.document.close();
+                      const printData = rotaGerada.entregas.map((e, i) => ({
+                        num: i+1, nome: e.cliente_nome, tel: e.cliente_telefone,
+                        end: [e.endereco, e.numero ? 'nº '+e.numero : '', e.bairro, e.cep].filter(Boolean).join(', '),
+                        itens: e.itens_resumo, total: e.total
+                      }));
+                      const mapsUrl = rotaGerada.maps_url || '';
+                      const dataStr = dataFiltroEntregas;
+                      const w = window.open('', '_blank');
+                      if (w) {
+                        const tableRows = printData.map(r => '<tr><td style="padding:8px;font-weight:bold;color:#F7941D">'+r.num+'</td><td style="padding:8px;font-weight:bold">'+r.nome+'</td><td style="padding:8px">'+r.tel+'</td><td style="padding:8px">'+r.end+'</td><td style="padding:8px">'+r.itens+'</td><td style="padding:8px;font-weight:bold">R$ '+r.total.toFixed(2).replace('.',',')+'</td></tr>').join('');
+                        const mapsLink = mapsUrl ? '<p><a href="'+mapsUrl+'" target="_blank">📍 Link da Rota no Google Maps</a></p>' : '';
+                        w.document.write('<!DOCTYPE html><html><head><title>Rota de Entregas</title><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse}th{background:#F7941D;color:white;padding:8px}@media print{button{display:none}}</style></head><body><h2 style="color:#F7941D">🚚 Rota de Entregas — Depósito Oliveira</h2><p>Data: '+dataStr+' | Paradas: '+printData.length+'</p>'+mapsLink+'<table><thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Endereço</th><th>Produtos</th><th>Total</th></tr></thead><tbody>'+tableRows+'</tbody></table><br><button onclick="window.print()">🖨️ Imprimir</button></body></html>');
+                        w.document.close();
+                      }
                     }}
                       className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
                       🖨️ Imprimir
