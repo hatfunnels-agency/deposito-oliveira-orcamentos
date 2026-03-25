@@ -210,31 +210,11 @@ const ACRESCIMO_CARTAO = 0.08;
 const MAX_PARCELAS = 6;
 const CAPACIDADE_CAMINHAO_M3 = 10;
 
-// === CALCULADORA DE FERRO ===
-const FERRO_PRECOS = {
-  padrao: 20.00,
-  especial: 25.00,
-  montado: {4: 20.00, 6: 36.00, 8: 42.00} as Record<number, number>,
-  LIMITE_PEDIDO_GRANDE: 100,
-};
-
-const TIPOS_PECA_FERRO = [
-  {value: 'sapata', label: 'Sapata', temDuasDirecoes: true},
-  {value: 'coluna', label: 'Coluna', temDuasDirecoes: false},
-  {value: 'viga', label: 'Viga', temDuasDirecoes: false},
-  {value: 'baldrame', label: 'Baldrame', temDuasDirecoes: false},
-];
-
-interface PecaMontada {
-  id: string;
-  tipo: string;
-  dimensao1: number;
-  dimensao2: number;
-  barras: 4 | 6 | 8;
-  quantidade: number;
-}
-
 export default function OrcamentoApp() {
+  // Calculadora de Ferro constants
+  type PecaMontada = {id: string; tipo: string; dimensao1: number; dimensao2: number; barras: 4|6|8; quantidade: number};
+  const FERRO_PRECOS = {padrao: 20.00, especial: 25.00, montado: {4: 20.00, 6: 36.00, 8: 42.00}, LIMITE_PEDIDO_GRANDE: 100};
+  const TIPOS_PECA_FERRO = [{value: 'sapata', label: 'Sapata', temDuasDirecoes: true},{value: 'coluna', label: 'Coluna', temDuasDirecoes: false},{value: 'viga', label: 'Viga', temDuasDirecoes: false},{value: 'baldrame', label: 'Baldrame', temDuasDirecoes: false}];
   // Auth state
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<{nome: string, papel: string} | null>(null);
