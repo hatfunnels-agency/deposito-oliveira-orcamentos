@@ -253,6 +253,8 @@ export default function OrcamentoApp() {  // Auth state
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
   // === CALCULADORA DE FERRO STATES ===
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
+  const [busca, setBusca] = useState('');
+  const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque'>('produtos');
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
