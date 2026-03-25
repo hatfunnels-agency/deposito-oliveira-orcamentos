@@ -841,7 +841,6 @@ export default function OrcamentoApp() {  // Auth state
     if (dataEnt) printWindow.document.write(`<div class="info"><span>Data de entrega:</span> ${new Date(dataEnt + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     if (dataRet) printWindow.document.write(`<div class="info"><span>Data de retirada:</span> ${new Date(dataRet + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     const fonteVal = d ? (d as any).fonte : fonteVenda;
-    if (fonteVal) printWindow.document.write(`<div class="info"><span>Canal de venda:</span> ${fonteVal}</div>`);
     const obs = d ? d.observacoes : observacoes;
     if (obs) printWindow.document.write(`<div class="info"><span>Observações:</span> ${obs}</div>`);
     printWindow.document.write(`<table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:center">Unidade</th><th style="text-align:right">Preço Unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;padding:10px 8px">Subtotal:</td><td style="text-align:right;padding:10px 8px">R$ ${formatBRL(sub)}</td></tr>`);
@@ -1303,23 +1302,7 @@ export default function OrcamentoApp() {  // Auth state
     <>
       {modalClienteAberto && (
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'}}>
-          <div style={{background:'white',borderRadius:'12px',width:'100%',maxWidth:'500px',marginTop:'20px'}}>(
-        <div className="max-w-lg mx-auto pb-8 pt-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Canal de venda</label>
-            <select className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent" value={fonteVenda} onChange={e => setFonteVenda(e.target.value)}>
-              <option value="">Selecione o canal</option>
-              <option value="Ponto (presencial)">Ponto (presencial)</option>
-              <option value="WhatsApp orgânico">WhatsApp orgânico</option>
-              <option value="Google Ads">Google Ads</option>
-              <option value="Google Meu Negócio (GMN)">Google Meu Negócio (GMN)</option>
-              <option value="Prospecção (equipe)">Prospecção (equipe)</option>
-              <option value="Indicação">Indicação</option>
-              <option value="Redes Sociais">Redes Sociais</option>
-              <option value="Retorno / Recompra">Retorno / Recompra</option>
-              <option value="Outro">Outro</option>
-            </select>
-          </div>
+          <div style={{background:'white',borderRadius:'12px',width:'100%',maxWidth:'500px',marginTop:'20px'}}>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
             <h2 className="text-xl font-bold text-gray-800 mb-2">➕ Novo Orçamento</h2>
             <p className="text-sm text-gray-500 mb-6">Preencha os dados do cliente antes de selecionar os produtos</p>
@@ -1379,7 +1362,7 @@ export default function OrcamentoApp() {  // Auth state
             </div>
           </div>
         </div>
-      )</div></div>)}
+      </div>)}
           <div>
             {etapaOrcamento === 'produtos' && clienteNomeNovo && (
             <div className="bg-[#FFF3E0] border border-[#F7941D] rounded-xl p-3 mb-4 flex items-center justify-between flex-wrap gap-2">
@@ -2170,7 +2153,6 @@ export default function OrcamentoApp() {  // Auth state
                   )}
                   {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
-                  {orcamentoDetalhe.fonte && <p className="text-sm text-gray-600 mt-1">📢 Canal: {orcamentoDetalhe.fonte}</p>}
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
                 <div className="p-6 border-b border-gray-100">
