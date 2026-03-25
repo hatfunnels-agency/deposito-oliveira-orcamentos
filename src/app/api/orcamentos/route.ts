@@ -179,7 +179,11 @@ export async function GET(request: NextRequest) {
                   estado,
                   endereco,
                   numero,
-                  bairro
+                  bairro,
+                  recebedor
+                ),
+                motoristas:motorista_id (
+                  nome
                 ),
                 orcamento_itens (
                   id,
@@ -222,7 +226,8 @@ export async function GET(request: NextRequest) {
           const qtd = Number(it.quantidade);
           return qtd > 1 ? `${it.produto_nome} ${qtd}${it.unidade ? it.unidade : ''}` : it.produto_nome;
         }).join(', ');
-        return { ...orc, resumo_itens: resumo || '' };
+        const motoristaNome = (orc.motoristas as Record<string, unknown> | null)?.nome as string | null;
+        return { ...orc, resumo_itens: resumo || '', motorista_nome: motoristaNome || null };
       });
       return NextResponse.json({
               orcamentos: orcamentosEnriquecidos,
