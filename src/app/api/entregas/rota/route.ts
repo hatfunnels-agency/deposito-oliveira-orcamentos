@@ -1,9 +1,33 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-const DEPOSITO_ADDRESS = 'Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021';
+const DEPOSITO_ADDRESS = 'Av. Inoc\u00eancio Ser\u00e1fico, 4020 - Centro, Carapicu\u00edba - SP, 06380-021';
+const DEPOSITO_LAT = -23.5237;
+const DEPOSITO_LNG = -46.8389;
 
-interface EntregaParaRota {
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = (lat2 - lat1) * Math.PI / 180;
+  const dLng = (lng2 - lng1) * Math.PI / 180;
+  const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
+    Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)*Math.sin(dLng/2);
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+}
+
+async function geocodeAddress(address: string, apiKey: string): Promise<{lat: number, lng: number} | null> {
+  try {
+    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    if (data.status === 'OK' && data.results[0]) {
+      const loc = data.results[0].geometry.location;
+      return { lat: loc.lat, lng: loc.lng };
+    }
+  } catch {}
+  return null;
+}
+
+interface EntregaItem {
   id: string;
   codigo: string;
   cliente_nome: string;
@@ -20,20 +44,20 @@ interface EntregaParaRota {
   itens_resumo: string;
   data_entrega: string | null;
   observacoes: string;
-  motorista_id: string | null;
+  distancia_km: number | null;
 }
 
-export async function POST(request: NextRequest) {
+// GET - carrega entregas pendentes do dia, ordenadas por distancia
+export async function GET(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { data: dataFiltro } = body;
-    const dataAlvo = dataFiltro || new Date().toISOString().split('T')[0];
-    const statusEntrega = ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'];
+    const { searchParams } = new URL(request.url);
+    const data = searchParams.get('data');
 
+    const statusEntrega = ['aguardando', 'confirmado', 'em_rota'];
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, status, total, data_entrega, observacoes, motorista_id, leva_id,
+        id, codigo, tipo_entrega, status, total, data_entrega, observacoes,
         clientes (
           nome, telefone, cep, endereco, bairro, cidade, estado,
           numero, complemento, recebedor
@@ -46,130 +70,167 @@ export async function POST(request: NextRequest) {
       .in('status', statusEntrega)
       .order('criado_em', { ascending: true });
 
-    if (dataFiltro) {
-      query = query.eq('data_entrega', dataAlvo);
+    if (data) {
+      query = query.eq('data_entrega', data);
+    } else {
+      // Default: today
+      const hoje = new Date().toISOString().slice(0, 10);
+      query = query.eq('data_entrega', hoje);
     }
 
     const { data: entregas, error } = await query;
-
     if (error) {
-      console.error('Erro ao buscar entregas:', error);
       return NextResponse.json({ error: 'Erro ao buscar entregas' }, { status: 500 });
     }
 
-    if (!entregas || entregas.length === 0) {
-      return NextResponse.json({
-        data: dataAlvo, total_entregas: 0, distancia_total_km: 0, duracao_total_min: 0,
-        rota_otimizada: [], maps_url: null,
-        mensagem: 'Nenhuma entrega encontrada para esta data',
-      });
+    const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+
+    const entregasComDist: EntregaItem[] = await Promise.all(
+      (entregas || []).map(async (e: Record<string, unknown>) => {
+        const cliente = e.clientes as Record<string, unknown> | null;
+        const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
+        const itensResumo = (itens || [])
+          .map((i) => String(i.quantidade) + (i.unidade === 'unidade' ? 'x' : String(i.unidade)) + ' ' + String(i.produto_nome))
+          .join(', ');
+
+        const endereco = cliente?.endereco ? String(cliente.endereco) : '';
+        const numero = cliente?.numero ? String(cliente.numero) : '';
+        const cep = cliente?.cep ? String(cliente.cep) : '';
+        const bairro = cliente?.bairro ? String(cliente.bairro) : '';
+        const cidade = cliente?.cidade ? String(cliente.cidade) + '-' + String(cliente.estado || '') : '';
+
+        let distanciaKm: number | null = null;
+        if (GOOGLE_MAPS_API_KEY && endereco) {
+          const fullAddr = [endereco, numero, bairro, cep].filter(Boolean).join(', ') + ', Brasil';
+          const coords = await geocodeAddress(fullAddr, GOOGLE_MAPS_API_KEY);
+          if (coords) {
+            distanciaKm = Math.round(haversineKm(DEPOSITO_LAT, DEPOSITO_LNG, coords.lat, coords.lng) * 10) / 10;
+          }
+        }
+
+        return {
+          id: String(e.id), codigo: String(e.codigo),
+          cliente_nome: cliente?.nome ? String(cliente.nome) : 'Sem nome',
+          cliente_telefone: cliente?.telefone ? String(cliente.telefone) : '',
+          endereco, cep, numero,
+          complemento: cliente?.complemento ? String(cliente.complemento) : '',
+          recebedor: cliente?.recebedor ? String(cliente.recebedor) : '',
+          bairro, cidade,
+          status: String(e.status), total: Number(e.total),
+          itens_resumo: itensResumo,
+          data_entrega: e.data_entrega ? String(e.data_entrega) : null,
+          observacoes: e.observacoes ? String(e.observacoes) : '',
+          distancia_km: distanciaKm,
+        };
+      })
+    );
+
+    // Sort by distance (nulls last)
+    entregasComDist.sort((a, b) => {
+      if (a.distancia_km === null && b.distancia_km === null) return 0;
+      if (a.distancia_km === null) return 1;
+      if (b.distancia_km === null) return -1;
+      return a.distancia_km - b.distancia_km;
+    });
+
+    return NextResponse.json({ entregas: entregasComDist, total: entregasComDist.length });
+  } catch (error) {
+    console.error('Erro ao carregar entregas:', error);
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+  }
+}
+
+// POST - gera rota com Google Maps para IDs selecionados
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { ids } = body as { ids: string[] };
+
+    if (!ids || ids.length === 0) {
+      return NextResponse.json({ error: 'Nenhuma entrega selecionada' }, { status: 400 });
     }
 
-    const entregasParaRota: EntregaParaRota[] = entregas.map((e: Record<string, unknown>) => {
-      const cliente = e.clientes as Record<string, string> | null;
+    const { data: entregas, error } = await supabaseAdmin
+      .from('orcamentos')
+      .select(`
+        id, codigo, tipo_entrega, status, total, data_entrega, observacoes,
+        clientes (
+          nome, telefone, cep, endereco, bairro, cidade, estado,
+          numero, complemento, recebedor
+        ),
+        orcamento_itens (
+          produto_nome, quantidade, unidade
+        )
+      `)
+      .in('id', ids);
+
+    if (error) {
+      return NextResponse.json({ error: 'Erro ao buscar entregas' }, { status: 500 });
+    }
+
+    const entregasFormatadas = (entregas || []).map((e: Record<string, unknown>) => {
+      const cliente = e.clientes as Record<string, unknown> | null;
       const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
       const itensResumo = (itens || [])
         .map((i) => String(i.quantidade) + (i.unidade === 'unidade' ? 'x' : String(i.unidade)) + ' ' + String(i.produto_nome))
         .join(', ');
       return {
         id: String(e.id), codigo: String(e.codigo),
-        cliente_nome: cliente?.nome || 'Sem nome',
-        cliente_telefone: cliente?.telefone || '',
-        endereco: cliente?.endereco || '', cep: cliente?.cep || '',
-        numero: cliente?.numero || '', complemento: cliente?.complemento || '',
-        recebedor: cliente?.recebedor || '', bairro: cliente?.bairro || '',
-        cidade: cliente?.cidade ? cliente.cidade + '-' + (cliente.estado || '') : '',
+        cliente_nome: cliente?.nome ? String(cliente.nome) : 'Sem nome',
+        cliente_telefone: cliente?.telefone ? String(cliente.telefone) : '',
+        endereco: cliente?.endereco ? String(cliente.endereco) : '',
+        cep: cliente?.cep ? String(cliente.cep) : '',
+        numero: cliente?.numero ? String(cliente.numero) : '',
+        complemento: cliente?.complemento ? String(cliente.complemento) : '',
+        recebedor: cliente?.recebedor ? String(cliente.recebedor) : '',
+        bairro: cliente?.bairro ? String(cliente.bairro) : '',
+        cidade: cliente?.cidade ? String(cliente.cidade) + '-' + String(cliente.estado || '') : '',
         status: String(e.status), total: Number(e.total),
         itens_resumo: itensResumo,
         data_entrega: e.data_entrega ? String(e.data_entrega) : null,
         observacoes: e.observacoes ? String(e.observacoes) : '',
-        motorista_id: e.motorista_id ? String(e.motorista_id) : null,
-        leva_id: e.leva_id ? String(e.leva_id) : null,
       };
     });
 
-    const entregasComEndereco = entregasParaRota.filter((e) => e.endereco || e.cep);
+    // Reorder to match the original selection order
+    const ordered = ids
+      .map(id => entregasFormatadas.find((e) => e.id === id))
+      .filter(Boolean) as typeof entregasFormatadas;
 
-    if (entregasComEndereco.length === 0) {
-      return NextResponse.json({
-        data: dataAlvo, total_entregas: entregasParaRota.length,
-        distancia_total_km: 0, duracao_total_min: 0,
-        rota_otimizada: entregasParaRota, maps_url: null,
-        mensagem: 'Entregas encontradas mas sem endereços válidos para calcular rota',
-      });
-    }
+    // Build Google Maps URL
+    const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+    const entregasComEnd = ordered.filter(e => e.endereco);
 
-    const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY;
-    if (!GOOGLE_MAPS_API_KEY) {
-      return NextResponse.json({ error: 'Google Maps API key não configurada' }, { status: 500 });
-    }
-
-    const waypoints = entregasComEndereco.slice(0, 25).map((e) => {
-      const fullAddr = [e.endereco, e.numero ? 'n' + String.fromCharCode(186) + ' ' + e.numero : '', e.bairro, e.cep].filter(Boolean).join(', ');
-      return encodeURIComponent(fullAddr);
-    });
-
-    const waypointsParam = waypoints.length > 0 ? '&waypoints=optimize:true|' + waypoints.join('|') : '';
-    const directionsUrl = 'https://maps.googleapis.com/maps/api/directions/json?origin=' + encodeURIComponent(DEPOSITO_ADDRESS) + '&destination=' + encodeURIComponent(DEPOSITO_ADDRESS) + waypointsParam + '&language=pt-BR&key=' + GOOGLE_MAPS_API_KEY;
-
-    const gmapsRes = await fetch(directionsUrl, { cache: 'no-store' });
-    const gmapsData = await gmapsRes.json();
-
-    if (gmapsData.status !== 'OK') {
-      const errorDetail = gmapsData.error_message || gmapsData.status;
-      console.error('Google Directions API error:', JSON.stringify(gmapsData));
-      return NextResponse.json({
-        data: dataAlvo, total_entregas: entregasParaRota.length,
-        distancia_total_km: 0, duracao_total_min: 0,
-        rota_otimizada: entregasParaRota.map((e, idx) => ({ parada: idx + 1, ...e })),
-        maps_url: null,
-        mensagem: 'Erro ao calcular rota: ' + errorDetail + '. Entregas listadas sem otimizacao.',
-      });
-    }
-
-    const route = gmapsData.routes[0];
-    const waypointOrder: number[] = route.waypoint_order || [];
-    let distanciaTotalM = 0, duracaoTotalS = 0;
-    for (const leg of route.legs) {
-      distanciaTotalM += leg.distance.value;
-      duracaoTotalS += leg.duration.value;
-    }
-    const distanciaTotalKm = Math.round((distanciaTotalM / 1000) * 10) / 10;
-    const duracaoTotalMin = Math.round(duracaoTotalS / 60);
-
-    const entregasOtimizadas: EntregaParaRota[] =
-      waypointOrder.length > 0
-        ? waypointOrder.map((idx: number) => entregasComEndereco[idx])
-        : entregasComEndereco;
-
-    const waypointsForUrl = entregasOtimizadas
-      .map((e: EntregaParaRota) => encodeURIComponent([e.endereco, e.numero ? 'n' + String.fromCharCode(186) + ' ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
+    const waypointsForUrl = entregasComEnd
+      .map((e) => encodeURIComponent([e.endereco, e.numero ? 'n\u00ba ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
       .join('|');
 
-    const mapsUrl = 'https://www.google.com/maps/dir/?api=1&origin=' + encodeURIComponent(DEPOSITO_ADDRESS) + '&destination=' + encodeURIComponent(DEPOSITO_ADDRESS) + '&waypoints=' + waypointsForUrl + '&travelmode=driving';
+    const mapsUrl = entregasComEnd.length > 0
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}&waypoints=${waypointsForUrl}&travelmode=driving`
+      : null;
 
     return NextResponse.json({
-      data: dataAlvo,
-      total_entregas: entregasOtimizadas.length,
-      distancia_total_km: distanciaTotalKm,
-      duracao_total_min: duracaoTotalMin,
-      rota_otimizada: entregasOtimizadas.map((e: EntregaParaRota, idx: number) => ({ parada: idx + 1, ...e })),
+      entregas: ordered,
       maps_url: mapsUrl,
+      total: ordered.length,
     });
   } catch (error) {
-    console.error('Erro ao calcular rota de entregas:', error);
-    return NextResponse.json({ error: 'Erro interno ao calcular rota de entregas' }, { status: 500 });
+    console.error('Erro ao gerar rota:', error);
+    return NextResponse.json({ error: 'Erro interno ao gerar rota' }, { status: 500 });
   }
 }
 
+// PATCH - marca entregas como em_rota
 export async function PATCH(request: NextRequest) {
   try {
-    const body = await request.json();
-    const { ids } = body;
+    const { ids } = await request.json();
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: 'IDs das entregas sao obrigatorios' }, { status: 400 });
     }
-    const { error } = await supabaseAdmin.from('orcamentos').update({ status: 'em_rota' }).in('id', ids);
+    const { error } = await supabaseAdmin
+      .from('orcamentos')
+      .update({ status: 'em_rota' })
+      .in('id', ids);
     if (error) {
       return NextResponse.json({ error: 'Erro ao atualizar status das entregas' }, { status: 500 });
     }
