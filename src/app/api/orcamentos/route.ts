@@ -116,7 +116,8 @@ export async function POST(request: NextRequest) {
             .insert(itensToInsert);
 
       if (itensError) {
-              console.error('Erro ao criar itens:', itensError);
+        console.error('Erro ao criar itens:', itensError);
+        return NextResponse.json({ error: 'Erro ao criar itens do orçamento' }, { status: 500 });
       }
 
       // GHL Sync (non-blocking)
