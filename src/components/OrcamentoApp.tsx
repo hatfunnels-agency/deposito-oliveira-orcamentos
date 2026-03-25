@@ -91,10 +91,11 @@ interface OrcamentoSalvo {
   data_retirada?: string | null;
   fonte?: string | null;
   motorista_id?: string | null;
+  motorista_nome?: string | null;
   reagendamentos?: number;
   resumo_itens?: string;
   bling_pedido_id?: string | null;
-  clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null } | null;
+  clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null; recebedor?: string | null } | null;
 }
 
 interface EntregaRota {
@@ -876,20 +877,24 @@ export default function OrcamentoApp() {
     setComplementoEndereco(detalhe.clientes?.complemento || '');
     setRecebedor(detalhe.clientes?.recebedor || '');
     setObservacoes(detalhe.observacoes || '');
-    const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map(oi => ({
-      produto: {
-        id: String(oi.produto_id || oi.id),
-        nome: oi.produto_nome,
-        preco: oi.preco_unitario,
-        estoque: 999,
-        unidade: oi.unidade,
-        categoria: 'Geral',
-                  preco_custo: 0,
-            estoque_minimo: 0,
-            abaixo_minimo: false,
-          },
-      quantidade: oi.quantidade,
-    }));
+    const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
+      // Try to find matching product by name for better data quality
+      const matchProduto = produtos.find(p => p.nome === oi.produto_nome);
+      return {
+        produto: {
+          id: matchProduto?.id || String(oi.produto_id || ('item-' + idx)),
+          nome: oi.produto_nome,
+          preco: matchProduto?.preco ?? oi.preco_unitario,
+          estoque: matchProduto?.estoque ?? 999,
+          unidade: oi.unidade || matchProduto?.unidade || 'un',
+          categoria: matchProduto?.categoria || 'Geral',
+          preco_custo: matchProduto?.preco_custo ?? 0,
+          estoque_minimo: matchProduto?.estoque_minimo ?? 0,
+          abaixo_minimo: matchProduto?.abaixo_minimo ?? false,
+        },
+        quantidade: oi.quantidade,
+      };
+    });
     setItens(cartItems);
     setMostrarDetalhe(false);
     setOrcamentoDetalhe(null);
@@ -1660,6 +1665,12 @@ export default function OrcamentoApp() {
                           )}
                           {orc.resumo_itens && (
                             <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">📦 {orc.resumo_itens}</p>
+                          )}
+                          {orc.clientes?.recebedor && (
+                            <p className="text-xs text-gray-500 mt-0.5">👤 Recebedor: {orc.clientes.recebedor}</p>
+                          )}
+                          {orc.motorista_nome && (
+                            <p className="text-xs text-gray-500 mt-0.5">🚗 {orc.motorista_nome}</p>
                           )}
                         </div>
                         <div className="text-right">
