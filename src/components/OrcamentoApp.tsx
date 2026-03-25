@@ -2176,7 +2176,9 @@ export default function OrcamentoApp() {  // Auth state
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-3">Produtos</h3>
                   <div className="space-y-2">
-                    {orcamentoDetalhe.orcamento_itens.map(item => (
+                    {orcamentoDetalhe.orcamento_itens.length === 0 ? (
+                      <p className="text-sm text-gray-500 italic py-2">Nenhum produto registrado. Edite o orçamento para adicionar os produtos.</p>
+                    ) : orcamentoDetalhe.orcamento_itens.map(item => (
                       <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-800">{item.produto_nome}</p>
