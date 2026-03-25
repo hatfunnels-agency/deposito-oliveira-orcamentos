@@ -121,6 +121,7 @@ interface EntregaRota {
   observacoes: string;
   motorista_id?: string | null;
   leva_id?: string | null;
+  distancia_km?: number | null;
 }
 
 interface Motorista {
@@ -319,6 +320,13 @@ export default function OrcamentoApp() {  // Auth state
   const [atribuindoMotorista, setAtribuindoMotorista] = useState<string | null>(null);
   const [mostrarAtribuirMotorista, setMostrarAtribuirMotorista] = useState(false);
   const [entregaSelecionadaId, setEntregaSelecionadaId] = useState<string | null>(null);
+  // Entregas v2 state
+  const [entregasPendentes, setEntregasPendentes] = useState<EntregaRota[]>([]);
+  const [loadingEntregasPendentes, setLoadingEntregasPendentes] = useState(false);
+  const [rotaGerada, setRotaGerada] = useState<{maps_url: string | null; entregas: EntregaRota[]} | null>(null);
+  const [gerandoRota, setGerandoRota] = useState(false);
+  const [dataFiltroEntregas, setDataFiltroEntregas] = useState(() => new Date().toISOString().slice(0, 10));
+
 
   // Estoque management state
   const [mostrarEntrada, setMostrarEntrada] = useState(false);
@@ -514,14 +522,9 @@ export default function OrcamentoApp() {  // Auth state
   // Fetch levas
   useEffect(() => {
     if (abaAtiva === 'entregas') {
-      setCarregandoLevas(true);
-      fetch('/api/levas', { cache: 'no-store' })
-        .then(r => r.json())
-        .then(data => setLevas(data.levas || []))
-        .catch(() => {})
-        .finally(() => setCarregandoLevas(false));
+      carregarEntregasPendentes();
     }
-  }, [abaAtiva]);
+  }, [abaAtiva, dataFiltroEntregas]);
 
   // Feature 7 - Search address by street name
   const buscarEnderecoPorRua = async () => {
@@ -1010,21 +1013,34 @@ export default function OrcamentoApp() {  // Auth state
     }
   };
 
-  // Bug 1 fix - Entregas now includes em_rota status
-  const carregarEntregas = async () => {
-    setLoadingEntregas(true);
+  const carregarEntregasPendentes = async () => {
+    setLoadingEntregasPendentes(true);
+    try {
+      const params = dataFiltroEntregas ? `?data=${dataFiltroEntregas}` : '';
+      const res = await fetch(`/api/entregas/rota${params}`, { cache: 'no-store' });
+      const data = await res.json();
+      setEntregasPendentes(data.entregas || []);
+      setEntregasSelecionadas([]);
+      setRotaGerada(null);
+    } catch (e) { console.error('Erro ao carregar entregas', e); }
+    setLoadingEntregasPendentes(false);
+  };
+
+  const gerarRotaSelecionadas = async () => {
+    if (entregasSelecionadas.length === 0) return;
+    setGerandoRota(true);
     try {
       const res = await fetch('/api/entregas/rota', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: dataEntregas || undefined }),
+        body: JSON.stringify({ ids: entregasSelecionadas }),
+        cache: 'no-store',
       });
       const data = await res.json();
-      setEntregasRota(data);
-    } catch (e) { console.error('Erro ao carregar entregas', e); }
-    setLoadingEntregas(false);
+      setRotaGerada({ maps_url: data.maps_url, entregas: data.entregas || [] });
+    } catch (e) { console.error('Erro ao gerar rota', e); }
+    setGerandoRota(false);
   };
-
   const marcarEmRota = async () => {
     if (!entregasRota || entregasRota.rota_otimizada.length === 0) return;
     setMarcandoRota(true);
@@ -1705,350 +1721,186 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
-        {/* ===== ENTREGAS TAB (Bug 1 fix - shows em_rota items too) ===== */}
+        {/* ===== ENTREGAS TAB ===== */}
         {abaAtiva === 'entregas' && (
           <div className="pb-8">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-              <h2 className="font-bold text-gray-700 mb-3">🚚 Painel de Rotas de Entrega</h2>
-              <div className="flex flex-col sm:flex-row gap-3">
-                <input type="date" value={dataEntregas} onChange={e => setDataEntregas(e.target.value)}
-                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                <button onClick={carregarEntregas} disabled={loadingEntregas}
-                  className="bg-[#F7941D] text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition disabled:opacity-50">
-                  {loadingEntregas ? 'Calculando...' : 'Calcular Rota'}
+
+            {/* Header com filtro de data e botão gerar rota */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
+              <h2 className="font-bold text-gray-700 mb-3">🚚 Entregas Pendentes</h2>
+              <div className="flex flex-col sm:flex-row gap-3 items-end">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Data de entrega</label>
+                  <input type="date" value={dataFiltroEntregas}
+                    onChange={e => setDataFiltroEntregas(e.target.value)}
+                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                </div>
+                <button onClick={carregarEntregasPendentes} disabled={loadingEntregasPendentes}
+                  className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50">
+                  {loadingEntregasPendentes ? 'Carregando...' : '🔄 Atualizar'}
                 </button>
-                <button onClick={() => setMostrarGestaoMotoristas(true)} className="bg-gray-600 text-white px-3 py-2 rounded-lg text-sm hover:bg-gray-700 transition">⚙️ Motoristas</button>
-              </div>
-              <div className="flex gap-2 mt-2 flex-wrap items-center">
-                <select value={filtroMotorista} onChange={e => setFiltroMotorista(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]">
-                  <option value="todos">Todos os motoristas</option>
-                  <option value="nenhum">Não atribuídos</option>
-                  {motoristas.map(m => <option key={m.id} value={m.id}>{m.nome}{m.veiculo ? ' (' + m.veiculo + ')' : ''}</option>)}
-                </select>
-                {filtroMotorista !== 'todos' && filtroMotorista !== 'nenhum' && (
-                  <button onClick={() => atribuirTodosMotorista(filtroMotorista)} className="text-xs bg-[#FFF3E0] text-[#F7941D] px-3 py-1 rounded-lg hover:bg-[#FFF3E0]">
-                    Atribuir todos (não atribuídos) a {motoristas.find(m => m.id === filtroMotorista)?.nome || '...'}
+                <div className="flex-1" />
+                {entregasSelecionadas.length > 0 && (
+                  <button onClick={gerarRotaSelecionadas} disabled={gerandoRota}
+                    className="bg-[#F7941D] text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-[#E8850A] disabled:opacity-50 flex items-center gap-2">
+                    {gerandoRota ? 'Gerando...' : `🗺️ Gerar Rota (${entregasSelecionadas.length} selecionadas)`}
                   </button>
                 )}
               </div>
-              <p className="text-xs text-gray-500 mt-2">Deixe a data vazia para ver todas as entregas pendentes</p>
+              {entregasSelecionadas.length > 0 && (
+                <div className="mt-2 flex gap-2">
+                  <button onClick={() => setEntregasSelecionadas(entregasPendentes.map(e => e.id))}
+                    className="text-xs text-blue-600 hover:underline">Selecionar todas</button>
+                  <span className="text-xs text-gray-400">|</span>
+                  <button onClick={() => setEntregasSelecionadas([])}
+                    className="text-xs text-gray-500 hover:underline">Limpar seleção</button>
+                </div>
+              )}
             </div>
 
-            {loadingEntregas && (
-              <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]"></div></div>
-            )}
-
-            {entregasRota && !loadingEntregas && entregasFiltradas && (
-              <div>
-                {entregasFiltradas && entregasFiltradas.mensagem && (
-                  <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 text-sm text-yellow-800">{entregasFiltradas!.mensagem}</div>
-                )}
-
-                {entregasFiltradas!.total_entregas > 0 && (
-                  <>
-                    <div className="bg-[#FFF3E0] border border-[#F7941D] rounded-xl p-4 mb-4">
-                      <div className="grid grid-cols-3 gap-4 text-center">
-                        <div><p className="text-2xl font-bold text-[#F7941D]">{entregasRota.total_entregas}</p><p className="text-xs text-[#F7941D]">Entregas</p></div>
-                        <div><p className="text-2xl font-bold text-[#F7941D]">{entregasRota.distancia_total_km} km</p><p className="text-xs text-[#F7941D]">Distância total</p></div>
-                        <div><p className="text-2xl font-bold text-[#F7941D]">~{entregasRota.duracao_total_min} min</p><p className="text-xs text-[#F7941D]">Tempo estimado</p></div>
-                      </div>
-                    </div>
-
-                      {/* ===== LEVAS DE ENTREGA ===== */}
-                      {/* Modal Nova Leva */}
-                      {mostrarModalNovaLeva && (
-                        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
-                          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
-                            <h3 className="text-lg font-bold text-gray-800 mb-4">Nova Leva de Entrega</h3>
-                            <div className="space-y-3">
-                              <div>
-                                <label className="text-sm font-medium text-gray-700 block mb-1">Data da Leva</label>
-                                <input type="date" value={novaLevaData} onChange={e => setNovaLevaData(e.target.value)}
-                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                              </div>
-                              <div>
-                                <label className="text-sm font-medium text-gray-700 block mb-1">Motorista</label>
-                                <select value={novaLevaMotorista} onChange={e => setNovaLevaMotorista(e.target.value)}
-                                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                                  <option value="">Sem motorista</option>
-                                  {motoristas.filter((m: Motorista) => m.ativo).map((m: Motorista) => (
-                                    <option key={m.id} value={m.id}>{m.nome}{m.veiculo ? ' (' + m.veiculo + ')' : ''}</option>
-                                  ))}
-                                </select>
-                              </div>
-                            </div>
-                            <div className="flex gap-3 mt-5">
-                              <button onClick={() => { setMostrarModalNovaLeva(false); setNovaLevaData(''); setNovaLevaMotorista(''); }}
-                                className="flex-1 border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50">
-                                Cancelar
-                              </button>
-                              <button onClick={async () => {
-                                if (!novaLevaData) return;
-                                setSalvandoLeva(true);
-                                try {
-                                  const res = await fetch('/api/levas', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ data: novaLevaData, motorista_id: novaLevaMotorista || null }) });
-                                  if (res.ok) {
-                                    const nova = await res.json();
-                                    setLevas(prev => [...prev, { ...nova, orcamentos: [] }]);
-                                    setLevaAtualId(nova.id);
-                                    setMostrarModalNovaLeva(false);
-                                    setNovaLevaData('');
-                                    setNovaLevaMotorista('');
-                                  }
-                                } finally { setSalvandoLeva(false); }
-                              }} disabled={!novaLevaData || salvandoLeva}
-                                className="flex-1 bg-blue-600 text-white py-2 rounded-xl font-medium hover:bg-blue-700 disabled:opacity-50">
-                                {salvandoLeva ? 'Criando...' : 'Criar Leva'}
-                              </button>
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Layout duas colunas */}
-                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mt-4">
-
-                        {/* Coluna esquerda: Entregas sem leva */}
-                        <div className="bg-gray-50 border border-gray-200 rounded-xl p-3">
-                          <div className="flex justify-between items-center mb-3">
-                            <h3 className="font-bold text-gray-700 text-sm">📋 Entregas Pendentes</h3>
-                            {entregasSelecionadas.length > 0 && levaAtualId && (
-                              <button onClick={async () => {
-                                const res = await fetch(`/api/levas/${levaAtualId}`, { method: 'PATCH',
-                                  headers: {'Content-Type': 'application/json'},
-                                  body: JSON.stringify({ action: 'add_entregas', orcamento_ids: entregasSelecionadas }) });
-                                if (res.ok) {
-                                  const levaAtualizada = await res.json();
-                                  setLevas(prev => prev.map(l => l.id === levaAtualId ? levaAtualizada : l));
-                                  setEntregasSelecionadas([]);
-                                }
-                              }}
-                                className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">
-                                ➕ Adicionar à Leva
-                              </button>
-                            )}
-                          </div>
-                          {entregasFiltradas && entregasFiltradas.rota_otimizada ? (() => {
-                            const semLeva = entregasFiltradas.rota_otimizada.filter((e: EntregaRota) => !e.leva_id);
-                            if (semLeva.length === 0) return <p className="text-xs text-gray-400 py-4 text-center">Todas as entregas estão em levas</p>;
-                            return (
-                              <div className="space-y-2">
-                                {semLeva.map((entrega: EntregaRota) => (
-                                  <div key={entrega.id} className={`bg-white border rounded-lg px-3 py-2 text-xs cursor-pointer flex items-start gap-2 ${entregasSelecionadas.includes(entrega.id) ? 'border-blue-400 bg-blue-50' : 'border-gray-200'}`}
-                                    onClick={() => setEntregasSelecionadas(prev => prev.includes(entrega.id) ? prev.filter(id => id !== entrega.id) : [...prev, entrega.id])}>
-                                    <input type="checkbox" readOnly checked={entregasSelecionadas.includes(entrega.id)} className="mt-0.5 flex-shrink-0" />
-                                    <div className="flex-1 min-w-0">
-                                      <p className="font-medium text-gray-800 truncate">{entrega.cliente_nome}</p>
-                                      <p className="text-gray-500 truncate">{entrega.endereco}{entrega.numero ? ', ' + entrega.numero : ''}{entrega.bairro ? ' — ' + entrega.bairro : ''}</p>
-                                      <p className="text-gray-400">R$ {formatBRL(entrega.total)}</p>
-                                    </div>
-                                  </div>
-                                ))}
-                              </div>
-                            );
-                          })() : <p className="text-xs text-gray-400 py-4 text-center">Calcule a rota para ver as entregas</p>}
-                        </div>
-
-                        {/* Coluna direita: Levas */}
-                        <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
-                          <div className="flex justify-between items-center mb-3">
-                            <h3 className="font-bold text-blue-800 text-sm">🚚 Levas do Dia</h3>
-                            <button onClick={() => setMostrarModalNovaLeva(true)}
-                              className="text-xs bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700">
-                              ➕ Nova Leva
-                            </button>
-                          </div>
-                          {carregandoLevas ? (
-                            <p className="text-xs text-blue-600 py-4 text-center">Carregando...</p>
-                          ) : levas.length === 0 ? (
-                            <p className="text-xs text-gray-500 py-4 text-center">Nenhuma leva criada. Clique em Nova Leva para começar.</p>
-                          ) : (
-                            <div className="space-y-3">
-                              {levas.map(leva => {
-                                const vol = leva.volume_total || 0;
-                                const pct = Math.min(100, Math.round(vol / CAPACIDADE_CAMINHAO_M3 * 100));
-                                const cor = vol > CAPACIDADE_CAMINHAO_M3 * 0.9 ? 'bg-red-500' : vol > CAPACIDADE_CAMINHAO_M3 * 0.7 ? 'bg-yellow-400' : 'bg-green-500';
-                                const isSelected = levaAtualId === leva.id;
-                                return (
-                                  <div key={leva.id} className={`border rounded-xl p-3 text-xs cursor-pointer transition ${isSelected ? 'border-blue-500 bg-white shadow-md' : 'border-blue-200 bg-white'}`}
-                                    onClick={() => setLevaAtualId(isSelected ? null : leva.id)}>
-                                    <div className="flex justify-between items-center mb-1">
-                                      <span className="font-bold text-sm text-blue-800">
-                                        Leva {leva.numero_leva} {leva.motoristas?.nome ? '— ' + leva.motoristas.nome : ''}
-                                      </span>
-                                      <span className={`text-xs font-medium ${vol > CAPACIDADE_CAMINHAO_M3 ? 'text-red-600' : 'text-gray-600'}`}>
-                                        {vol.toFixed(1)}/{CAPACIDADE_CAMINHAO_M3} m³
-                                      </span>
-                                    </div>
-                                    <div className="w-full bg-gray-200 rounded-full h-2 mb-2">
-                                      <div className={`${cor} h-2 rounded-full transition-all`} style={{width: pct + '%'}} />
-                                    </div>
-                                    {vol > CAPACIDADE_CAMINHAO_M3 && (
-                                      <p className="text-xs text-red-600 font-medium mb-1">⚠️ Excede capacidade!</p>
-                                    )}
-                                    {(leva.orcamentos || []).length > 0 && (
-                                      <div className="space-y-1 mb-2">
-                                        {(leva.orcamentos || []).map((orc: Record<string, unknown>) => (
-                                          <div key={orc.id as string} className="flex items-center justify-between bg-gray-50 rounded px-2 py-1">
-                                            <span className="truncate max-w-[140px]">{(orc.clientes as Record<string, unknown>)?.nome as string}</span>
-                                            <button onClick={async (e) => {
-                                              e.stopPropagation();
-                                              const res = await fetch(`/api/levas/${leva.id}`, { method: 'PATCH',
-                                                headers: {'Content-Type': 'application/json'},
-                                                body: JSON.stringify({ action: 'remove_entrega', orcamento_id: orc.id }) });
-                                              if (res.ok) {
-                                                const levaAtualizada = await res.json();
-                                                setLevas(prev => prev.map(l => l.id === leva.id ? levaAtualizada : l));
-                                              }
-                                            }}
-                                              className="text-red-400 hover:text-red-600 ml-1 flex-shrink-0">✕</button>
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                    {isSelected && (
-                                      <div className="flex flex-wrap gap-1 mt-2">
-                                        <button onClick={(e) => {
-                                          e.stopPropagation();
-                                          // Google Maps route for this leva's deliveries
-                                          const orcs = (leva.orcamentos || []) as Array<Record<string, unknown>>;
-                                          if (orcs.length === 0) return;
-                                          const deposito = 'Av. Inocêncio Seráfico, 4020, Carapicuíba, SP';
-                                          const waypoints = orcs.map((o: Record<string,unknown>) => {
-                                            const cl = o.clientes as Record<string,string> | null;
-                                            return encodeURIComponent([cl?.endereco, cl?.numero, cl?.bairro, cl?.cidade].filter(Boolean).join(', '));
-                                          }).join('|');
-                                          const mapsUrl = `https://www.google.com/maps/dir/${encodeURIComponent(deposito)}/${waypoints}/${encodeURIComponent(deposito)}`;
-                                          window.open(mapsUrl, '_blank');
-                                        }}
-                                          className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded hover:bg-blue-200">
-                                          🗺️ Google Maps
-                                        </button>
-                                        <button onClick={async (e) => {
-                                          e.stopPropagation();
-                                          const res = await fetch(`/api/levas/${leva.id}`, { method: 'PATCH',
-                                            headers: {'Content-Type': 'application/json'},
-                                            body: JSON.stringify({ action: 'marcar_em_rota' }) });
-                                          if (res.ok) {
-                                            const levaAtualizada = await res.json();
-                                            setLevas(prev => prev.map(l => l.id === leva.id ? levaAtualizada : l));
-                                          }
-                                        }}
-                                          className="text-xs bg-purple-600 text-white px-2 py-1 rounded hover:bg-purple-700">
-                                          🚚 Marcar Em Rota
-                                        </button>
-                                        <button onClick={async (e) => {
-                                          e.stopPropagation();
-                                          if (!confirm('Excluir esta leva?')) return;
-                                          const res = await fetch(`/api/levas/${leva.id}`, { method: 'DELETE' });
-                                          if (res.ok) setLevas(prev => prev.filter(l => l.id !== leva.id));
-                                        }}
-                                          className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200">
-                                          🗑️ Excluir
-                                        </button>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-
-                      </div>
-
-                    <div className="space-y-3 mb-4">
-                      {entregasFiltradas!.rota_otimizada.map((entrega: EntregaRota & { motorista_id?: string | null }, idx) => (
-                        <div key={entrega.id} onClick={() => abrirDetalhe(entrega.id)} className={`bg-white rounded-xl shadow-sm border p-4 cursor-pointer hover:shadow-md transition ${entrega.status === 'em_rota' ? 'border-purple-300 bg-purple-50' : entrega.status === 'completo' ? 'border-green-300 bg-green-50 opacity-60' : 'border-gray-100'}`}>
-                          <div className="flex items-start gap-3">
-                            <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${entrega.status === 'em_rota' ? 'bg-purple-600 text-white' : entrega.status === 'completo' ? 'bg-green-600 text-white' : 'bg-[#F7941D] text-white'}`}>
-                              {entrega.parada || idx + 1}
-                            </div>
-                            <div className="flex-1">
-                              <div className="flex items-center gap-2 mb-1">
-                                <p className="font-medium text-gray-800">{entrega.cliente_nome}</p>
-                                {entrega.cliente_telefone && (
-                                  <a href={`tel:${entrega.cliente_telefone}`} className="text-xs text-[#F7941D] underline">{entrega.cliente_telefone}</a>
-                                )}
-                              </div>
-                              <p className="text-xs text-gray-500 mb-1">
-                                {[entrega.endereco, entrega.numero ? `nº ${entrega.numero}` : '', entrega.complemento, entrega.bairro, entrega.cep].filter(Boolean).join(', ') || entrega.cep}
-                              </p>
-                              {entrega.recebedor && <p className="text-xs text-gray-500">Recebedor: {entrega.recebedor}</p>}
-                              <p className="text-xs text-gray-400">{entrega.itens_resumo}</p>
-                              <div className="flex items-center gap-2 mt-2 flex-wrap">
-                                <span className="text-xs font-medium text-[#F7941D]">{entrega.codigo}</span>
-                                <span className={`text-xs px-2 py-0.5 rounded-full ${STATUS_COLORS[entrega.status] || 'bg-gray-100 text-gray-600'}`}>
-                                  {STATUS_LABELS[entrega.status] || entrega.status}
-                                </span>
-                                <span className="text-xs font-bold text-gray-700">R$ {formatBRL(entrega.total)}</span>
-                              </div>
-                              {/* Bug 1 fix - action buttons per delivery */}
-                              <div className="flex gap-2 mt-2">
-                                {entrega.status === 'em_rota' && (
-                                  <button onClick={(e) => { e.stopPropagation(); marcarEntregaCompleta(entrega.id); }}
-                                    className="text-xs bg-green-600 text-white px-3 py-1 rounded-lg hover:bg-green-700 transition">
-                                    ✅ Marcar Entregue
-                                  </button>
-                                )}
-                                {!['completo', 'cancelado', 'ocorrencia'].includes(entrega.status) && (
-                                  <button onClick={(e) => { e.stopPropagation(); setReagendandoId(entrega.id); setMostrarReagendar(true); }}
-                                    className="text-xs bg-yellow-500 text-white px-3 py-1 rounded-lg hover:bg-yellow-600 transition">
-                                    📅 Reagendar
-                                  </button>
-                                )}
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); setEntregaSelecionadaId(entrega.id); setMostrarAtribuirMotorista(true); }}
-                                  className="text-xs bg-purple-100 text-purple-700 px-3 py-1 rounded-lg hover:bg-purple-200 transition"
-                                >
-                                  🚗 {entrega.motorista_id ? (motoristas.find((m: Motorista) => m.id === entrega.motorista_id)?.nome || 'Motorista') : 'Atribuir'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      {entregasRota.maps_url && (
-                        <a href={entregasRota.maps_url} target="_blank" rel="noopener noreferrer"
-                          className="flex-1 bg-green-600 text-white py-3 rounded-xl font-bold text-center hover:bg-green-700 transition">
-                          🗺️ Abrir no Google Maps
-                        </a>
-                      )}
-                      <button onClick={imprimirRotas}
-                        className="flex-1 bg-gray-600 text-white py-3 rounded-xl font-bold hover:bg-gray-700 transition">
-                        🖨️ Imprimir Rotas
-                      </button>
-                      <button onClick={marcarEmRota} disabled={marcandoRota}
-                        className="flex-1 bg-purple-600 text-white py-3 rounded-xl font-bold hover:bg-purple-700 transition disabled:opacity-50">
-                        {marcandoRota ? 'Atualizando...' : '🚚 Marcar Todos Em Rota'}
-                      </button>
-                    </div>
-                  </>
-                )}
-                {entregasFiltradas!.total_entregas === 0 && (
-                  <div className="text-center py-16 text-gray-400">
-                    <p className="text-4xl mb-4">✅</p>
-                    <p>Nenhuma entrega pendente para esta data</p>
+            {/* Rota gerada */}
+            {rotaGerada && (
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
+                  <h3 className="font-bold text-green-800">✅ Rota gerada — {rotaGerada.entregas.length} paradas</h3>
+                  <div className="flex gap-2">
+                    {rotaGerada.maps_url && (
+                      <a href={rotaGerada.maps_url} target="_blank" rel="noopener noreferrer"
+                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
+                        🗺️ Abrir no Maps
+                      </a>
+                    )}
+                    <button onClick={() => {
+                      const w = window.open('', '_blank');
+                      if (!w) return;
+                      const rows = rotaGerada.entregas.map((e, i) => `
+                        <tr style="border-bottom:1px solid #eee">
+                          <td style="padding:8px;font-weight:bold;color:#F7941D">${i+1}</td>
+                          <td style="padding:8px;font-weight:bold">${e.cliente_nome}</td>
+                          <td style="padding:8px">${e.cliente_telefone}</td>
+                          <td style="padding:8px">${[e.endereco, e.numero ? 'nº '+e.numero : '', e.bairro, e.cep].filter(Boolean).join(', ')}</td>
+                          <td style="padding:8px">${e.itens_resumo}</td>
+                          <td style="padding:8px;font-weight:bold">R$ ${formatBRL(e.total)}</td>
+                        </tr>`).join('');
+                      w.document.write(`<!DOCTYPE html><html><head><title>Rota de Entregas</title>
+                        <style>body{font-family:Arial;padding:20px} table{width:100%;border-collapse:collapse} th{background:#F7941D;color:white;padding:8px} @media print{button{display:none}}</style>
+                        </head><body>
+                        <h2 style="color:#F7941D">🚚 Rota de Entregas — Depósito Oliveira</h2>
+                        <p>Data: ${dataFiltroEntregas} | Total de paradas: ${rotaGerada.entregas.length}</p>
+                        ${rotaGerada.maps_url ? '<p><a href="'+rotaGerada.maps_url+'" target="_blank">📍 Link da Rota no Google Maps</a></p>' : ''}
+                        <table><thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Endereço</th><th>Produtos</th><th>Total</th></tr></thead>
+                        <tbody>${rows}</tbody></table>
+                        <br/><button onclick="window.print()">🖨️ Imprimir</button>
+                        </body></html>`);
+                      w.document.close();
+                    }}
+                      className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
+                      🖨️ Imprimir
+                    </button>
+                    <button onClick={() => setRotaGerada(null)}
+                      className="text-gray-500 hover:text-gray-700 text-sm px-2">✕ Fechar</button>
                   </div>
-                )}
+                </div>
+                <div className="space-y-2">
+                  {rotaGerada.entregas.map((entrega, idx) => (
+                    <div key={entrega.id} className="bg-white rounded-lg border border-green-200 px-3 py-2 flex items-start gap-3">
+                      <div className="w-8 h-8 rounded-full bg-[#F7941D] text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                        {idx + 1}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-medium text-gray-800">{entrega.cliente_nome}
+                          {entrega.cliente_telefone && <a href={`tel:${entrega.cliente_telefone}`} className="ml-2 text-xs text-blue-500">{entrega.cliente_telefone}</a>}
+                        </p>
+                        <p className="text-xs text-gray-500">{[entrega.endereco, entrega.numero ? `nº ${entrega.numero}` : '', entrega.bairro, entrega.cep].filter(Boolean).join(', ')}</p>
+                        {entrega.itens_resumo && <p className="text-xs text-gray-400 mt-0.5">📦 {entrega.itens_resumo}</p>}
+                      </div>
+                      <p className="text-sm font-bold text-gray-700 flex-shrink-0">R$ {formatBRL(entrega.total)}</p>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {!entregasRota && !loadingEntregas && (
+            {/* Lista de entregas pendentes */}
+            {loadingEntregasPendentes ? (
+              <div className="flex justify-center py-16">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]" />
+              </div>
+            ) : entregasPendentes.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <p className="text-4xl mb-4">🚚</p>
-                <p>Clique em "Calcular Rota" para ver as entregas do dia</p>
+                <p>Nenhuma entrega pendente para esta data</p>
+                <p className="text-sm mt-2">Altere a data ou verifique os orçamentos com entrega agendada</p>
+              </div>
+            ) : (
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <p className="text-sm text-gray-500">{entregasPendentes.length} entrega(s) • ordenadas por distância</p>
+                  <button onClick={() => {
+                    if (entregasSelecionadas.length === entregasPendentes.length) {
+                      setEntregasSelecionadas([]);
+                    } else {
+                      setEntregasSelecionadas(entregasPendentes.map(e => e.id));
+                    }
+                  }}
+                    className="text-xs text-blue-600 hover:underline">
+                    {entregasSelecionadas.length === entregasPendentes.length ? 'Desmarcar todas' : 'Selecionar todas'}
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {entregasPendentes.map((entrega) => {
+                    const selecionada = entregasSelecionadas.includes(entrega.id);
+                    return (
+                      <div key={entrega.id}
+                        onClick={() => setEntregasSelecionadas(prev =>
+                          prev.includes(entrega.id) ? prev.filter(id => id !== entrega.id) : [...prev, entrega.id]
+                        )}
+                        className={`bg-white border rounded-xl px-4 py-3 cursor-pointer flex items-start gap-3 transition-colors ${selecionada ? 'border-[#F7941D] bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
+                        <input type="checkbox" readOnly checked={selecionada}
+                          className="mt-1 flex-shrink-0 w-4 h-4 accent-[#F7941D]" />
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div>
+                              <p className="font-medium text-gray-800">{entrega.cliente_nome}</p>
+                              {entrega.cliente_telefone && (
+                                <a href={`tel:${entrega.cliente_telefone}`} onClick={e => e.stopPropagation()}
+                                  className="text-xs text-blue-500">{entrega.cliente_telefone}</a>
+                              )}
+                            </div>
+                            <div className="text-right flex-shrink-0">
+                              <p className="font-bold text-gray-800">R$ {formatBRL(entrega.total)}</p>
+                              {entrega.distancia_km !== null && (
+                                <p className="text-xs text-gray-400">~{entrega.distancia_km} km</p>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-1">
+                            {[entrega.endereco, entrega.numero ? `nº ${entrega.numero}` : '', entrega.bairro, entrega.cep].filter(Boolean).join(', ')}
+                          </p>
+                          {entrega.itens_resumo && (
+                            <p className="text-xs text-gray-400 mt-0.5">📦 {entrega.itens_resumo}</p>
+                          )}
+                          {entrega.observacoes && (
+                            <p className="text-xs text-yellow-600 mt-0.5">📝 {entrega.observacoes}</p>
+                          )}
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className={`text-xs px-2 py-0.5 rounded-full ${entrega.status === 'em_rota' ? 'bg-blue-100 text-blue-700' : entrega.status === 'confirmado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                              {entrega.status === 'em_rota' ? '🚗 Em rota' : entrega.status === 'confirmado' ? '✅ Confirmado' : '⏳ Aguardando'}
+                            </span>
+                            <button onClick={e => { e.stopPropagation(); abrirDetalhe(entrega.id); }}
+                              className="text-xs text-blue-500 hover:underline">Ver detalhes</button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
             )}
           </div>
         )}
-      </div>
 
-
-      {/* ===== ESTOQUE TAB ===== */}
+        {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
           {produtosAbaixoMinimo.length > 0 && (
