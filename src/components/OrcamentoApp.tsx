@@ -276,8 +276,8 @@ export default function OrcamentoApp() {
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
   // === CALCULADORA DE FERRO STATES ===
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
-  const [ferroMode, setFerroMode] = useState<'metro' | 'pecas'>('metro');
-  const [ferroTipo, setFerroTipo] = useState<'padrao' | 'especial'>('padrao');
+  const [ferroMode, setFerroMode] = useState<string>('metro');
+  const [ferroTipo, setFerroTipo] = useState<string>('padrao');
   const [ferroMetragem, setFerroMetragem] = useState(1);
   const [ferroEspecificacoes, setFerroEspecificacoes] = useState('');
   const [pecasMontadas, setPecasMontadas] = useState<PecaMontada[]>([]);
