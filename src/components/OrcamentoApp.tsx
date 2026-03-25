@@ -451,8 +451,20 @@ export default function OrcamentoApp() {  // Auth state
 
   const adicionarItensAvulsos = (itens: Array<{nome: string; quantidade: number; preco: number; especificacoes?: string}>) => {
     itens.forEach(item => {
-      const produtoAvulso = { id: 'ferro-' + Date.now() + '-' + Math.random().toString(36).slice(2,7), nome: item.nome, preco: item.preco, codigo: '', unidade: 'm', estoque_atual: 0, estoque_minimo: 0, categoria: '', preco_custo: 0, ativo: true };
-      setItens(prev => [...prev, { produto: produtoAvulso, quantidade: item.quantidade, avulso: true, preco_custom: item.preco }]);
+      const produtoAvulso: Produto = {
+        id: 'ferro-' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
+        nome: item.nome,
+        preco: item.preco,
+        preco_custo: 0,
+        estoque: 0,
+        estoque_minimo: 0,
+        abaixo_minimo: false,
+        unidade: 'm',
+        categoria: 'Ferro',
+        codigo: '',
+      };
+      const novoItem: ItemOrcamento = { produto: produtoAvulso, quantidade: item.quantidade, avulso: true, preco_custom: item.preco };
+      setItens(prev => [...prev, novoItem]);
     });
   };
 
