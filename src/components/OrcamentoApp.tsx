@@ -1081,44 +1081,23 @@ export default function OrcamentoApp() {  // Auth state
 
   // Feature 5 - Print routes for driver
   const imprimirRotas = () => {
-    const rotaParaImprimir = entregasFiltradas || entregasRota;
-    if (!rotaParaImprimir || rotaParaImprimir.rota_otimizada.length === 0) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    const dataStr = rotaParaImprimir.data ? new Date(rotaParaImprimir.data + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    const motoristaAtual = motoristas.find(m => m.id === filtroMotorista);
-    let html = `<!DOCTYPE html><html><head><title>Rotas ${dataStr}</title><style>
-      body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}
-      h1{font-size:18px;margin-bottom:2px}
-      .header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}
-      .stats{display:flex;gap:20px;margin:8px 0}
-      .stats div{font-weight:bold}
-      .entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
-      .parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}
-      .check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}
-      .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
-      @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
-    </style></head><body>`;
-    html += `<div class="header"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:50px;width:auto;border-radius:4px" /><div><h1 style="margin:0;font-size:18px">🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;font-size:11px;color:#555">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p></div></div><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
-    rotaParaImprimir.rota_otimizada.forEach((e, idx) => {
-      const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
-      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
-      if (e.cliente_telefone) html += ` - ${e.cliente_telefone}`;
-      html += `<br/><span style="color:#555">${endCompleto}</span>`;
-      if (e.recebedor) html += `<br/><em>Recebedor: ${e.recebedor}</em>`;
-      html += `<div class="itens">${e.itens_resumo}</div>`;
-      html += `<div style="display:flex;justify-content:space-between"><span>Valor: <strong>R$ ${formatBRL(e.total)}</strong></span><span>${e.codigo}</span></div>`;
-      if (e.observacoes) html += `<div style="color:#666;font-style:italic;margin-top:2px">Obs: ${e.observacoes}</div>`;
-      html += `</div>`;
-    });
-    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>Depósito Oliveira</strong> — Materiais de Construção<br>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021 — Tel: (11) 4187-1801</div></body></html>`;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setTimeout(() => printWindow.print(), 250);
-  };
-
-
-  // ===== Estoque Management Functions =====
+                      const w = window.open('', '_blank');
+                      if (!w) return;
+                      const printData = rotaGerada.entregas.map((e, i) => ({
+                        num: i+1, nome: e.cliente_nome, tel: e.cliente_telefone,
+                        end: [e.endereco, e.numero ? 'nº '+e.numero : '', e.bairro, e.cep].filter(Boolean).join(', '),
+                        itens: e.itens_resumo, total: e.total
+                      }));
+                      const mapsUrl = rotaGerada.maps_url || '';
+                      const dataStr = dataFiltroEntregas;
+                      const w = window.open('', '_blank');
+                      if (w) {
+                        const tableRows = printData.map(r => '<tr><td style="padding:8px;font-weight:bold;color:#F7941D">'+r.num+'</td><td style="padding:8px;font-weight:bold">'+r.nome+'</td><td style="padding:8px">'+r.tel+'</td><td style="padding:8px">'+r.end+'</td><td style="padding:8px">'+r.itens+'</td><td style="padding:8px;font-weight:bold">R$ '+r.total.toFixed(2).replace('.',',')+'</td></tr>').join('');
+                        const mapsLink = mapsUrl ? '<p><a href="'+mapsUrl+'" target="_blank">📍 Link da Rota no Google Maps</a></p>' : '';
+                        w.document.write('<!DOCTYPE html><html><head><title>Rota de Entregas</title><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse}th{background:#F7941D;color:white;padding:8px}@media print{button{display:none}}</style></head><body><h2 style="color:#F7941D">🚚 Rota de Entregas — Depósito Oliveira</h2><p>Data: '+dataStr+' | Paradas: '+printData.length+'</p>'+mapsLink+'<table><thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Endereço</th><th>Produtos</th><th>Total</th></tr></thead><tbody>'+tableRows+'</tbody></table><br><button onclick="window.print()">🖨️ Imprimir</button></body></html>');
+                        w.document.close();
+                      }
+                      }
   const registrarEntrada = async () => {
     if (!produtoSelecionado || !entradaQtd) return;
     setSalvandoEstoque(true);
@@ -1770,25 +1749,7 @@ export default function OrcamentoApp() {  // Auth state
                         🗺️ Abrir no Maps
                       </a>
                     )}
-                    <button onClick={() => {
-                      const w = window.open('', '_blank');
-                      if (!w) return;
-                      const printData = rotaGerada.entregas.map((e, i) => ({
-                        num: i+1, nome: e.cliente_nome, tel: e.cliente_telefone,
-                        end: [e.endereco, e.numero ? 'nº '+e.numero : '', e.bairro, e.cep].filter(Boolean).join(', '),
-                        itens: e.itens_resumo, total: e.total
-                      }));
-                      const mapsUrl = rotaGerada.maps_url || '';
-                      const dataStr = dataFiltroEntregas;
-                      const w = window.open('', '_blank');
-                      if (w) {
-                        const tableRows = printData.map(r => '<tr><td style="padding:8px;font-weight:bold;color:#F7941D">'+r.num+'</td><td style="padding:8px;font-weight:bold">'+r.nome+'</td><td style="padding:8px">'+r.tel+'</td><td style="padding:8px">'+r.end+'</td><td style="padding:8px">'+r.itens+'</td><td style="padding:8px;font-weight:bold">R$ '+r.total.toFixed(2).replace('.',',')+'</td></tr>').join('');
-                        const mapsLink = mapsUrl ? '<p><a href="'+mapsUrl+'" target="_blank">📍 Link da Rota no Google Maps</a></p>' : '';
-                        w.document.write('<!DOCTYPE html><html><head><title>Rota de Entregas</title><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse}th{background:#F7941D;color:white;padding:8px}@media print{button{display:none}}</style></head><body><h2 style="color:#F7941D">🚚 Rota de Entregas — Depósito Oliveira</h2><p>Data: '+dataStr+' | Paradas: '+printData.length+'</p>'+mapsLink+'<table><thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Endereço</th><th>Produtos</th><th>Total</th></tr></thead><tbody>'+tableRows+'</tbody></table><br><button onclick="window.print()">🖨️ Imprimir</button></body></html>');
-                        w.document.close();
-                      }
-                    }}
-                      className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
+                    <button onClick={imprimirRotas}                      className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
                       🖨️ Imprimir
                     </button>
                     <button onClick={() => setRotaGerada(null)}
