@@ -284,7 +284,7 @@ export default function OrcamentoApp() {
   const [mostrandoSugestoes, setMostrandoSugestoes] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Levas state
-  const [levas, setLevas] = useState<Array<{id: string; nome: string; motorista?: string; data: string; volume_total?: number}>>([]);
+  const [levas, setLevas] = useState<Array<{id: string; numero_leva: number; data: string; volume_total?: number; status?: string; motorista_id?: string | null; motoristas?: {id: string; nome: string; veiculo?: string} | null; orcamentos?: Record<string, unknown>[]}>>([]); 
   const [levaAtualId, setLevaAtualId] = useState<string | null>(null);
   const [carregandoLevas, setCarregandoLevas] = useState(false);
   const [entregasSelecionadas, setEntregasSelecionadas] = useState<string[]>([]);
