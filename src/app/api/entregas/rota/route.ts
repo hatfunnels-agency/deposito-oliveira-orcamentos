@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, status, total, data_entrega, observacoes, motorista_id,
+        id, codigo, tipo_entrega, status, total, data_entrega, observacoes, motorista_id, leva_id,
         clientes (
           nome, telefone, cep, endereco, bairro, cidade, estado,
           numero, complemento, recebedor
@@ -84,6 +84,7 @@ export async function POST(request: NextRequest) {
         data_entrega: e.data_entrega ? String(e.data_entrega) : null,
         observacoes: e.observacoes ? String(e.observacoes) : '',
         motorista_id: e.motorista_id ? String(e.motorista_id) : null,
+        leva_id: e.leva_id ? String(e.leva_id) : null,
       };
     });
 
