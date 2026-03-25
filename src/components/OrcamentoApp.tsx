@@ -321,7 +321,7 @@ export default function OrcamentoApp() {  // Auth state
   const [mostrarAtribuirMotorista, setMostrarAtribuirMotorista] = useState(false);
   const [entregaSelecionadaId, setEntregaSelecionadaId] = useState<string | null>(null);
   // Entregas v2 state
-  const [entregasPendentes, setEntregasPendentes] = useState<EntregaRota[]>([]);
+  const [entregasPendentes, setEntregasPendentes] = useState([] as EntregaRota[]);
   const [loadingEntregasPendentes, setLoadingEntregasPendentes] = useState(false);
   const [rotaGerada, setRotaGerada] = useState(null as ({maps_url: string|null; entregas: EntregaRota[]}|null));
   const [gerandoRota, setGerandoRota] = useState(false);
