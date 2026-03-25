@@ -3,6 +3,21 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
+// Helper: recalculate volume for a leva
+const recalcularVolume = async (levaId: string) => {
+  const { data: orcamentos } = await supabaseAdmin
+    .from('orcamentos')
+    .select('orcamento_itens ( quantidade, produto:produto_id ( volume_unitario ) )')
+    .eq('leva_id', levaId);
+  let volumeTotal = 0;
+  for (const orc of (orcamentos || [])) {
+    for (const item of ((orc as Record<string, unknown>).orcamento_itens as Array<{ quantidade: number; produto?: { volume_unitario?: number } }> || [])) {
+      volumeTotal += (Number(item.produto?.volume_unitario) || 0) * (Number(item.quantidade) || 0);
+    }
+  }
+  await supabaseAdmin.from('levas_entrega').update({ volume_total: Math.round(volumeTotal * 100) / 100 }).eq('id', levaId);
+};
+
 export async function PATCH(
     request: NextRequest,
     { params }: { params: { id: string } }
@@ -11,22 +26,6 @@ export async function PATCH(
       const body = await request.json();
       const { action, orcamento_ids, orcamento_id, status, motorista_id, data } = body;
 
-      // Helper: recalculate volume for the leva
-      async function recalcularVolume(levaId: string) {
-        const { data: orcamentos } = await supabaseAdmin
-          .from('orcamentos')
-          .select('orcamento_itens ( quantidade, produto:produto_id ( volume_unitario ) )')
-          .eq('leva_id', levaId);
-        let volumeTotal = 0;
-        for (const orc of (orcamentos || [])) {
-          for (const item of ((orc as Record<string, unknown>).orcamento_itens as Array<{ quantidade: number; produto?: { volume_unitario?: number } }> || [])) {
-            volumeTotal += (Number(item.produto?.volume_unitario) || 0) * (Number(item.quantidade) || 0);
-          }
-        }
-        await supabaseAdmin.from('levas_entrega').update({ volume_total: Math.round(volumeTotal * 100) / 100 }).eq('id', levaId);
-      }
-
-      // NEW: action-based PATCH
       if (action === 'add_entregas' && orcamento_ids?.length > 0) {
         await supabaseAdmin.from('orcamentos').update({ leva_id: params.id }).in('id', orcamento_ids);
         await recalcularVolume(params.id);
@@ -83,12 +82,12 @@ export async function DELETE(
     { params }: { params: { id: string } }
   ) {
     try {
-          await supabaseAdmin.from('orcamentos').update({ leva_id: null }).eq('leva_id', params.id);
-          const { error } = await supabaseAdmin.from('levas_entrega').delete().eq('id', params.id);
-          if (error) return NextResponse.json({ error: 'Erro ao excluir leva' }, { status: 500 });
-          return NextResponse.json({ success: true });
-        } catch (e) {
-          console.error('Erro em DELETE /api/levas/[id]:', e);
-          return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
-        }
+      await supabaseAdmin.from('orcamentos').update({ leva_id: null }).eq('leva_id', params.id);
+      const { error } = await supabaseAdmin.from('levas_entrega').delete().eq('id', params.id);
+      if (error) return NextResponse.json({ error: 'Erro ao excluir leva' }, { status: 500 });
+      return NextResponse.json({ success: true });
+    } catch (e) {
+      console.error('Erro em DELETE /api/levas/[id]:', e);
+      return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+    }
   }
