@@ -728,7 +728,7 @@ export default function OrcamentoApp() {  // Auth state
           setOrcamentoDetalhe({ ...orcamentoDetalhe, data_entrega: novaData, reagendamentos: (orcamentoDetalhe.reagendamentos || 0) + 1 });
         }
         carregarHistorico();
-        if (abaAtiva === 'entregas') carregarEntregas();
+        if (abaAtiva === 'entregas') carregarEntregasPendentes();
         alert('Entrega reagendada com sucesso!');
       }
     } catch (e) { console.error('Erro ao reagendar', e); alert('Erro ao reagendar entrega.'); }
@@ -939,7 +939,7 @@ export default function OrcamentoApp() {  // Auth state
         setMostrarDetalhe(false);
         setOrcamentoDetalhe(null);
         carregarHistorico();
-        if (abaAtiva === 'entregas') carregarEntregas();
+        if (abaAtiva === 'entregas') carregarEntregasPendentes();
       }
     } catch (e) {
       console.error('Erro ao excluir orçamento', e);
@@ -980,7 +980,7 @@ export default function OrcamentoApp() {  // Auth state
         throw new Error(err.error || 'Erro ao salvar motorista');
       }
       await carregarMotoristas();
-      await carregarEntregas();
+      await carregarEntregasPendentes();
     } catch (e) {
       console.error('Erro ao atribuir motorista', e);
     }
@@ -1053,7 +1053,7 @@ export default function OrcamentoApp() {  // Auth state
           body: JSON.stringify({ ids }),
         });
       }
-      await carregarEntregas();
+      await carregarEntregasPendentes();
     } catch (e) { console.error('Erro ao marcar em rota', e); }
     setMarcandoRota(false);
   };
@@ -1066,7 +1066,7 @@ export default function OrcamentoApp() {  // Auth state
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'completo' }),
       });
-      await carregarEntregas();
+      await carregarEntregasPendentes();
     } catch (e) { console.error('Erro ao marcar entrega completa', e); }
   };
 
