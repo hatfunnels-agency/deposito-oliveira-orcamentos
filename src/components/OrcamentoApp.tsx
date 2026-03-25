@@ -1691,7 +1691,6 @@ export default function OrcamentoApp() {  // Auth state
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-800">R$ {formatBRL(orc.total)}</p>
                           <p className="text-xs text-gray-500 mb-2">{orc.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</p>
-                          {orc.fonte && <span className="text-xs bg-orange-100 text-orange-700 rounded px-1 py-0.5 ml-1">{orc.fonte}</span>}
                           <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value, orc.status)}
                             className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
                             {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
