@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
+import CalculadoraFerroModal from './CalculadoraFerroModal';
 
 interface Produto {
   id: string;
@@ -210,13 +211,8 @@ const ACRESCIMO_CARTAO = 0.08;
 const MAX_PARCELAS = 6;
 const CAPACIDADE_CAMINHAO_M3 = 10;
 
-type PecaMontada = {id: string; tipo: string; dimensao1: number; dimensao2: number; barras: 4|6|8; quantidade: number};
 
-export default function OrcamentoApp() {
-  // Calculadora de Ferro constants
-  const FERRO_PRECOS = {padrao: 20.00, especial: 25.00, montado: {4: 20.00, 6: 36.00, 8: 42.00}, LIMITE_PEDIDO_GRANDE: 100};
-  const TIPOS_PECA_FERRO = [{value: 'sapata', label: 'Sapata', temDuasDirecoes: true},{value: 'coluna', label: 'Coluna', temDuasDirecoes: false},{value: 'viga', label: 'Viga', temDuasDirecoes: false},{value: 'baldrame', label: 'Baldrame', temDuasDirecoes: false}];
-  // Auth state
+export default function OrcamentoApp() {  // Auth state
   const [user, setUser] = useState<any>(null);
   const [userProfile, setUserProfile] = useState<{nome: string, papel: string} | null>(null);
 
@@ -257,14 +253,6 @@ export default function OrcamentoApp() {
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
   // === CALCULADORA DE FERRO STATES ===
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
-  const [ferroMode, setFerroMode] = useState<string>('metro');
-  const [ferroTipo, setFerroTipo] = useState<string>('padrao');
-  const [ferroMetragem, setFerroMetragem] = useState(1);
-  const [ferroEspecificacoes, setFerroEspecificacoes] = useState('');
-  const [pecasMontadas, setPecasMontadas] = useState<PecaMontada[]>([]);
-  const [pecasEspecificacoes, setPecasEspecificacoes] = useState('');
-  const [busca, setBusca] = useState('');
-  const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque'>('produtos');
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
@@ -459,20 +447,11 @@ export default function OrcamentoApp() {
     });
   };
 
-  const adicionarItemAvulso = (nome: string, quantidade: number, preco: number, especificacoes?: string) => {
-    const id = 'ferro-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
-    const produtoAvulso: Produto = {
-      id,
-      nome: especificacoes ? nome + ' | ' + especificacoes : nome,
-      preco,
-      preco_custo: 0,
-      estoque: 9999,
-      estoque_minimo: 0,
-      abaixo_minimo: false,
-      unidade: 'm',
-      categoria: 'Ferro',
-    };
-    setItens(prev => [...prev, {produto: produtoAvulso, quantidade, avulso: true, preco_custom: preco}]);
+  const adicionarItensAvulsos = (itens: Array<{nome: string; quantidade: number; preco: number; especificacoes?: string}>) => {
+    itens.forEach(item => {
+      const produtoAvulso = { id: 'ferro-' + Date.now() + '-' + Math.random().toString(36).slice(2,7), nome: item.nome, preco: item.preco, codigo: '', unidade: 'm', estoque_atual: 0, estoque_minimo: 0, categoria: '', preco_custo: 0, ativo: true };
+      setItens(prev => [...prev, { produto: produtoAvulso, quantidade: item.quantidade, avulso: true, preco_custom: item.preco }]);
+    });
   };
 
   const removerItem = (produtoId: string) => {
@@ -672,16 +651,7 @@ export default function OrcamentoApp() {
         cliente_numero: numeroEndereco || null,
         cliente_complemento: complementoEndereco || null,
         cliente_recebedor: recebedor || null,
-        observacoes: (() => {
-          const ferroItems = itens.filter(i => i.avulso);
-          if (ferroItems.length === 0) return observacoes || null;
-          const ferroTotal = ferroItems.reduce((sum, i) => sum + i.quantidade, 0);
-          const ferroResumo = 'FERRAGEM:\n' + ferroItems.map(i => {
-            const nome = i.produto.nome.split(' | ')[0];
-            return '\u2022 ' + i.quantidade + 'x ' + nome + ' (' + i.quantidade + 'm total)';
-          }).join('\n') + '\nTotal ferro: ' + ferroTotal + 'm';
-          return observacoes ? observacoes + '\n\n' + ferroResumo : ferroResumo;
-        })(),
+        observacoes: (() => { const ferroItens = itens.filter(i => i.avulso); const ferroStr = ferroItens.length > 0 ? '\n[FERRO: ' + ferroItens.map(i => i.produto.nome + ' ' + i.quantidade + 'm').join(', ') + ']' : ''; return (observacoes || '') + ferroStr || null; })(),
         tipo_entrega: tipoEntrega,
         valor_frete: totalFrete,
         subtotal,
@@ -2517,207 +2487,10 @@ export default function OrcamentoApp() {
 
       {/* === MODAL CALCULADORA DE FERRO === */}
       {showCalculadoraFerro && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-            {/* Header */}
-            <div className="flex items-center justify-between p-6 border-b border-gray-200 sticky top-0 bg-white z-10 rounded-t-2xl">
-              <div className="flex items-center gap-3">
-                <span className="text-2xl">&#x1F527;</span>
-                <h2 className="text-xl font-bold text-gray-800">Calculadora de Ferro</h2>
-              </div>
-              <button onClick={() => setShowCalculadoraFerro(false)} className="p-2 rounded-full hover:bg-gray-100 text-gray-500 text-xl font-bold">&#x2715;</button>
-            </div>
-            {/* Tabs */}
-            <div className="flex border-b border-gray-200 mx-6 mt-4">
-              <button
-                onClick={() => setFerroMode('metro')}
-                className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${ferroMode === 'metro' ? 'border-[#F7941D] text-[#F7941D]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-              >
-                📏 Ferro por Metro
-              </button>
-              <button
-                onClick={() => setFerroMode('pecas')}
-                className={`flex-1 py-2 text-sm font-medium border-b-2 transition-colors ${ferroMode === 'pecas' ? 'border-[#F7941D] text-[#F7941D]' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-              >
-                🧱 Peças Montadas
-              </button>
-            </div>
-            <div className="p-6">
-              {ferroMode === 'metro' ? (
-                /* MODO 1 - FERRO POR METRO */
-                <div className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo de Ferro</label>
-                    <div className="flex flex-col sm:flex-row gap-3">
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="ferroTipo" checked={ferroTipo === 'padrao'} onChange={() => setFerroTipo('padrao')} className="accent-[#F7941D]" />
-                        <span className="text-sm">Padrão (9x15, 9x20) — R$ 20,00/m</span>
-                      </label>
-                      <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="ferroTipo" checked={ferroTipo === 'especial'} onChange={() => setFerroTipo('especial')} className="accent-[#F7941D]" />
-                        <span className="text-sm">Medida Especial — R$ 25,00/m</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Metragem (metros)</label>
-                    <input type="number" min="1" step="1" value={ferroMetragem} onChange={e => setFerroMetragem(Math.max(1, parseInt(e.target.value) || 1))} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#F7941D] text-lg font-bold" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">Especificações (opcional)</label>
-                    <textarea value={ferroEspecificacoes} onChange={e => setFerroEspecificacoes(e.target.value)} placeholder="Ex: cortar em barras de 3m, ferro 3/8 10mm..." rows={2} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#F7941D] text-sm resize-none" />
-                  </div>                  {/* Cálculo modo metro */
-                  {(() => {
-                    const preco = ferroTipo === 'padrao' ? 20 : 25;
-                    const total = ferroMetragem * preco;
-                    const isGrande = ferroMetragem >= 100;
-                    return (
-                      <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-                        <div className="text-sm text-gray-600 mb-1">{ferroMetragem}m × R$ {preco.toFixed(2).replace('.', ',')}/m</div>
-                        <div className="text-2xl font-bold text-[#F7941D]">R$ {total.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</div>
-                        {isGrande && <div className="mt-2 text-xs text-amber-700 bg-amber-100 rounded-lg px-3 py-1 inline-block">⚠️ Pedido grande (&gt;100m) — verificar prazo</div>}
-                      </div>
-                    );
-                  })()}
-                  <button
-                    onClick={() => {
-                      const preco = ferroTipo === 'padrao' ? 20 : 25;
-                      const nome = 'Ferro ' + (ferroTipo === 'padrao' ? 'Padrão' : 'Medida Especial');
-                      adicionarItemAvulso(nome, ferroMetragem, preco, ferroEspecificacoes || undefined);
-                      setShowCalculadoraFerro(false);
-                      setFerroMetragem(1);
-                      setFerroEspecificacoes('');
-                    }}
-                    className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-orange-600 transition-colors"
-                  >
-                    Adicionar ao Orçamento
-                  </button>
-                </div>
-              ) : (
-                /* MODO 2 - PEÇAS MONTADAS */
-                <div className="space-y-4">
-                  <button
-                    onClick={() => {
-                      const nova: PecaMontada = {id: 'p' + Date.now(), tipo: 'sapata', dimensao1: 40, dimensao2: 40, barras: 4, quantidade: 1};
-                      setPecasMontadas(prev => [...prev, nova]);
-                    }}
-                    className="flex items-center gap-2 px-4 py-2 border-2 border-dashed border-[#F7941D] text-[#F7941D] rounded-xl hover:bg-orange-50 font-medium transition-colors"
-                  >
-                    + Adicionar Peça
-                  </button>
-                  {pecasMontadas.map((peca, idx) => {
-                    const tipoPeca = TIPOS_PECA_FERRO.find(tp => tp.value === peca.tipo);
-                    const isSapata = peca.tipo === 'sapata';
-                    const preco_metro = isSapata ? 20 : peca.barras === 4 ? 20 : peca.barras === 6 ? 36 : 42;
-                    const metros_por_peca = isSapata ? (peca.dimensao1 / 100) * peca.barras * 2 : peca.dimensao1;
-                    const total_metros = metros_por_peca * peca.quantidade;
-                    const total_preco = total_metros * preco_metro;
-                    return (
-                      <div key={peca.id} className="border border-gray-200 rounded-xl p-4 bg-gray-50 relative">
-                        <button onClick={() => setPecasMontadas(prev => prev.filter(p => p.id !== peca.id))} className="absolute top-3 right-3 text-red-400 hover:text-red-600 font-bold">🗑</button>
-                        <div className="font-semibold text-gray-700 mb-3 text-sm">Peça {idx + 1}</div>
-                        <div className="grid grid-cols-2 gap-3 mb-3">
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Tipo</label>
-                            <select value={peca.tipo} onChange={e => setPecasMontadas(prev => prev.map(p => p.id === peca.id ? {...p, tipo: e.target.value} : p))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]">
-                              {TIPOS_PECA_FERRO.map(tp => <option key={tp.value} value={tp.value}>{tp.label}</option>)}
-                            </select>
-                          </div>
-                          <div>
-                            <label className="block text-xs text-gray-500 mb-1">Quantidade</label>
-                            <input type="number" min="1" step="1" value={peca.quantidade} onChange={e => setPecasMontadas(prev => prev.map(p => p.id === peca.id ? {...p, quantidade: Math.max(1, parseInt(e.target.value) || 1)} : p))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                          </div>
-                        </div>                        <div className="mb-3">
-                          <label className="block text-xs text-gray-500 mb-1">{isSapata ? 'Dimensão (cm) — quadrada' : 'Comprimento (metros)'}</label>
-                          <input type="number" min={isSapata ? 10 : 0.5} step={isSapata ? 5 : 0.5} value={peca.dimensao1} onChange={e => setPecasMontadas(prev => prev.map(p => p.id === peca.id ? {...p, dimensao1: Math.max(isSapata ? 10 : 0.5, parseFloat(e.target.value) || (isSapata ? 10 : 0.5))} : p))} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                        </div>
-                        <div className="mb-3">
-                          <label className="block text-xs text-gray-500 mb-2">Nº de Barras</label>
-                          <div className="flex gap-2">
-                            {([4, 6, 8] as const).map(b => (
-                              <label key={b} className={`flex-1 flex items-center justify-center gap-1 px-2 py-2 rounded-lg border-2 cursor-pointer text-xs font-medium transition-colors ${peca.barras === b ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                                <input type="radio" name={`barras-${peca.id}`} checked={peca.barras === b} onChange={() => setPecasMontadas(prev => prev.map(p => p.id === peca.id ? {...p, barras: b} : p))} className="sr-only" />
-                                {b} barras
-                              </label>
-                            ))}
-                          </div>
-                        </div>
-                        <div className="bg-white border border-gray-200 rounded-lg p-3 text-xs text-gray-600">
-                          {isSapata ? (
-                            <><div>({peca.dimensao1}cm / 100) × {peca.barras} barras × 2 dir = {metros_por_peca.toFixed(2)}m/sapata</div><div className="font-bold text-gray-800 mt-1">{peca.quantidade} sapata(s) = {total_metros.toFixed(2)}m → <span className="text-[#F7941D]">R$ {total_preco.toFixed(2).replace('.', ',')}</span></div></>
-                          ) : (
-                            <><div>{peca.dimensao1}m × R${preco_metro}/m = R${(peca.dimensao1 * preco_metro).toFixed(2)} por {tipoPeca?.label?.toLowerCase()}</div><div className="font-bold text-gray-800 mt-1">{peca.quantidade} peça(s) = {total_metros.toFixed(2)}m → <span className="text-[#F7941D]">R$ {total_preco.toFixed(2).replace('.', ',')}</span></div></>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {pecasMontadas.length > 0 && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-semibold text-gray-700 mb-2">Especificações adicionais</label>
-                        <textarea value={pecasEspecificacoes} onChange={e => setPecasEspecificacoes(e.target.value)} placeholder="Ex: estribos a cada 15cm, ferro 10mm..." rows={2} className="w-full border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-[#F7941D] text-sm resize-none" />
-                      </div>
-                      {(() => {
-                        const totalMetros = pecasMontadas.reduce((sum, p) => {
-                          const metros = p.tipo === 'sapata' ? (p.dimensao1 / 100) * p.barras * 2 * p.quantidade : p.dimensao1 * p.quantidade;
-                          return sum + metros;
-                        }, 0);
-                        const totalPreco = pecasMontadas.reduce((sum, p) => {
-                          const pm = p.barras === 4 ? 20 : p.barras === 6 ? 36 : 42;
-                          const metros = p.tipo === 'sapata' ? (p.dimensao1 / 100) * p.barras * 2 * p.quantidade : p.dimensao1 * p.quantidade;
-                          return sum + metros * pm;
-                        }, 0);
-                        const isGrande = totalMetros >= 100;
-                        return (
-                          <div className="bg-orange-50 border border-orange-200 rounded-xl p-4">
-                            <div className="font-bold text-gray-700 mb-2 text-sm">Resumo Total</div>
-                            {pecasMontadas.map((peca) => {
-                              const tp = TIPOS_PECA_FERRO.find(t => t.value === peca.tipo);
-                              const isSap = peca.tipo === 'sapata';
-                              const pm = peca.barras === 4 ? 20 : peca.barras === 6 ? 36 : 42;
-                              const metros = isSap ? (peca.dimensao1 / 100) * peca.barras * 2 * peca.quantidade : peca.dimensao1 * peca.quantidade;
-                              return (
-                                <div key={peca.id} className="flex justify-between text-xs text-gray-600 mb-1">
-                                  <span>{peca.quantidade}× {tp?.label} {isSap ? peca.dimensao1 + 'x' + peca.dimensao1 + 'cm' : peca.dimensao1 + 'm'} ({peca.barras} barras)</span>
-                                  <span>{metros.toFixed(1)}m — R$ {(metros * pm).toFixed(2).replace('.', ',')}</span>
-                                </div>
-                              );
-                            })}
-                            <div className="border-t border-orange-200 mt-2 pt-2 flex justify-between">
-                              <span className="text-sm text-gray-600">Total: {totalMetros.toFixed(1)}m</span>
-                              <span className="text-xl font-bold text-[#F7941D]">R$ {totalPreco.toLocaleString('pt-BR', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                            </div>
-                            {isGrande && <div className="mt-2 text-xs text-amber-700 bg-amber-100 rounded-lg px-3 py-1 inline-block">⚠️ Pedido grande (&gt;100m) — verificar prazo</div>}
-                          </div>
-                        );
-                      })()}                      <button
-                        onClick={() => {
-                          pecasMontadas.forEach(peca => {
-                            const tp = TIPOS_PECA_FERRO.find(t => t.value === peca.tipo);
-                            const isSap = peca.tipo === 'sapata';
-                            const pm = peca.barras === 4 ? 20 : peca.barras === 6 ? 36 : 42;
-                            const metros_por_peca = isSap ? (peca.dimensao1 / 100) * peca.barras * 2 : peca.dimensao1;
-                            const total_m = metros_por_peca * peca.quantidade;
-                            const nomePeca = (tp?.label ?? peca.tipo) + ' ' + (isSap ? peca.dimensao1 + 'x' + peca.dimensao1 + 'cm' : peca.dimensao1 + 'm') + ' (' + peca.barras + ' barras) ×' + peca.quantidade;
-                            const espec = 'Total: ' + total_m.toFixed(1) + 'm' + (pecasEspecificacoes ? ' | ' + pecasEspecificacoes : '');
-                            adicionarItemAvulso(nomePeca, total_m, pm, espec);
-                          });
-                          setShowCalculadoraFerro(false);
-                          setPecasMontadas([]);
-                          setPecasEspecificacoes('');
-                        }}
-                        className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-orange-600 transition-colors"
-                      >
-                        Adicionar ao Orçamento
-                      </button>
-                    </>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <CalculadoraFerroModal
+          onAdicionarItens={adicionarItensAvulsos}
+          onClose={() => setShowCalculadoraFerro(false)}
+        />
       )}
     </div>
   );
