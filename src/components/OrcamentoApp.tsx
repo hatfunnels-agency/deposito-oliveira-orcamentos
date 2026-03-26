@@ -1123,7 +1123,9 @@ export default function OrcamentoApp() {  // Auth state
       const amanha = new Date();
       amanha.setDate(amanha.getDate() + 1);
       const d = dataEntregas || amanha.toISOString().slice(0, 10);
-      return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR');
+      const dt = new Date(d + 'T12:00:00');
+      const diasSemana = ['Domingo', 'Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado'];
+      return dt.toLocaleDateString('pt-BR') + ' - ' + diasSemana[dt.getDay()];
     })();
     const kmTotal = rotaGerada.distancia_total_km;
     const tempoMin = rotaGerada.tempo_estimado_min || rotaGerada.duracao_total_min;
