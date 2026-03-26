@@ -307,6 +307,11 @@ export default function OrcamentoApp() {  // Auth state
   // Entregas state
   const [entregasRota, setEntregasRota] = useState<RotaResponse | null>(null);
   const [loadingEntregas, setLoadingEntregas] = useState(false);
+  const [entregasDia, setEntregasDia] = useState<EntregaRota[]>([]);
+  const [selecionadas, setSelecionadas] = useState<string[]>([]);
+  const [rotaGerada, setRotaGerada] = useState<RotaResponse | null>(null);
+  const [loadingDia, setLoadingDia] = useState(false);
+  const [loadingRota, setLoadingRota] = useState(false);
   const [dataEntregas, setDataEntregas] = useState('');
   const [marcandoRota, setMarcandoRota] = useState(false);
 
@@ -1012,6 +1017,43 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   // Bug 1 fix - Entregas now includes em_rota status
+  // ===== New Entregas UI Functions =====
+  const carregarEntregasDia = async () => {
+    setLoadingDia(true);
+    setSelecionadas([]);
+    setRotaGerada(null);
+    try {
+      const res = await fetch('/api/entregas/rota', { cache: 'no-store' });
+      const data = await res.json();
+      setEntregasDia(data.entregas || []);
+    } catch (e) { console.error('Erro ao carregar entregas do dia', e); }
+    setLoadingDia(false);
+  };
+
+  const gerarRota = async () => {
+    if (selecionadas.length === 0) return;
+    setLoadingRota(true);
+    try {
+      const res = await fetch('/api/entregas/rota', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selecionadas }),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      setRotaGerada(data);
+    } catch (e) { console.error('Erro ao gerar rota', e); }
+    setLoadingRota(false);
+  };
+
+  const toggleSelecionada = (id: string) => {
+    setSelecionadas(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const selecionarTodas = () => {
+    setSelecionadas(entregasDia.map(e => e.id));
+  };
+
   const carregarEntregas = async () => {
     setLoadingEntregas(true);
     try {
@@ -1710,52 +1752,82 @@ export default function OrcamentoApp() {  // Auth state
         {abaAtiva === 'entregas' && (
           <div className="pb-8">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-              <h2 className="font-bold text-gray-700 mb-3">Entregas Pendentes do Dia</h2>
-              <p className="text-sm text-gray-500 mb-3">Entregas de hoje, ordenadas por distancia do deposito</p>
+              <div className="flex justify-between items-center mb-4">
+                <h2 className="font-bold text-gray-700">Entregas Pendentes do Dia</h2>
+                <button
+                  onClick={carregarEntregasDia}
+                  disabled={loadingDia}
+                  className="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
+                >
+                  {loadingDia ? 'Carregando...' : 'Carregar Entregas'}
+                </button>
+              </div>
 
-              <button
-                onClick={carregarEntregas}
-                disabled={loadingEntregas}
-                className="mb-4 bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
-              >
-                {loadingEntregas ? 'Carregando...' : 'Carregar Entregas do Dia'}
-              </button>
+              {entregasDia.length > 0 && (
+                <div className="mb-3 flex gap-3 items-center">
+                  <button onClick={selecionarTodas} className="text-xs text-orange-600 hover:underline">
+                    Selecionar todas ({entregasDia.length})
+                  </button>
+                  {selecionadas.length > 0 && (
+                    <span className="text-xs text-gray-500">{selecionadas.length} selecionada(s)</span>
+                  )}
+                </div>
+              )}
 
-              {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length > 0 && (
+              {entregasDia.length > 0 && (
                 <div className="space-y-2 mb-4">
-                  {entregasRota.rota_otimizada.map((e, idx) => (
-                    <div key={e.id} className="border border-gray-200 rounded-lg p-3 text-sm flex items-start gap-3">
-                      <span className="mt-0.5 text-gray-400 font-bold w-6 text-center">{idx + 1}</span>
+                  {entregasDia.map((e, idx) => (
+                    <div
+                      key={e.id}
+                      className="border border-gray-200 rounded-lg p-3 text-sm flex items-start gap-3 cursor-pointer hover:bg-gray-50"
+                      onClick={() => toggleSelecionada(e.id)}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selecionadas.includes(e.id)}
+                        onChange={() => toggleSelecionada(e.id)}
+                        className="mt-0.5 w-4 h-4 accent-orange-500"
+                        onClick={ev => ev.stopPropagation()}
+                      />
+                      <span className="text-gray-400 text-xs mt-0.5 w-5 text-center">{idx + 1}</span>
                       <div className="flex-1">
                         <p className="font-semibold">{e.cliente_nome}</p>
-                        <p className="text-gray-600">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
-                        {e.distancia_km != null && <p className="text-gray-500 text-xs">{e.distancia_km.toFixed(1)} km do deposito</p>}
+                        <p className="text-gray-600 text-xs">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
+                        {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do deposito</p>}
                       </div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {entregasRota && entregasRota.maps_url && (
-                <a
-                  href={entregasRota.maps_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block text-center bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 mb-2"
-                >
-                  Abrir Rota no Google Maps
-                </a>
-              )}
-
-              {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length === 0 && !loadingEntregas && (
+              {entregasDia.length === 0 && !loadingDia && (
                 <div className="text-center py-8 text-gray-400">
-                  <p>Nenhuma entrega pendente para hoje</p>
+                  <p className="mb-1">Nenhuma entrega pendente para hoje</p>
+                  <p className="text-xs">Clique em Carregar Entregas para verificar</p>
                 </div>
               )}
 
-              {!entregasRota && !loadingEntregas && (
-                <div className="text-center py-8 text-gray-400">
-                  <p>Clique para carregar as entregas do dia</p>
+              {selecionadas.length > 0 && (
+                <button
+                  onClick={gerarRota}
+                  disabled={loadingRota}
+                  className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 mb-3"
+                >
+                  {loadingRota ? 'Gerando rota...' : 'Gerar Rota (' + selecionadas.length + ' entregas)'}
+                </button>
+              )}
+
+              {rotaGerada && rotaGerada.maps_url && (
+                <div className="border border-green-200 bg-green-50 rounded-lg p-3 mb-2">
+                  <p className="text-sm font-medium text-green-800 mb-2">Rota gerada!</p>
+                  <a
+                    href={rotaGerada.maps_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="block text-center bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
+                  >
+                    Abrir Rota no Google Maps
+                  </a>
                 </div>
               )}
             </div>
