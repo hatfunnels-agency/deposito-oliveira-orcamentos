@@ -1728,7 +1728,7 @@ export default function OrcamentoApp() {  // Auth state
                       <span className="mt-0.5 text-gray-400 font-bold w-6 text-center">{idx + 1}</span>
                       <div className="flex-1">
                         <p className="font-semibold">{e.cliente_nome}</p>
-                        <p className="text-gray-600">{e.endereco_entrega}</p>
+                        <p className="text-gray-600">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                         {e.distancia_km != null && <p className="text-gray-500 text-xs">{e.distancia_km.toFixed(1)} km do deposito</p>}
                       </div>
                     </div>
