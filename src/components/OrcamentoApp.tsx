@@ -1038,7 +1038,7 @@ export default function OrcamentoApp() {  // Auth state
       const res = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const data = await res.json();
       const todas: EntregaRota[] = data.entregas || [];
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado'));
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente'));
       setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao carregar entregas do dia', e); }
@@ -1077,7 +1077,7 @@ export default function OrcamentoApp() {  // Auth state
       const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const reloadData = await reloadRes.json();
       const todas: EntregaRota[] = reloadData.entregas || [];
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado'));
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente'));
       setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
       setSelecionadas([]);
@@ -1108,7 +1108,7 @@ export default function OrcamentoApp() {  // Auth state
       const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const reloadData = await reloadRes.json();
       const todas: EntregaRota[] = reloadData.entregas || [];
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado'));
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente'));
       setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao marcar entregue', e); }
