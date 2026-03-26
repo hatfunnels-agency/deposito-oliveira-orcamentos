@@ -53,7 +53,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get('data');
 
-    const statusEntrega = ['aguardando', 'confirmado', 'em_rota', 'completo'];
+    const statusEntrega = ['aguardando', 'confirmado', 'entrega_pendente', 'em_rota', 'completo'];
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
