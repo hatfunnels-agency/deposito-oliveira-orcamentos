@@ -139,7 +139,7 @@ interface RotaResponse {
   distancia_total_km?: number;
   duracao_total_min?: number;
   tempo_estimado_min?: number;
-  rota_otimizada?: EntregaRota[];
+  rota_otimizada: EntregaRota[];
   maps_url: string | null;
   entregas?: EntregaRota[];
   mensagem?: string;
