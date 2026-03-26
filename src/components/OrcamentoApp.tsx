@@ -121,6 +121,7 @@ interface EntregaRota {
   observacoes: string;
   motorista_id?: string | null;
   leva_id?: string | null;
+  distancia_km?: number | null;
 }
 
 interface Motorista {
@@ -1707,10 +1708,57 @@ export default function OrcamentoApp() {  // Auth state
 
         {/* ===== ENTREGAS TAB (Bug 1 fix - shows em_rota items too) ===== */}
         {abaAtiva === 'entregas' && (
-          <div>
-            <p>Entregas</p>
+          <div className="pb-8">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+              <h2 className="font-bold text-gray-700 mb-3">🚚 Entregas Pendentes do Dia</h2>
+              <p className="text-sm text-gray-500 mb-3">Entregas de hoje, ordenadas por distância</p>
+
+              <button
+                onClick={carregarEntregas}
+                className="mb-4 bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600"
+              >
+                Carregar Entregas do Dia
+              </button>
+
+              {carregandoEntregas && <p className="text-gray-500 text-sm">Carregando...</p>}
+
+              {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  {entregasRota.rota_otimizada.map((e, idx) => (
+                    <div key={e.id} className="border border-gray-200 rounded-lg p-3 text-sm flex items-start gap-3">
+                      <span className="mt-0.5 text-gray-400 font-bold w-6 text-center">{idx + 1}</span>
+                      <div className="flex-1">
+                        <p className="font-semibold">{e.cliente_nome}</p>
+                        <p className="text-gray-600">{e.endereco_entrega}</p>
+                        {e.distancia_km != null && <p className="text-gray-500 text-xs">{e.distancia_km.toFixed(1)} km do deposito</p>}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {entregasRota && entregasRota.maps_url && (
+                <a
+                  href={entregasRota.maps_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="block text-center bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600 mb-2"
+                >
+                  Abrir Rota no Google Maps
+                </a>
+              )}
+
+              {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length === 0 && !carregandoEntregas && (
+                <div className="text-center py-8 text-gray-400">
+                  <p>Nenhuma entrega pendente para hoje</p>
+                </div>
+              )}
+            </div>
           </div>
         )}
+      </div>
+
+
       {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
