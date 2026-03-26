@@ -124,11 +124,6 @@ interface EntregaRota {
   distancia_km?: number | null;
 }
 
-interface RotaGeradaType {
-  maps_url: string | null;
-  entregas: EntregaRota[];
-}
-
 interface Motorista {
   id: string;
   nome: string;
@@ -325,14 +320,6 @@ export default function OrcamentoApp() {  // Auth state
   const [atribuindoMotorista, setAtribuindoMotorista] = useState<string | null>(null);
   const [mostrarAtribuirMotorista, setMostrarAtribuirMotorista] = useState(false);
   const [entregaSelecionadaId, setEntregaSelecionadaId] = useState<string | null>(null);
-  // Entregas v2 state
-  const [entregasPendentes, setEntregasPendentes] = useState<EntregaRota[]>([]);
-  const [loadingEntregasPendentes, setLoadingEntregasPendentes] = useState(false);
-  const [rotaGerada, setRotaGerada] = useState<RotaGeradaType | null>(null);
-  const [gerandoRota, setGerandoRota] = useState(false);
-  const [dataFiltroEntregas, setDataFiltroEntregas] = useState(new Date().toISOString().split('T')[0]);
-  const [entregasSelecionadas, setEntregasSelecionadas] = useState<string[]>([]);
-
 
   // Estoque management state
   const [mostrarEntrada, setMostrarEntrada] = useState(false);
@@ -525,13 +512,17 @@ export default function OrcamentoApp() {  // Auth state
     } catch {}
   }, []);
 
-
-  // Fetch entregas pendentes ao abrir aba
+  // Fetch levas
   useEffect(() => {
     if (abaAtiva === 'entregas') {
-      carregarEntregasPendentes();
+      setCarregandoLevas(true);
+      fetch('/api/levas', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(data => setLevas(data.levas || []))
+        .catch(() => {})
+        .finally(() => setCarregandoLevas(false));
     }
-  }, [abaAtiva, dataFiltroEntregas]);
+  }, [abaAtiva]);
 
   // Feature 7 - Search address by street name
   const buscarEnderecoPorRua = async () => {
@@ -735,7 +726,7 @@ export default function OrcamentoApp() {  // Auth state
           setOrcamentoDetalhe({ ...orcamentoDetalhe, data_entrega: novaData, reagendamentos: (orcamentoDetalhe.reagendamentos || 0) + 1 });
         }
         carregarHistorico();
-        if (abaAtiva === 'entregas') carregarEntregasPendentes();
+        if (abaAtiva === 'entregas') carregarEntregas();
         alert('Entrega reagendada com sucesso!');
       }
     } catch (e) { console.error('Erro ao reagendar', e); alert('Erro ao reagendar entrega.'); }
@@ -946,7 +937,7 @@ export default function OrcamentoApp() {  // Auth state
         setMostrarDetalhe(false);
         setOrcamentoDetalhe(null);
         carregarHistorico();
-        if (abaAtiva === 'entregas') carregarEntregasPendentes();
+        if (abaAtiva === 'entregas') carregarEntregas();
       }
     } catch (e) {
       console.error('Erro ao excluir orçamento', e);
@@ -987,7 +978,7 @@ export default function OrcamentoApp() {  // Auth state
         throw new Error(err.error || 'Erro ao salvar motorista');
       }
       await carregarMotoristas();
-      await carregarEntregasPendentes();
+      await carregarEntregas();
     } catch (e) {
       console.error('Erro ao atribuir motorista', e);
     }
@@ -1021,34 +1012,20 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   // Bug 1 fix - Entregas now includes em_rota status
-  const carregarEntregasPendentes = async () => {
-    setLoadingEntregasPendentes(true);
-    try {
-      const params = dataFiltroEntregas ? `?data=${dataFiltroEntregas}` : '';
-      const res = await fetch(`/api/entregas/rota${params}`, { cache: 'no-store' });
-      const data = await res.json();
-      setEntregasPendentes(data.entregas || []);
-      setEntregasSelecionadas([]);
-      setRotaGerada(null);
-    } catch (e) { console.error('Erro ao carregar entregas', e); }
-    setLoadingEntregasPendentes(false);
-  };
-
-  const gerarRotaSelecionadas = async () => {
-    if (entregasSelecionadas.length === 0) return;
-    setGerandoRota(true);
+  const carregarEntregas = async () => {
+    setLoadingEntregas(true);
     try {
       const res = await fetch('/api/entregas/rota', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: entregasSelecionadas }),
-        cache: 'no-store',
+        body: JSON.stringify({ data: dataEntregas || undefined }),
       });
       const data = await res.json();
-      setRotaGerada({ maps_url: data.maps_url, entregas: data.entregas || [] });
-    } catch (e) { console.error('Erro ao gerar rota', e); }
-    setGerandoRota(false);
+      setEntregasRota(data);
+    } catch (e) { console.error('Erro ao carregar entregas', e); }
+    setLoadingEntregas(false);
   };
+
   const marcarEmRota = async () => {
     if (!entregasRota || entregasRota.rota_otimizada.length === 0) return;
     setMarcandoRota(true);
@@ -1061,7 +1038,7 @@ export default function OrcamentoApp() {  // Auth state
           body: JSON.stringify({ ids }),
         });
       }
-      await carregarEntregasPendentes();
+      await carregarEntregas();
     } catch (e) { console.error('Erro ao marcar em rota', e); }
     setMarcandoRota(false);
   };
@@ -1074,7 +1051,7 @@ export default function OrcamentoApp() {  // Auth state
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: 'completo' }),
       });
-      await carregarEntregasPendentes();
+      await carregarEntregas();
     } catch (e) { console.error('Erro ao marcar entrega completa', e); }
   };
 
@@ -1089,23 +1066,44 @@ export default function OrcamentoApp() {  // Auth state
 
   // Feature 5 - Print routes for driver
   const imprimirRotas = () => {
-                      const w = window.open('', '_blank');
-                      if (!w) return;
-                      const printData = rotaGerada.entregas.map((e, i) => ({
-                        num: i+1, nome: e.cliente_nome, tel: e.cliente_telefone,
-                        end: [e.endereco, e.numero ? 'nº '+e.numero : '', e.bairro, e.cep].filter(Boolean).join(', '),
-                        itens: e.itens_resumo, total: e.total
-                      }));
-                      const mapsUrl = rotaGerada.maps_url || '';
-                      const dataStr = dataFiltroEntregas;
-                      const w = window.open('', '_blank');
-                      if (w) {
-                        const tableRows = printData.map(r => '<tr><td style="padding:8px;font-weight:bold;color:#F7941D">'+r.num+'</td><td style="padding:8px;font-weight:bold">'+r.nome+'</td><td style="padding:8px">'+r.tel+'</td><td style="padding:8px">'+r.end+'</td><td style="padding:8px">'+r.itens+'</td><td style="padding:8px;font-weight:bold">R$ '+r.total.toFixed(2).replace('.',',')+'</td></tr>').join('');
-                        const mapsLink = mapsUrl ? '<p><a href="'+mapsUrl+'" target="_blank">📍 Link da Rota no Google Maps</a></p>' : '';
-                        w.document.write('<!DOCTYPE html><html><head><title>Rota de Entregas</title><style>body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse}th{background:#F7941D;color:white;padding:8px}@media print{button{display:none}}</style></head><body><h2 style="color:#F7941D">🚚 Rota de Entregas — Depósito Oliveira</h2><p>Data: '+dataStr+' | Paradas: '+printData.length+'</p>'+mapsLink+'<table><thead><tr><th>#</th><th>Cliente</th><th>Telefone</th><th>Endereço</th><th>Produtos</th><th>Total</th></tr></thead><tbody>'+tableRows+'</tbody></table><br><button onclick="window.print()">🖨️ Imprimir</button></body></html>');
-                        w.document.close();
-                      }
-                      }
+    const rotaParaImprimir = entregasFiltradas || entregasRota;
+    if (!rotaParaImprimir || rotaParaImprimir.rota_otimizada.length === 0) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const dataStr = rotaParaImprimir.data ? new Date(rotaParaImprimir.data + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
+    const motoristaAtual = motoristas.find(m => m.id === filtroMotorista);
+    let html = `<!DOCTYPE html><html><head><title>Rotas ${dataStr}</title><style>
+      body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}
+      h1{font-size:18px;margin-bottom:2px}
+      .header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}
+      .stats{display:flex;gap:20px;margin:8px 0}
+      .stats div{font-weight:bold}
+      .entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
+      .parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}
+      .check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}
+      .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
+      @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
+    </style></head><body>`;
+    html += `<div class="header"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:50px;width:auto;border-radius:4px" /><div><h1 style="margin:0;font-size:18px">🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;font-size:11px;color:#555">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p></div></div><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
+    rotaParaImprimir.rota_otimizada.forEach((e, idx) => {
+      const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
+      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
+      if (e.cliente_telefone) html += ` - ${e.cliente_telefone}`;
+      html += `<br/><span style="color:#555">${endCompleto}</span>`;
+      if (e.recebedor) html += `<br/><em>Recebedor: ${e.recebedor}</em>`;
+      html += `<div class="itens">${e.itens_resumo}</div>`;
+      html += `<div style="display:flex;justify-content:space-between"><span>Valor: <strong>R$ ${formatBRL(e.total)}</strong></span><span>${e.codigo}</span></div>`;
+      if (e.observacoes) html += `<div style="color:#666;font-style:italic;margin-top:2px">Obs: ${e.observacoes}</div>`;
+      html += `</div>`;
+    });
+    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>Depósito Oliveira</strong> — Materiais de Construção<br>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021 — Tel: (11) 4187-1801</div></body></html>`;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
+  };
+
+
+  // ===== Estoque Management Functions =====
   const registrarEntrada = async () => {
     if (!produtoSelecionado || !entradaQtd) return;
     setSalvandoEstoque(true);
@@ -1710,159 +1708,34 @@ export default function OrcamentoApp() {  // Auth state
 
         {/* ===== ENTREGAS TAB (Bug 1 fix - shows em_rota items too) ===== */}
         {abaAtiva === 'entregas' && (
-          <div className="pb-8">
-
-            {/* Header com filtro de data e botão gerar rota */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-4">
-              <h2 className="font-bold text-gray-700 mb-3">🚚 Entregas Pendentes</h2>
-              <div className="flex flex-col sm:flex-row gap-3 items-end">
-                <div>
-                  <label className="text-xs text-gray-500 block mb-1">Data de entrega</label>
-                  <input type="date" value={dataFiltroEntregas}
-                    onChange={e => setDataFiltroEntregas(e.target.value)}
-                    className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                </div>
-                <button onClick={carregarEntregasPendentes} disabled={loadingEntregasPendentes}
-                  className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-200 disabled:opacity-50">
-                  {loadingEntregasPendentes ? 'Carregando...' : '🔄 Atualizar'}
-                </button>
-                <div className="flex-1" />
-                {entregasSelecionadas.length > 0 && (
-                  <button onClick={gerarRotaSelecionadas} disabled={gerandoRota}
-                    className="bg-[#F7941D] text-white px-6 py-2 rounded-lg text-sm font-bold hover:bg-[#E8850A] disabled:opacity-50 flex items-center gap-2">
-                    {gerandoRota ? 'Gerando...' : `🗺️ Gerar Rota (${entregasSelecionadas.length} selecionadas)`}
-                  </button>
-                )}
-              </div>
-              {entregasSelecionadas.length > 0 && (
-                <div className="mt-2 flex gap-2">
-                  <button onClick={() => setEntregasSelecionadas(entregasPendentes.map(e => e.id))}
-                    className="text-xs text-blue-600 hover:underline">Selecionar todas</button>
-                  <span className="text-xs text-gray-400">|</span>
-                  <button onClick={() => setEntregasSelecionadas([])}
-                    className="text-xs text-gray-500 hover:underline">Limpar seleção</button>
-                </div>
-              )}
-            </div>
-
-            {/* Rota gerada */}
-            {rotaGerada && (
-              <div className="bg-green-50 border border-green-200 rounded-xl p-4 mb-4">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-3">
-                  <h3 className="font-bold text-green-800">✅ Rota gerada — {rotaGerada.entregas.length} paradas</h3>
-                  <div className="flex gap-2">
-                    {rotaGerada.maps_url && (
-                      <a href={rotaGerada.maps_url} target="_blank" rel="noopener noreferrer"
-                        className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700">
-                        🗺️ Abrir no Maps
-                      </a>
-                    )}
-                    <button onClick={imprimirRotas}                      className="bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800">
-                      🖨️ Imprimir
-                    </button>
-                    <button onClick={() => setRotaGerada(null)}
-                      className="text-gray-500 hover:text-gray-700 text-sm px-2">✕ Fechar</button>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+            <h2 className="font-bold text-gray-700 mb-3">🚚 Entregas Pendentes do Dia</h2>
+            <button
+              onClick={carregarEntregas}
+              className="mb-4 bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600"
+            >
+              Carregar Entregas
+            </button>
+            {carregandoEntregas && <p className="text-gray-500 text-sm">Carregando...</p>}
+            {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length > 0 && (
+              <div className="space-y-2 mb-4">
+                {entregasRota.rota_otimizada.map((e, idx) => (
+                  <div key={e.id} className="border border-gray-200 rounded-lg p-3 text-sm">
+                    <p className="font-semibold">{idx + 1}. {e.cliente_nome}</p>
+                    <p className="text-gray-600">{e.endereco_entrega}</p>
+                    {e.distancia_km && <p className="text-gray-500">📍 {e.distancia_km.toFixed(1)} km</p>}
                   </div>
-                </div>
-                <div className="space-y-2">
-                  {rotaGerada.entregas.map((entrega, idx) => (
-                    <div key={entrega.id} className="bg-white rounded-lg border border-green-200 px-3 py-2 flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-[#F7941D] text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
-                        {idx + 1}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-800">{entrega.cliente_nome}
-                          {entrega.cliente_telefone && <a href={`tel:${entrega.cliente_telefone}`} className="ml-2 text-xs text-blue-500">{entrega.cliente_telefone}</a>}
-                        </p>
-                        <p className="text-xs text-gray-500">{[entrega.endereco, entrega.numero ? `nº ${entrega.numero}` : '', entrega.bairro, entrega.cep].filter(Boolean).join(', ')}</p>
-                        {entrega.itens_resumo && <p className="text-xs text-gray-400 mt-0.5">📦 {entrega.itens_resumo}</p>}
-                      </div>
-                      <p className="text-sm font-bold text-gray-700 flex-shrink-0">R$ {formatBRL(entrega.total)}</p>
-                    </div>
-                  ))}
-                </div>
+                ))}
               </div>
             )}
-
-            {/* Lista de entregas pendentes */}
-            {loadingEntregasPendentes ? (
-              <div className="flex justify-center py-16">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]" />
-              </div>
-            ) : entregasPendentes.length === 0 ? (
-              <div className="text-center py-16 text-gray-400">
-                <p className="text-4xl mb-4">🚚</p>
-                <p>Nenhuma entrega pendente para esta data</p>
-                <p className="text-sm mt-2">Altere a data ou verifique os orçamentos com entrega agendada</p>
-              </div>
-            ) : (
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p className="text-sm text-gray-500">{entregasPendentes.length} entrega(s) • ordenadas por distância</p>
-                  <button onClick={() => {
-                    if (entregasSelecionadas.length === entregasPendentes.length) {
-                      setEntregasSelecionadas([]);
-                    } else {
-                      setEntregasSelecionadas(entregasPendentes.map(e => e.id));
-                    }
-                  }}
-                    className="text-xs text-blue-600 hover:underline">
-                    {entregasSelecionadas.length === entregasPendentes.length ? 'Desmarcar todas' : 'Selecionar todas'}
-                  </button>
-                </div>
-                <div className="space-y-2">
-                  {entregasPendentes.map((entrega) => {
-                    const selecionada = entregasSelecionadas.includes(entrega.id);
-                    return (
-                      <div key={entrega.id}
-                        onClick={() => setEntregasSelecionadas(prev =>
-                          prev.includes(entrega.id) ? prev.filter(id => id !== entrega.id) : [...prev, entrega.id]
-                        )}
-                        className={`bg-white border rounded-xl px-4 py-3 cursor-pointer flex items-start gap-3 transition-colors ${selecionada ? 'border-[#F7941D] bg-orange-50' : 'border-gray-200 hover:border-gray-300'}`}>
-                        <input type="checkbox" readOnly checked={selecionada}
-                          className="mt-1 flex-shrink-0 w-4 h-4 accent-[#F7941D]" />
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-start justify-between gap-2">
-                            <div>
-                              <p className="font-medium text-gray-800">{entrega.cliente_nome}</p>
-                              {entrega.cliente_telefone && (
-                                <a href={`tel:${entrega.cliente_telefone}`} onClick={e => e.stopPropagation()}
-                                  className="text-xs text-blue-500">{entrega.cliente_telefone}</a>
-                              )}
-                            </div>
-                            <div className="text-right flex-shrink-0">
-                              <p className="font-bold text-gray-800">R$ {formatBRL(entrega.total)}</p>
-                              {entrega.distancia_km !== null && (
-                                <p className="text-xs text-gray-400">~{entrega.distancia_km} km</p>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-xs text-gray-500 mt-1">
-                            {[entrega.endereco, entrega.numero ? `nº ${entrega.numero}` : '', entrega.bairro, entrega.cep].filter(Boolean).join(', ')}
-                          </p>
-                          {entrega.itens_resumo && (
-                            <p className="text-xs text-gray-400 mt-0.5">📦 {entrega.itens_resumo}</p>
-                          )}
-                          {entrega.observacoes && (
-                            <p className="text-xs text-yellow-600 mt-0.5">📝 {entrega.observacoes}</p>
-                          )}
-                          <div className="flex items-center gap-2 mt-1">
-                            <span className={`text-xs px-2 py-0.5 rounded-full ${entrega.status === 'em_rota' ? 'bg-blue-100 text-blue-700' : entrega.status === 'confirmado' ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                              {entrega.status === 'em_rota' ? '🚗 Em rota' : entrega.status === 'confirmado' ? '✅ Confirmado' : '⏳ Aguardando'}
-                            </span>
-                            <button onClick={e => { e.stopPropagation(); abrirDetalhe(entrega.id); }}
-                              className="text-xs text-blue-500 hover:underline">Ver detalhes</button>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
+            {entregasRota && entregasRota.maps_url && (
+              <a href={entregasRota.maps_url} target="_blank" rel="noopener noreferrer"
+                 className="block text-center bg-green-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-600">
+                🗺️ Abrir Rota no Google Maps
+              </a>
             )}
           </div>
         )}
-
       {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
