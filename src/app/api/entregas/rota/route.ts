@@ -14,6 +14,26 @@ function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): nu
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
 }
 
+// Get driving distance from depot to one address using Distance Matrix API
+async function getDrivingDistanceKm(destAddress: string, apiKey: string): Promise<number | null> {
+  try {
+    const origin = encodeURIComponent(DEPOSITO_ADDRESS);
+    const destination = encodeURIComponent(destAddress);
+    const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${origin}&destinations=${destination}&mode=driving&key=${apiKey}`;
+    const res = await fetch(url, { cache: 'no-store' });
+    const data = await res.json();
+    if (
+      data.status === 'OK' &&
+      data.rows?.[0]?.elements?.[0]?.status === 'OK'
+    ) {
+      const meters = data.rows[0].elements[0].distance.value;
+      return Math.round(meters / 100) / 10; // meters -> km, 1 decimal
+    }
+  } catch {}
+  return null;
+}
+
+// Fallback: geocode + haversine if Distance Matrix not available
 async function geocodeAddress(address: string, apiKey: string): Promise<{lat: number, lng: number} | null> {
   try {
     const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
@@ -73,7 +93,6 @@ export async function GET(request: NextRequest) {
     if (data) {
       query = query.eq('data_entrega', data);
     } else {
-      // Default: today
       const hoje = new Date().toISOString().slice(0, 10);
       query = query.eq('data_entrega', hoje);
     }
@@ -102,9 +121,14 @@ export async function GET(request: NextRequest) {
         let distanciaKm: number | null = null;
         if (GOOGLE_MAPS_API_KEY && endereco) {
           const fullAddr = [endereco, numero, bairro, cep].filter(Boolean).join(', ') + ', Brasil';
-          const coords = await geocodeAddress(fullAddr, GOOGLE_MAPS_API_KEY);
-          if (coords) {
-            distanciaKm = Math.round(haversineKm(DEPOSITO_LAT, DEPOSITO_LNG, coords.lat, coords.lng) * 10) / 10;
+          // Try Distance Matrix API first (real driving distance)
+          distanciaKm = await getDrivingDistanceKm(fullAddr, GOOGLE_MAPS_API_KEY);
+          // Fallback to haversine if Distance Matrix fails
+          if (distanciaKm === null) {
+            const coords = await geocodeAddress(fullAddr, GOOGLE_MAPS_API_KEY);
+            if (coords) {
+              distanciaKm = Math.round(haversineKm(DEPOSITO_LAT, DEPOSITO_LNG, coords.lat, coords.lng) * 10) / 10;
+            }
           }
         }
 
@@ -193,31 +217,27 @@ export async function POST(request: NextRequest) {
       };
     });
 
-    // Reorder to match the original selection order (by distance, as sent)
     const ordered = ids
       .map(id => entregasFormatadas.find((e) => e.id === id))
       .filter(Boolean) as typeof entregasFormatadas;
 
     // Build Google Maps URL
-    const DEPOSITO_ADDRESS_CONST = 'Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021';
     const entregasComEnd = ordered.filter(e => e.endereco);
-
     const waypointsForUrl = entregasComEnd
       .map((e) => encodeURIComponent([e.endereco, e.numero ? 'nº ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
       .join('|');
-
     const mapsUrl = entregasComEnd.length > 0
-      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS_CONST)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS_CONST)}&waypoints=${waypointsForUrl}&travelmode=driving`
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}&waypoints=${waypointsForUrl}&travelmode=driving`
       : null;
 
-    // Calculate total distance and estimated time
+    // Sum driving distances (already computed by GET, passed in from frontend)
     let distanciaTotalKm = 0;
     if (distancias) {
       for (const id of ids) {
         const d = distancias[id];
         if (d != null) distanciaTotalKm += d;
       }
-      // Add return trip estimate (last stop back to depot)
+      // Add return trip: use last stop distance as estimate
       if (ids.length > 0) {
         const lastId = ids[ids.length - 1];
         const lastDist = distancias[lastId] ?? 0;
