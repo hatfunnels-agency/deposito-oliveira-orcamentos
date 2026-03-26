@@ -15,7 +15,7 @@ interface Props {
 }
 
 // Medida: padrao (9x15 ou 9x20) = R$20/m | especial = R$25/m
-// Barras: 4 barras = R$30/m | 6 barras = R$36/m | 8 barras = R$42/m
+// Barras: 4 barras = R$20/m | 6 barras = R$36/m | 8 barras = R$42/m
 // Preco final = preco_medida + preco_barras
 
 const PRECO_MEDIDA: Record<string, number> = {
@@ -24,7 +24,7 @@ const PRECO_MEDIDA: Record<string, number> = {
 };
 
 const PRECO_BARRAS: Record<number, number> = {
-  4: 30,
+  4: 20,
   6: 36,
   8: 42,
 };
@@ -32,21 +32,24 @@ const PRECO_BARRAS: Record<number, number> = {
 export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Props) {
   const [medida, setMedida] = useState<'padrao' | 'especial'>('padrao');
   const [barras, setBarras] = useState<4 | 6 | 8>(4);
-  const [metros, setMetros] = useState<number>(0);
+  const [quantidade, setQuantidade] = useState<number>(1);
+  const [metrosPorPeca, setMetrosPorPeca] = useState<number>(0);
   const [obs, setObs] = useState('');
 
   const precoPorMetro = PRECO_MEDIDA[medida] + PRECO_BARRAS[barras];
-  const totalValor = metros * precoPorMetro;
+  const metrosTotal = quantidade * metrosPorPeca;
+  const totalValor = metrosTotal * precoPorMetro;
 
   const handleAdicionar = () => {
-    if (metros <= 0) return;
+    if (metrosTotal <= 0) return;
     const nomeMedida = medida === 'padrao' ? '9x15/9x20' : 'Medida Especial';
     const nome = 'Ferro ' + nomeMedida + ' - ' + barras + ' barras';
+    const especDesc = quantidade + ' peça(s) x ' + metrosPorPeca + 'm' + (obs ? ' | ' + obs : '');
     onAdicionarItens([{
       nome,
-      quantidade: metros,
+      quantidade: metrosTotal,
       preco: precoPorMetro,
-      especificacoes: obs || undefined,
+      especificacoes: especDesc,
     }]);
     onClose();
   };
@@ -101,7 +104,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                       : 'border-gray-200 text-gray-600 hover:border-gray-300')}
                 >
                   <div className="font-bold">4 Barras</div>
-                  <div className="text-xs opacity-75">R$30/m</div>
+                  <div className="text-xs opacity-75">R$20/m</div>
                 </button>
                 <button
                   onClick={() => setBarras(6)}
@@ -126,18 +129,32 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               </div>
             </div>
 
-            {/* Metros */}
-            <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Metros necessários</label>
-              <input
-                type="number"
-                min="0"
-                step="0.5"
-                value={metros || ''}
-                onChange={e => setMetros(parseFloat(e.target.value) || 0)}
-                placeholder="Ex: 12"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
-              />
+            {/* Quantidade e Metros por peca */}
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Quantidade de peças</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={quantidade || ''}
+                  onChange={e => setQuantidade(parseInt(e.target.value) || 1)}
+                  placeholder="Ex: 4"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Metros por peça</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  value={metrosPorPeca || ''}
+                  onChange={e => setMetrosPorPeca(parseFloat(e.target.value) || 0)}
+                  placeholder="Ex: 5"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                />
+              </div>
             </div>
 
             {/* Observacao */}
@@ -158,10 +175,15 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                 <span>Preço por metro</span>
                 <span className="font-semibold">R$ {precoPorMetro.toFixed(2).replace('.', ',')}</span>
               </div>
-              <div className="flex justify-between items-center text-sm text-gray-600 mb-2">
-                <span>{metros > 0 ? metros + ' m × R$' + precoPorMetro : 'Informe os metros'}</span>
+              <div className="flex justify-between items-center text-sm text-gray-600 mb-1">
+                <span>Metragem total</span>
+                <span className="font-semibold">
+                  {metrosTotal > 0
+                    ? quantidade + ' peça(s) × ' + metrosPorPeca + 'm = ' + metrosTotal + 'm'
+                    : 'Informe as medidas'}
+                </span>
               </div>
-              <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg border-t border-orange-200 pt-2">
+              <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg border-t border-orange-200 pt-2 mt-1">
                 <span>Total</span>
                 <span>R$ {totalValor.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
               </div>
@@ -178,7 +200,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
             </button>
             <button
               onClick={handleAdicionar}
-              disabled={metros <= 0}
+              disabled={metrosTotal <= 0}
               className="flex-1 px-4 py-2 bg-[#F7941D] text-white rounded-lg hover:bg-[#E8850A] disabled:opacity-50 font-bold"
             >
               Adicionar ao Orçamento
