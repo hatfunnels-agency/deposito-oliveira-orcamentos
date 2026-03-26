@@ -318,6 +318,11 @@ export default function OrcamentoApp() {  // Auth state
   const [expandedDia, setExpandedDia] = useState<string[]>([]);
   const [dataEntregas, setDataEntregas] = useState('');
   const [marcandoRota, setMarcandoRota] = useState(false);
+  const [entregasEmRota, setEntregasEmRota] = useState<EntregaRota[]>([]);
+  const [entregasCompletas, setEntregasCompletas] = useState<EntregaRota[]>([]);
+  const [loadingCompleto, setLoadingCompleto] = useState<string | null>(null);
+  const [expandedEmRota, setExpandedEmRota] = useState<string[]>([]);
+  const [expandedCompleto, setExpandedCompleto] = useState<string[]>([]);
 
   const printRef = useRef<HTMLDivElement>(null);
   // Motoristas state
@@ -1032,7 +1037,10 @@ export default function OrcamentoApp() {  // Auth state
       const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
       const res = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const data = await res.json();
-      setEntregasDia(data.entregas || []);
+      const todas: EntregaRota[] = data.entregas || [];
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado'));
+      setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
+      setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao carregar entregas do dia', e); }
     setLoadingDia(false);
   };
@@ -1055,6 +1063,24 @@ export default function OrcamentoApp() {  // Auth state
       });
       const data = await res.json();
       setRotaGerada(data);
+      // Mark selected orders as em_rota
+      await fetch('/api/entregas/rota', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selecionadas, novoStatus: 'em_rota' }),
+        cache: 'no-store',
+      });
+      // Reload all sections
+      const amanha = new Date();
+      amanha.setDate(amanha.getDate() + 1);
+      const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
+      const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
+      const reloadData = await reloadRes.json();
+      const todas: EntregaRota[] = reloadData.entregas || [];
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado'));
+      setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
+      setEntregasCompletas(todas.filter(e => e.status === 'completo'));
+      setSelecionadas([]);
     } catch (e) { console.error('Erro ao gerar rota', e); }
     setLoadingRota(false);
   };
@@ -1067,7 +1093,29 @@ export default function OrcamentoApp() {  // Auth state
     setSelecionadas(entregasDia.map(e => e.id));
   };
 
-  const imprimirRotaDia = () => {
+  const marcarEntregue = async (id: string) => {
+    setLoadingCompleto(id);
+    try {
+      const amanha = new Date();
+      amanha.setDate(amanha.getDate() + 1);
+      const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
+      await fetch('/api/entregas/rota', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: [id], novoStatus: 'completo' }),
+        cache: 'no-store',
+      });
+      const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
+      const reloadData = await reloadRes.json();
+      const todas: EntregaRota[] = reloadData.entregas || [];
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado'));
+      setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
+      setEntregasCompletas(todas.filter(e => e.status === 'completo'));
+    } catch (e) { console.error('Erro ao marcar entregue', e); }
+    setLoadingCompleto(null);
+  };
+
+    const imprimirRotaDia = () => {
     if (!rotaGerada || !rotaGerada.entregas || rotaGerada.entregas.length === 0) return;
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
@@ -1793,10 +1841,12 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
-        {/* ===== ENTREGAS TAB (Bug 1 fix - shows em_rota items too) ===== */}
+        {/* ===== ENTREGAS TAB ===== */}
         {abaAtiva === 'entregas' && (
-          <div className="pb-8">
-            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
+          <div className="pb-8 space-y-6">
+
+            {/* === SECTION 1: PENDENTES === */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
               <h2 className="font-bold text-gray-700 mb-4">Entregas Pendentes do Dia</h2>
 
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
@@ -1878,7 +1928,7 @@ export default function OrcamentoApp() {  // Auth state
 
               {entregasDia.length === 0 && !loadingDia && (
                 <div className="text-center py-8 text-gray-400">
-                  <p className="mb-1">Nenhuma entrega para a data selecionada</p>
+                  <p className="mb-1">Nenhuma entrega pendente para a data selecionada</p>
                   <p className="text-xs">Selecione uma data e clique em Carregar Entregas</p>
                 </div>
               )}
@@ -1937,12 +1987,133 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
               )}
             </div>
+
+            {/* === SECTION 2: EM ROTA === */}
+            <div className="bg-white rounded-xl shadow-sm border border-purple-100 p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg">🚚</span>
+                <h2 className="font-bold text-purple-700">Em Rota</h2>
+                {entregasEmRota.length > 0 && (
+                  <span className="ml-auto bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded-full">{entregasEmRota.length}</span>
+                )}
+              </div>
+
+              {entregasEmRota.length === 0 && (
+                <p className="text-center py-6 text-gray-400 text-sm">Nenhuma entrega em rota no momento</p>
+              )}
+
+              {entregasEmRota.length > 0 && (
+                <div className="space-y-2">
+                  {entregasEmRota.map((e, idx) => (
+                    <div key={e.id} className="border border-purple-200 rounded-lg text-sm overflow-hidden">
+                      <div className="p-3 flex items-start gap-3">
+                        <span className="text-purple-400 text-xs mt-0.5 w-5 text-center shrink-0">{idx + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold">{e.cliente_nome}</p>
+                          <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
+                          {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
+                        </div>
+                        <div className="flex gap-2 shrink-0">
+                          <button
+                            onClick={() => setExpandedEmRota(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
+                            className="text-xs text-purple-500 hover:text-purple-700 px-2 py-1 rounded hover:bg-purple-50 whitespace-nowrap"
+                          >
+                            {expandedEmRota.includes(e.id) ? '▲ Fechar' : '📦 Ver'}
+                          </button>
+                          <button
+                            onClick={() => marcarEntregue(e.id)}
+                            disabled={loadingCompleto === e.id}
+                            className="text-xs bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 disabled:opacity-50 whitespace-nowrap font-medium"
+                          >
+                            {loadingCompleto === e.id ? '...' : '✔ Entregue'}
+                          </button>
+                        </div>
+                      </div>
+                      {expandedEmRota.includes(e.id) && (
+                        <div className="border-t border-purple-100 bg-purple-50 px-4 py-3 text-xs space-y-1">
+                          {e.itens_resumo && (
+                            <div>
+                              <span className="font-semibold text-gray-700">📦 Itens: </span>
+                              <span className="text-gray-700">{e.itens_resumo}</span>
+                            </div>
+                          )}
+                          <div className="flex gap-4 flex-wrap mt-1">
+                            <span><span className="font-semibold text-gray-600">Código:</span> <span className="text-purple-700 font-mono">{e.codigo}</span></span>
+                            <span><span className="font-semibold text-gray-600">Total:</span> <span className="font-bold text-gray-800">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span></span>
+                            {e.cliente_telefone && <span><span className="font-semibold text-gray-600">Tel:</span> <a href={'tel:' + e.cliente_telefone} className="text-blue-600">{e.cliente_telefone}</a></span>}
+                            {e.recebedor && <span><span className="font-semibold text-gray-600">Recebedor:</span> {e.recebedor}</span>}
+                          </div>
+                          {e.observacoes && <p className="text-gray-500 italic mt-1">Obs: {e.observacoes}</p>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* === SECTION 3: COMPLETOS === */}
+            <div className="bg-white rounded-xl shadow-sm border border-green-100 p-4">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-lg">✅</span>
+                <h2 className="font-bold text-green-700">Entregas Completas</h2>
+                {entregasCompletas.length > 0 && (
+                  <span className="ml-auto bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full">{entregasCompletas.length}</span>
+                )}
+              </div>
+
+              {entregasCompletas.length === 0 && (
+                <p className="text-center py-6 text-gray-400 text-sm">Nenhuma entrega completa ainda hoje</p>
+              )}
+
+              {entregasCompletas.length > 0 && (
+                <div className="space-y-2">
+                  {entregasCompletas.map((e, idx) => (
+                    <div key={e.id} className="border border-green-200 rounded-lg text-sm overflow-hidden opacity-80">
+                      <div className="p-3 flex items-start gap-3">
+                        <span className="text-green-500 text-sm mt-0.5 w-5 text-center shrink-0">✓</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-600">{e.cliente_nome}</p>
+                          <p className="text-gray-500 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
+                        </div>
+                        <div className="flex gap-2 shrink-0 items-center">
+                          <span className="text-xs text-green-600 font-medium">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
+                          <button
+                            onClick={() => setExpandedCompleto(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
+                            className="text-xs text-green-500 hover:text-green-700 px-2 py-1 rounded hover:bg-green-50 whitespace-nowrap"
+                          >
+                            {expandedCompleto.includes(e.id) ? '▲' : '▼'}
+                          </button>
+                        </div>
+                      </div>
+                      {expandedCompleto.includes(e.id) && (
+                        <div className="border-t border-green-100 bg-green-50 px-4 py-3 text-xs space-y-1">
+                          {e.itens_resumo && (
+                            <div>
+                              <span className="font-semibold text-gray-700">📦 Itens: </span>
+                              <span className="text-gray-700">{e.itens_resumo}</span>
+                            </div>
+                          )}
+                          <div className="flex gap-4 flex-wrap mt-1">
+                            <span><span className="font-semibold text-gray-600">Código:</span> <span className="text-green-700 font-mono">{e.codigo}</span></span>
+                            {e.cliente_telefone && <span><span className="font-semibold text-gray-600">Tel:</span> {e.cliente_telefone}</span>}
+                            {e.recebedor && <span><span className="font-semibold text-gray-600">Recebedor:</span> {e.recebedor}</span>}
+                          </div>
+                          {e.observacoes && <p className="text-gray-500 italic mt-1">Obs: {e.observacoes}</p>}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
           </div>
         )}
       </div>
 
 
-      {/* ===== ESTOQUE TAB ===== */}
+            {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
           {produtosAbaixoMinimo.length > 0 && (
