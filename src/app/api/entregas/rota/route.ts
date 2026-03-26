@@ -144,7 +144,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { ids } = body as { ids: string[] };
+    const { ids, distancias } = body as { ids: string[]; distancias?: Record<string, number | null> };
 
     if (!ids || ids.length === 0) {
       return NextResponse.json({ error: 'Nenhuma entrega selecionada' }, { status: 400 });
@@ -189,10 +189,11 @@ export async function POST(request: NextRequest) {
         itens_resumo: itensResumo,
         data_entrega: e.data_entrega ? String(e.data_entrega) : null,
         observacoes: e.observacoes ? String(e.observacoes) : '',
+        distancia_km: distancias ? (distancias[String(e.id)] ?? null) : null,
       };
     });
 
-    // Reorder to match the original selection order
+    // Reorder to match the original selection order (by distance, as sent)
     const ordered = ids
       .map(id => entregasFormatadas.find((e) => e.id === id))
       .filter(Boolean) as typeof entregasFormatadas;
@@ -202,17 +203,42 @@ export async function POST(request: NextRequest) {
     const entregasComEnd = ordered.filter(e => e.endereco);
 
     const waypointsForUrl = entregasComEnd
-      .map((e) => encodeURIComponent([e.endereco, e.numero ? 'n\u00ba ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
+      .map((e) => encodeURIComponent([e.endereco, e.numero ? 'nº ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
       .join('|');
 
     const mapsUrl = entregasComEnd.length > 0
       ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}&waypoints=${waypointsForUrl}&travelmode=driving`
       : null;
 
+    // Calculate total distance and estimated time
+    let distanciaTotalKm = 0;
+    if (distancias) {
+      for (const id of ids) {
+        const d = distancias[id];
+        if (d != null) distanciaTotalKm += d;
+      }
+      // Add return trip estimate (last stop back to depot)
+      if (ids.length > 0) {
+        const lastId = ids[ids.length - 1];
+        const lastDist = distancias[lastId] ?? 0;
+        distanciaTotalKm += lastDist > 0 ? lastDist : 5;
+      }
+    }
+    distanciaTotalKm = Math.round(distanciaTotalKm * 10) / 10;
+
+    // Estimated time: 30 km/h average + 15 min per stop for unloading
+    const tempoViagem = distanciaTotalKm > 0 ? Math.round((distanciaTotalKm / 30) * 60) : 0;
+    const tempoDescargas = ids.length * 15;
+    const tempoTotalMin = tempoViagem + tempoDescargas;
+
     return NextResponse.json({
       entregas: ordered,
       maps_url: mapsUrl,
       total: ordered.length,
+      distancia_total_km: distanciaTotalKm,
+      tempo_estimado_min: tempoTotalMin,
+      duracao_total_min: tempoTotalMin,
+      total_entregas: ordered.length,
     });
   } catch (error) {
     console.error('Erro ao gerar rota:', error);
