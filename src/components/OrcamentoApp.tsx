@@ -325,7 +325,8 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingEntregasPendentes, setLoadingEntregasPendentes] = useState(false);
   const [rotaGerada, setRotaGerada] = useState(null as ({maps_url: string|null; entregas: EntregaRota[]}|null));
   const [gerandoRota, setGerandoRota] = useState(false);
-  const [dataFiltroEntregas, setDataFiltroEntregas] = useState(() => new Date().toISOString().slice(0, 10));
+  const [dataFiltroEntregas, setDataFiltroEntregas] = useState(new Date().toISOString().split('T')[0]);
+  const [entregasSelecionadas, setEntregasSelecionadas] = useState([] as string[]);
 
 
   // Estoque management state
@@ -519,7 +520,8 @@ export default function OrcamentoApp() {  // Auth state
     } catch {}
   }, []);
 
-  // Fetch levas
+
+  // Fetch entregas pendentes ao abrir aba
   useEffect(() => {
     if (abaAtiva === 'entregas') {
       carregarEntregasPendentes();
@@ -1013,6 +1015,7 @@ export default function OrcamentoApp() {  // Auth state
     }
   };
 
+  // Bug 1 fix - Entregas now includes em_rota status
   const carregarEntregasPendentes = async () => {
     setLoadingEntregasPendentes(true);
     try {
@@ -1700,7 +1703,7 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
-        {/* ===== ENTREGAS TAB ===== */}
+        {/* ===== ENTREGAS TAB (Bug 1 fix - shows em_rota items too) ===== */}
         {abaAtiva === 'entregas' && (
           <div className="pb-8">
 
@@ -1855,7 +1858,7 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
-        {/* ===== ESTOQUE TAB ===== */}
+      {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
           {produtosAbaixoMinimo.length > 0 && (
