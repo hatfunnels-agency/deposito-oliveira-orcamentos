@@ -315,6 +315,7 @@ export default function OrcamentoApp() {  // Auth state
   const [rotaGerada, setRotaGerada] = useState<RotaResponse | null>(null);
   const [loadingDia, setLoadingDia] = useState(false);
   const [loadingRota, setLoadingRota] = useState(false);
+  const [expandedDia, setExpandedDia] = useState<string[]>([]);
   const [dataEntregas, setDataEntregas] = useState('');
   const [marcandoRota, setMarcandoRota] = useState(false);
 
@@ -1079,7 +1080,7 @@ export default function OrcamentoApp() {  // Auth state
     const kmTotal = rotaGerada.distancia_total_km;
     const tempoMin = rotaGerada.tempo_estimado_min || rotaGerada.duracao_total_min;
     const tempoStr = tempoMin ? (tempoMin >= 60 ? Math.floor(tempoMin / 60) + 'h ' + (tempoMin % 60) + 'min' : tempoMin + ' min') : '';
-    let html = `<!DOCTYPE html><html><head><title>Rota ${dataStr}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}h1{font-size:18px;margin-bottom:2px}.header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}.stats{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap}.stat{background:#f5f5f5;border-radius:6px;padding:6px 12px;text-align:center}.stat-label{font-size:11px;color:#666}.stat-value{font-weight:bold;font-size:15px}.entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}.parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}.check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}.itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd;font-size:12px;color:#555}@media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}</style></head><body>`;
+    let html = `<!DOCTYPE html><html><head><title>Rota ${dataStr}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}h1{font-size:18px;margin-bottom:2px}.header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}.stats{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap}.stat{background:#f5f5f5;border-radius:6px;padding:6px 12px;text-align:center}.stat-label{font-size:11px;color:#666}.stat-value{font-weight:bold;font-size:15px}.entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}.parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}.check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}.itens{margin:6px 0;padding:6px 8px;border-top:2px solid #f0a04b;border-bottom:1px solid #ddd;font-size:12px;color:#222;background:#fffbf5;border-radius:3px}.itens-label{font-weight:bold;color:#c45e00;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px}@media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}</style></head><body>`;
     html += `<div class="header"><h1>🚚 Rota de Entregas - Depósito Oliveira</h1><p style="margin:2px 0;color:#555;font-size:12px">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p><p style="margin:4px 0;font-size:13px"><strong>${dataStr}</strong></p><div class="stats"><div class="stat"><div class="stat-label">Paradas</div><div class="stat-value">${rotaGerada.entregas.length}</div></div>${kmTotal ? '<div class="stat"><div class="stat-label">Distância total</div><div class="stat-value">' + kmTotal.toFixed(1) + ' km</div></div>' : ''}${tempoStr ? '<div class="stat"><div class="stat-label">Tempo estimado</div><div class="stat-value">' + tempoStr + '</div></div>' : ''}</div></div>`;
     (rotaGerada.entregas || []).forEach((e, idx) => {
       const endCompleto = [e.endereco, e.numero ? 'nº ' + e.numero : '', e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
@@ -1087,7 +1088,7 @@ export default function OrcamentoApp() {  // Auth state
       if (e.cliente_telefone) html += ` — ${e.cliente_telefone}`;
       html += `<br/><span style="color:#555">${endCompleto}</span>`;
       if (e.recebedor) html += `<br/><em style="font-size:12px">Recebedor: ${e.recebedor}</em>`;
-      if (e.itens_resumo) html += `<div class="itens">${e.itens_resumo}</div>`;
+      html += `<div class="itens"><div class="itens-label">📦 Itens para carregar:</div>${e.itens_resumo || '<em style="color:#aaa">Nenhum item registrado</em>'}</div>`;
       html += `<div style="display:flex;justify-content:space-between;margin-top:4px"><span>Valor: <strong>R$ ${(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</strong></span><span style="color:#888;font-size:12px">${e.codigo}</span></div>`;
       if (e.observacoes) html += `<div style="color:#666;font-style:italic;font-size:12px;margin-top:2px">Obs: ${e.observacoes}</div>`;
       html += `</div>`;
@@ -1828,24 +1829,48 @@ export default function OrcamentoApp() {  // Auth state
               {entregasDia.length > 0 && (
                 <div className="space-y-2 mb-4">
                   {entregasDia.map((e, idx) => (
-                    <div
-                      key={e.id}
-                      className="border border-gray-200 rounded-lg p-3 text-sm flex items-start gap-3 cursor-pointer hover:bg-gray-50"
-                      onClick={() => toggleSelecionada(e.id)}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selecionadas.includes(e.id)}
-                        onChange={() => toggleSelecionada(e.id)}
-                        className="mt-0.5 w-4 h-4 accent-orange-500"
-                        onClick={ev => ev.stopPropagation()}
-                      />
-                      <span className="text-gray-400 text-xs mt-0.5 w-5 text-center">{idx + 1}</span>
-                      <div className="flex-1">
-                        <p className="font-semibold">{e.cliente_nome}</p>
-                        <p className="text-gray-600 text-xs">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
-                        {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do deposito</p>}
+                    <div key={e.id} className="border border-gray-200 rounded-lg text-sm overflow-hidden">
+                      <div
+                        className="p-3 flex items-start gap-3 cursor-pointer hover:bg-gray-50"
+                        onClick={() => toggleSelecionada(e.id)}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selecionadas.includes(e.id)}
+                          onChange={() => toggleSelecionada(e.id)}
+                          className="mt-0.5 w-4 h-4 accent-orange-500"
+                          onClick={ev => ev.stopPropagation()}
+                        />
+                        <span className="text-gray-400 text-xs mt-0.5 w-5 text-center shrink-0">{idx + 1}</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold">{e.cliente_nome}</p>
+                          <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
+                          {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
+                        </div>
+                        <button
+                          onClick={ev => { ev.stopPropagation(); setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]); }}
+                          className="shrink-0 text-xs text-orange-500 hover:text-orange-700 px-2 py-1 rounded hover:bg-orange-50 whitespace-nowrap"
+                        >
+                          {expandedDia.includes(e.id) ? '▲ Fechar' : '📦 Ver pedido'}
+                        </button>
                       </div>
+                      {expandedDia.includes(e.id) && (
+                        <div className="border-t border-gray-100 bg-orange-50 px-4 py-3 text-xs space-y-1">
+                          {e.itens_resumo && (
+                            <div>
+                              <span className="font-semibold text-gray-700">📦 Itens: </span>
+                              <span className="text-gray-700">{e.itens_resumo}</span>
+                            </div>
+                          )}
+                          <div className="flex gap-4 flex-wrap mt-1">
+                            <span><span className="font-semibold text-gray-600">Código:</span> <span className="text-orange-700 font-mono">{e.codigo}</span></span>
+                            <span><span className="font-semibold text-gray-600">Total:</span> <span className="font-bold text-gray-800">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span></span>
+                            {e.cliente_telefone && <span><span className="font-semibold text-gray-600">Tel:</span> <a href={'tel:' + e.cliente_telefone} className="text-blue-600" onClick={ev => ev.stopPropagation()}>{e.cliente_telefone}</a></span>}
+                            {e.recebedor && <span><span className="font-semibold text-gray-600">Recebedor:</span> {e.recebedor}</span>}
+                          </div>
+                          {e.observacoes && <p className="text-gray-500 italic mt-1">Obs: {e.observacoes}</p>}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
