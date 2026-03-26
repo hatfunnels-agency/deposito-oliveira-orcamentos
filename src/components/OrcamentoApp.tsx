@@ -63,6 +63,7 @@ interface OrcamentoDetalhe {
   data_entrega_original: string | null;
   reagendamentos: number;
   motorista_id?: string | null;
+  forma_pagamento?: string | null;
   clientes: {
     id: string;
     nome: string;
@@ -98,6 +99,7 @@ interface OrcamentoSalvo {
   reagendamentos?: number;
   resumo_itens?: string;
   bling_pedido_id?: string | null;
+  forma_pagamento?: string | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null; recebedor?: string | null } | null;
 }
 
@@ -189,9 +191,6 @@ const PESO_MEDIO_KG: Record<string, number> = {
 
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
-  pagamento_pendente: 'Pgto. Pendente',
-  pagamento_ok: 'Pgto. OK',
-  separacao: 'Em Separação',
   entrega_pendente: 'Entrega Pendente',
   em_rota: 'Em Rota',
   completo: 'Completo',
@@ -201,9 +200,6 @@ const STATUS_LABELS: Record<string, string> = {
 
 const STATUS_COLORS: Record<string, string> = {
   orcamento: 'bg-gray-100 text-gray-700',
-  pagamento_pendente: 'bg-yellow-100 text-yellow-800',
-  pagamento_ok: 'bg-green-100 text-green-800',
-  separacao: 'bg-[#FFF3E0] text-[#F7941D]',
   entrega_pendente: 'bg-orange-100 text-orange-800',
   em_rota: 'bg-purple-100 text-purple-800',
   completo: 'bg-green-200 text-green-900',
@@ -874,7 +870,7 @@ export default function OrcamentoApp() {  // Auth state
         body: JSON.stringify({ status: novoStatus, _previous_status: statusAnterior }),
       });
       carregarHistorico();
-      if (novoStatus === 'pagamento_ok' || novoStatus === 'cancelado') carregarProdutos();
+      if (novoStatus === 'entrega_pendente' || novoStatus === 'cancelado') carregarProdutos();
       if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
         setOrcamentoDetalhe({ ...orcamentoDetalhe, status: novoStatus });
       }
@@ -2287,6 +2283,30 @@ export default function OrcamentoApp() {  // Auth state
                     <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
                       className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
                       {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </select>
+                  </div>
+                  {/* Forma de Pagamento */}
+                  <div className="flex items-center gap-3 mt-3">
+                    <span className="text-sm text-gray-600">Pagamento:</span>
+                    <select
+                      value={orcamentoDetalhe.forma_pagamento || ''}
+                      onChange={e => {
+                        const val = e.target.value || null;
+                        fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ forma_pagamento: val }),
+                          cache: 'no-store',
+                        }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, forma_pagamento: val }));
+                      }}
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
+                    >
+                      <option value="">Forma de pagamento...</option>
+                      <option value="dinheiro">Dinheiro</option>
+                      <option value="pix">Pix</option>
+                      <option value="debito">D\u00e9bito</option>
+                      <option value="credito">Cr\u00e9dito</option>
+                      <option value="boleto">Boleto</option>
                     </select>
                   </div>
                 </div>
