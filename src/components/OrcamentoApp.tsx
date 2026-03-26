@@ -1710,17 +1710,16 @@ export default function OrcamentoApp() {  // Auth state
         {abaAtiva === 'entregas' && (
           <div className="pb-8">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-              <h2 className="font-bold text-gray-700 mb-3">🚚 Entregas Pendentes do Dia</h2>
-              <p className="text-sm text-gray-500 mb-3">Entregas de hoje, ordenadas por distância</p>
+              <h2 className="font-bold text-gray-700 mb-3">Entregas Pendentes do Dia</h2>
+              <p className="text-sm text-gray-500 mb-3">Entregas de hoje, ordenadas por distancia do deposito</p>
 
               <button
                 onClick={carregarEntregas}
-                className="mb-4 bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600"
+                disabled={loadingEntregas}
+                className="mb-4 bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
               >
-                Carregar Entregas do Dia
+                {loadingEntregas ? 'Carregando...' : 'Carregar Entregas do Dia'}
               </button>
-
-              {carregandoEntregas && <p className="text-gray-500 text-sm">Carregando...</p>}
 
               {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length > 0 && (
                 <div className="space-y-2 mb-4">
@@ -1748,9 +1747,15 @@ export default function OrcamentoApp() {  // Auth state
                 </a>
               )}
 
-              {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length === 0 && !carregandoEntregas && (
+              {entregasRota && entregasRota.rota_otimizada && entregasRota.rota_otimizada.length === 0 && !loadingEntregas && (
                 <div className="text-center py-8 text-gray-400">
                   <p>Nenhuma entrega pendente para hoje</p>
+                </div>
+              )}
+
+              {!entregasRota && !loadingEntregas && (
+                <div className="text-center py-8 text-gray-400">
+                  <p>Clique para carregar as entregas do dia</p>
                 </div>
               )}
             </div>
