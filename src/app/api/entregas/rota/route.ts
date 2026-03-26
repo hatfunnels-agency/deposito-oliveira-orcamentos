@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-const DEPOSITO_ADDRESS = 'Av. Inoc\u00eancio Ser\u00e1fico, 4020 - Centro, Carapicu\u00edba - SP, 06380-021';
+const DEPOSITO_ADDRESS = 'Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021';
 const DEPOSITO_LAT = -23.5237;
 const DEPOSITO_LNG = -46.8389;
 
@@ -47,13 +47,13 @@ interface EntregaItem {
   distancia_km: number | null;
 }
 
-// GET - carrega entregas pendentes do dia, ordenadas por distancia
+// GET - carrega entregas do dia (pendentes, em rota e completas)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get('data');
 
-    const statusEntrega = ['aguardando', 'confirmado', 'em_rota'];
+    const statusEntrega = ['aguardando', 'confirmado', 'em_rota', 'completo'];
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
@@ -199,7 +199,7 @@ export async function POST(request: NextRequest) {
       .filter(Boolean) as typeof entregasFormatadas;
 
     // Build Google Maps URL
-    const GOOGLE_MAPS_API_KEY = process.env.GOOGLE_MAPS_API_KEY || '';
+    const DEPOSITO_ADDRESS_CONST = 'Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021';
     const entregasComEnd = ordered.filter(e => e.endereco);
 
     const waypointsForUrl = entregasComEnd
@@ -207,7 +207,7 @@ export async function POST(request: NextRequest) {
       .join('|');
 
     const mapsUrl = entregasComEnd.length > 0
-      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}&waypoints=${waypointsForUrl}&travelmode=driving`
+      ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS_CONST)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS_CONST)}&waypoints=${waypointsForUrl}&travelmode=driving`
       : null;
 
     // Calculate total distance and estimated time
@@ -246,23 +246,25 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH - marca entregas como em_rota
+// PATCH - atualiza status das entregas (em_rota ou completo)
 export async function PATCH(request: NextRequest) {
   try {
-    const { ids } = await request.json();
+    const { ids, novoStatus } = await request.json();
     if (!ids || !Array.isArray(ids) || ids.length === 0) {
       return NextResponse.json({ error: 'IDs das entregas sao obrigatorios' }, { status: 400 });
     }
+    const statusValidos = ['em_rota', 'completo'];
+    const status = statusValidos.includes(novoStatus) ? novoStatus : 'em_rota';
     const { error } = await supabaseAdmin
       .from('orcamentos')
-      .update({ status: 'em_rota' })
+      .update({ status })
       .in('id', ids);
     if (error) {
       return NextResponse.json({ error: 'Erro ao atualizar status das entregas' }, { status: 500 });
     }
-    return NextResponse.json({ success: true, mensagem: ids.length + ' entrega(s) marcada(s) como em rota' });
+    return NextResponse.json({ success: true, mensagem: ids.length + ' entrega(s) atualizada(s) para ' + status });
   } catch (error) {
-    console.error('Erro ao marcar entregas em rota:', error);
+    console.error('Erro ao atualizar status:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
   }
 }
