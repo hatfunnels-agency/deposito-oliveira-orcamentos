@@ -1023,7 +1023,10 @@ export default function OrcamentoApp() {  // Auth state
     setSelecionadas([]);
     setRotaGerada(null);
     try {
-      const res = await fetch('/api/entregas/rota', { cache: 'no-store' });
+      const amanha = new Date();
+      amanha.setDate(amanha.getDate() + 1);
+      const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
+      const res = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const data = await res.json();
       setEntregasDia(data.entregas || []);
     } catch (e) { console.error('Erro ao carregar entregas do dia', e); }
@@ -1752,12 +1755,19 @@ export default function OrcamentoApp() {  // Auth state
         {abaAtiva === 'entregas' && (
           <div className="pb-8">
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-6">
-              <div className="flex justify-between items-center mb-4">
-                <h2 className="font-bold text-gray-700">Entregas Pendentes do Dia</h2>
+              <h2 className="font-bold text-gray-700 mb-4">Entregas Pendentes do Dia</h2>
+
+              <div className="flex flex-col sm:flex-row gap-3 mb-4">
+                <input
+                  type="date"
+                  value={dataEntregas || (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()}
+                  onChange={e => setDataEntregas(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                />
                 <button
                   onClick={carregarEntregasDia}
                   disabled={loadingDia}
-                  className="bg-orange-500 text-white px-3 py-1.5 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50"
+                  className="bg-orange-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-600 disabled:opacity-50 whitespace-nowrap"
                 >
                   {loadingDia ? 'Carregando...' : 'Carregar Entregas'}
                 </button>
@@ -1802,8 +1812,8 @@ export default function OrcamentoApp() {  // Auth state
 
               {entregasDia.length === 0 && !loadingDia && (
                 <div className="text-center py-8 text-gray-400">
-                  <p className="mb-1">Nenhuma entrega pendente para hoje</p>
-                  <p className="text-xs">Clique em Carregar Entregas para verificar</p>
+                  <p className="mb-1">Nenhuma entrega para a data selecionada</p>
+                  <p className="text-xs">Selecione uma data e clique em Carregar Entregas</p>
                 </div>
               )}
 
