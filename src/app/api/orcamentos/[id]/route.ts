@@ -21,7 +21,7 @@ export async function GET(
             .select(`
                     id, codigo, tipo_entrega, valor_frete, subtotal, total,
                             status, observacoes, criado_em, atualizado_em,
-                                    data_entrega, data_retirada, fonte,
+                                    data_entrega, data_retirada, fonte, forma_pagamento,
                                             data_entrega_original, reagendamentos, bling_pedido_id, motorista_id, leva_id,
                                                     clientes (
                                                               id, nome, telefone, cep, endereco, bairro, cidade, estado,
@@ -54,7 +54,7 @@ export async function PATCH(
           const body = await request.json();
           const {
                   status, observacoes, tipo_entrega, valor_frete, subtotal, total,
-                  data_entrega, data_retirada, fonte, itens,
+                  data_entrega, data_retirada, fonte, itens, forma_pagamento,
                   cliente_nome, cliente_telefone, cliente_cep, cliente_endereco,
                   cliente_numero, cliente_complemento, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
@@ -73,6 +73,7 @@ export async function PATCH(
           if (bling_pedido_id !== undefined) updateData.bling_pedido_id = bling_pedido_id;
           if (motorista_id !== undefined) updateData.motorista_id = motorista_id;
           if (leva_id !== undefined) updateData.leva_id = leva_id;
+          if (forma_pagamento !== undefined) updateData.forma_pagamento = forma_pagamento;
 
       // Reschedule logic
       if (data_entrega !== undefined) {
@@ -144,8 +145,8 @@ export async function PATCH(
 
             const previousStatus = body._previous_status;
 
-            // Baixa de estoque ao confirmar pagamento
-            if (status === 'pagamento_ok' && orderItems && orderItems.length > 0) {
+            // Baixa de estoque ao confirmar entrega pendente
+            if (status === 'entrega_pendente' && orderItems && orderItems.length > 0) {
                       for (const item of orderItems) {
                                   if (!item.produto_id) continue;
 
@@ -187,7 +188,7 @@ export async function PATCH(
             if (
                       status === 'cancelado' &&
                       previousStatus &&
-                      ['pagamento_ok', 'separacao', 'entrega_pendente', 'em_rota'].includes(previousStatus) &&
+                      ['entrega_pendente', 'em_rota'].includes(previousStatus) &&
                       orderItems &&
                       orderItems.length > 0
                     ) {
