@@ -133,12 +133,15 @@ interface Motorista {
 }
 
 interface RotaResponse {
-  data: string;
-  total_entregas: number;
-  distancia_total_km: number;
-  duracao_total_min: number;
-  rota_otimizada: EntregaRota[];
+  data?: string;
+  total_entregas?: number;
+  total?: number;
+  distancia_total_km?: number;
+  duracao_total_min?: number;
+  tempo_estimado_min?: number;
+  rota_otimizada?: EntregaRota[];
   maps_url: string | null;
+  entregas?: EntregaRota[];
   mensagem?: string;
 }
 
@@ -1037,10 +1040,16 @@ export default function OrcamentoApp() {  // Auth state
     if (selecionadas.length === 0) return;
     setLoadingRota(true);
     try {
+      const distancias: Record<string, number | null> = {};
+      for (const e of entregasDia) {
+        if (selecionadas.includes(e.id)) {
+          distancias[e.id] = e.distancia_km ?? null;
+        }
+      }
       const res = await fetch('/api/entregas/rota', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selecionadas }),
+        body: JSON.stringify({ ids: selecionadas, distancias }),
         cache: 'no-store',
       });
       const data = await res.json();
@@ -1055,6 +1064,38 @@ export default function OrcamentoApp() {  // Auth state
 
   const selecionarTodas = () => {
     setSelecionadas(entregasDia.map(e => e.id));
+  };
+
+  const imprimirRotaDia = () => {
+    if (!rotaGerada || !rotaGerada.entregas || rotaGerada.entregas.length === 0) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const dataStr = (() => {
+      const amanha = new Date();
+      amanha.setDate(amanha.getDate() + 1);
+      const d = dataEntregas || amanha.toISOString().slice(0, 10);
+      return new Date(d + 'T12:00:00').toLocaleDateString('pt-BR');
+    })();
+    const kmTotal = rotaGerada.distancia_total_km;
+    const tempoMin = rotaGerada.tempo_estimado_min || rotaGerada.duracao_total_min;
+    const tempoStr = tempoMin ? (tempoMin >= 60 ? Math.floor(tempoMin / 60) + 'h ' + (tempoMin % 60) + 'min' : tempoMin + ' min') : '';
+    let html = `<!DOCTYPE html><html><head><title>Rota ${dataStr}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}h1{font-size:18px;margin-bottom:2px}.header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}.stats{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap}.stat{background:#f5f5f5;border-radius:6px;padding:6px 12px;text-align:center}.stat-label{font-size:11px;color:#666}.stat-value{font-weight:bold;font-size:15px}.entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}.parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}.check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}.itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd;font-size:12px;color:#555}@media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}</style></head><body>`;
+    html += `<div class="header"><h1>🚚 Rota de Entregas - Depósito Oliveira</h1><p style="margin:2px 0;color:#555;font-size:12px">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p><p style="margin:4px 0;font-size:13px"><strong>${dataStr}</strong></p><div class="stats"><div class="stat"><div class="stat-label">Paradas</div><div class="stat-value">${rotaGerada.entregas.length}</div></div>${kmTotal ? '<div class="stat"><div class="stat-label">Distância total</div><div class="stat-value">' + kmTotal.toFixed(1) + ' km</div></div>' : ''}${tempoStr ? '<div class="stat"><div class="stat-label">Tempo estimado</div><div class="stat-value">' + tempoStr + '</div></div>' : ''}</div></div>`;
+    (rotaGerada.entregas || []).forEach((e, idx) => {
+      const endCompleto = [e.endereco, e.numero ? 'nº ' + e.numero : '', e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
+      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${idx + 1}</span><strong>${e.cliente_nome}</strong>`;
+      if (e.cliente_telefone) html += ` — ${e.cliente_telefone}`;
+      html += `<br/><span style="color:#555">${endCompleto}</span>`;
+      if (e.recebedor) html += `<br/><em style="font-size:12px">Recebedor: ${e.recebedor}</em>`;
+      if (e.itens_resumo) html += `<div class="itens">${e.itens_resumo}</div>`;
+      html += `<div style="display:flex;justify-content:space-between;margin-top:4px"><span>Valor: <strong>R$ ${(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</strong></span><span style="color:#888;font-size:12px">${e.codigo}</span></div>`;
+      if (e.observacoes) html += `<div style="color:#666;font-style:italic;font-size:12px;margin-top:2px">Obs: ${e.observacoes}</div>`;
+      html += `</div>`;
+    });
+    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>Depósito Oliveira</strong> — Materiais de Construção<br>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021 — Tel: (11) 4187-1801</div></body></html>`;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
   };
 
   const carregarEntregas = async () => {
@@ -1827,17 +1868,47 @@ export default function OrcamentoApp() {  // Auth state
                 </button>
               )}
 
-              {rotaGerada && rotaGerada.maps_url && (
-                <div className="border border-green-200 bg-green-50 rounded-lg p-3 mb-2">
-                  <p className="text-sm font-medium text-green-800 mb-2">Rota gerada!</p>
-                  <a
-                    href={rotaGerada.maps_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="block text-center bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
-                  >
-                    Abrir Rota no Google Maps
-                  </a>
+              {rotaGerada && (
+                <div className="border border-green-200 bg-green-50 rounded-lg p-4 mb-2">
+                  <p className="text-sm font-bold text-green-800 mb-3">✅ Rota gerada!</p>
+                  <div className="flex gap-3 mb-3 flex-wrap">
+                    {(rotaGerada.distancia_total_km ?? 0) > 0 && (
+                      <div className="bg-white border border-green-200 rounded-lg px-3 py-2 text-center">
+                        <p className="text-xs text-gray-500">Distância total</p>
+                        <p className="font-bold text-gray-800 text-sm">{rotaGerada.distancia_total_km!.toFixed(1)} km</p>
+                      </div>
+                    )}
+                    {(rotaGerada.tempo_estimado_min ?? rotaGerada.duracao_total_min ?? 0) > 0 && (
+                      <div className="bg-white border border-green-200 rounded-lg px-3 py-2 text-center">
+                        <p className="text-xs text-gray-500">Tempo estimado</p>
+                        <p className="font-bold text-gray-800 text-sm">
+                          {(() => { const m = rotaGerada.tempo_estimado_min || rotaGerada.duracao_total_min || 0; return m >= 60 ? Math.floor(m/60)+'h '+(m%60)+'min' : m+' min'; })()}
+                        </p>
+                      </div>
+                    )}
+                    <div className="bg-white border border-green-200 rounded-lg px-3 py-2 text-center">
+                      <p className="text-xs text-gray-500">Paradas</p>
+                      <p className="font-bold text-gray-800 text-sm">{rotaGerada.total || rotaGerada.total_entregas || selecionadas.length}</p>
+                    </div>
+                  </div>
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    {rotaGerada.maps_url && (
+                      <a
+                        href={rotaGerada.maps_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-1 block text-center bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
+                      >
+                        🗺️ Abrir Rota no Google Maps
+                      </a>
+                    )}
+                    <button
+                      onClick={imprimirRotaDia}
+                      className="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800"
+                    >
+                      🖨️ Imprimir Rota
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
