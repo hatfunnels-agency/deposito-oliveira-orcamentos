@@ -15,7 +15,7 @@ interface Props {
 }
 
 // Medida: padrao (9x15 ou 9x20) = R$20/m | especial = R$25/m
-// Barras: 6 barras = R$36/m | 8 barras = R$42/m
+// Barras: 4 barras = R$30/m | 6 barras = R$36/m | 8 barras = R$42/m
 // Preco final = preco_medida + preco_barras
 
 const PRECO_MEDIDA: Record<string, number> = {
@@ -24,13 +24,14 @@ const PRECO_MEDIDA: Record<string, number> = {
 };
 
 const PRECO_BARRAS: Record<number, number> = {
+  4: 30,
   6: 36,
   8: 42,
 };
 
 export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Props) {
   const [medida, setMedida] = useState<'padrao' | 'especial'>('padrao');
-  const [barras, setBarras] = useState<6 | 8>(6);
+  const [barras, setBarras] = useState<4 | 6 | 8>(4);
   const [metros, setMetros] = useState<number>(0);
   const [obs, setObs] = useState('');
 
@@ -91,7 +92,17 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
             {/* Barras */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Quantidade de Barras</label>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => setBarras(4)}
+                  className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " +
+                    (barras === 4
+                      ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300')}
+                >
+                  <div className="font-bold">4 Barras</div>
+                  <div className="text-xs opacity-75">R$30/m</div>
+                </button>
                 <button
                   onClick={() => setBarras(6)}
                   className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " +
