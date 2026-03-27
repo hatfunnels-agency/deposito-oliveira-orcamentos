@@ -853,10 +853,15 @@ export default function OrcamentoApp() {  // Auth state
     if (dataRet) printWindow.document.write(`<div class="info"><span>Data de retirada:</span> ${new Date(dataRet + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     const fonteVal = d ? (d as any).fonte : fonteVenda;
     const obs = d ? d.observacoes : observacoes;
+    const formaPag = d ? (d as any).forma_pagamento as string | null : null;
+    const formaPagLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', debito: 'Débito', credito: 'Crédito', boleto: 'Boleto', pagamento_na_entrega: 'Pagamento na Entrega' };
     if (obs) printWindow.document.write(`<div class="info"><span>Observações:</span> ${obs}</div>`);
+    if (formaPag) printWindow.document.write(`<div class="info"><span>Forma de pagamento:</span> ${formaPagLabel[formaPag] || formaPag}</div>`);
     printWindow.document.write(`<table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:center">Unidade</th><th style="text-align:right">Preço Unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;padding:10px 8px">Subtotal:</td><td style="text-align:right;padding:10px 8px">R$ ${formatBRL(sub)}</td></tr>`);
     if (tipo === 'entrega' && frete > 0) printWindow.document.write(`<tr><td colspan="4" style="text-align:right;padding:4px 8px">Frete:</td><td style="text-align:right;padding:4px 8px">R$ ${formatBRL(frete)}</td></tr>`);
     printWindow.document.write(`<tr><td colspan="4" style="text-align:right;padding:10px 8px;font-size:18px;color:#F7941D">TOTAL:</td><td style="text-align:right;padding:10px 8px;font-size:18px;color:#F7941D">R$ ${formatBRL(tot)}</td></tr></tfoot></table>`);
+    const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
+    printWindow.document.write(`<div style="margin-top:10px;padding:10px;border:1px solid #ddd;border-radius:5px;background:#fffbf0"><p style="margin:0 0 6px 0"><strong>&#128181; À vista:</strong> R$ ${formatBRL(tot)}</p><p style="margin:0 0 6px 0"><strong>&#128179; No cartão (+8%):</strong> R$ ${formatBRL(valorCartaoImp)}</p><p style="margin:0;font-size:12px;color:#666">${Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => `${n}x R$ ${formatBRL(valorCartaoImp / n)}`).join(' | ')}</p></div>`);
     printWindow.document.write(`<div class="footer"><p><strong>Depósito Oliveira</strong> — Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p><p style="margin-top:8px">Orçamento válido por 7 dias. Sujeito a disponibilidade de estoque.</p></div></body></html>`);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -2303,10 +2308,11 @@ export default function OrcamentoApp() {  // Auth state
                     >
                       <option value="">Forma de pagamento...</option>
                       <option value="dinheiro">Dinheiro</option>
-                      <option value="pix">Pix</option>
-                      <option value="debito">D\u00e9bito</option>
-                      <option value="credito">Cr\u00e9dito</option>
+                      <option value="pix">PIX</option>
+                      <option value="debito">Débito</option>
+                      <option value="credito">Crédito</option>
                       <option value="boleto">Boleto</option>
+                      <option value="pagamento_na_entrega">Pagamento na Entrega</option>
                     </select>
                   </div>
                 </div>
