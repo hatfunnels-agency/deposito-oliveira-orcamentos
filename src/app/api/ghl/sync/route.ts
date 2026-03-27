@@ -24,12 +24,6 @@ const CF = {
   DATA_RETIRADA: '1XH7O5PYyAEn41FnIrOT',
 };
 
-// Status to Pipeline Stage mapping (env vars set in Vercel)
-// orcamento -> Stage "Or\u00e7amento Enviado"
-// entrega_pendente -> Stage "Entrega Pendente"
-// em_rota -> Stage "Em Rota"
-// completo -> Stage "Completo"
-// ocorrencia + cancelado: treated via tags only (no stage)
 const STATUS_TO_STAGE: Record<string, string> = {
   'orcamento': process.env.GHL_STAGE_ORCAMENTO || '',
   'entrega_pendente': process.env.GHL_STAGE_ENTREGA || '',
@@ -37,7 +31,6 @@ const STATUS_TO_STAGE: Record<string, string> = {
   'completo': process.env.GHL_STAGE_COMPLETO || '',
 };
 
-// Status to Tag mapping
 const STATUS_TO_TAG: Record<string, string> = {
   'orcamento': 'status:orcamento',
   'entrega_pendente': 'status:entrega-pendente',
@@ -47,7 +40,6 @@ const STATUS_TO_TAG: Record<string, string> = {
   'cancelado': 'status:cancelado',
 };
 
-// Canal to Tag mapping
 const CANAL_TO_TAG: Record<string, string> = {
   'Ponto (presencial)': 'canal:ponto',
   'WhatsApp organico': 'canal:whatsapp',
@@ -65,16 +57,16 @@ function gerarTagsProduto(itens: any[]): string[] {
     const nome = (item.produto_nome || item.produto?.nome || item.descricao || '').toLowerCase();
     if (nome.includes('areia')) tags.add('produto:areia');
     if (nome.includes('cimento')) tags.add('produto:cimento');
-    if (nome.includes('pedra') || nome.includes('pedrisco') || nome.includes('p\u00f3')) tags.add('produto:pedra');
+    if (nome.includes('pedra') || nome.includes('pedrisco') || nome.includes('po')) tags.add('produto:pedra');
     if (nome.includes('ferro') || nome.includes('barra') || nome.includes('viga')) tags.add('produto:ferro');
     if (nome.includes('tijolo')) tags.add('produto:tijolo');
     if (nome.includes('telha')) tags.add('produto:telha');
     if (nome.includes('prego') || nome.includes('parafuso') || nome.includes('arame')) tags.add('produto:fixacao');
     if (
       nome.includes('madeira') || nome.includes('cambar') || nome.includes('pinus') ||
-      nome.includes('t\u00e1bua') || nome.includes('tabua') || nome.includes('sarrafo') ||
-      nome.includes('pontalete') || nome.includes('madeirit') || nome.includes('rip\u00e3o') ||
-      nome.includes('ripao') || nome.includes('prancha') || nome.includes('caibr')
+      nome.includes('tabua') || nome.includes('sarrafo') || nome.includes('pontalete') ||
+      nome.includes('madeirit') || nome.includes('ripao') || nome.includes('prancha') ||
+      nome.includes('caibr')
     ) tags.add('produto:madeira');
   });
   return Array.from(tags);
@@ -109,20 +101,44 @@ async function lookupContact(phone: string): Promise<string | null> {
   return contacts.length > 0 ? contacts[0].id : null;
 }
 
-async function createContact(orcamento: any, cliente: any, itens: any[]): Promise<string | null> {
+async function createContact(
+  orcamento: any,
+  cliente: any,
+  itens: any[],
+  totalCompras: number,
+  qtdCompras: number,
+  ultimaCompra: string | null
+): Promise<string | null> {
   const headers = ghlHeaders();
   const statusTag = STATUS_TO_TAG[orcamento.status];
   const canalTag = orcamento.fonte ? CANAL_TO_TAG[orcamento.fonte] : null;
   const produtoTags = gerarTagsProduto(itens);
   const tags = [statusTag, canalTag, ...produtoTags].filter(Boolean) as string[];
 
-  const produtosList = itens.map((it: any) =>
-    it.produto_nome + (it.quantidade ? ' x' + it.quantidade : '')
-  ).filter(Boolean).join(', ');
+  const produtosList = itens
+    .map((it: any) => it.produto_nome + (it.quantidade ? ' x' + it.quantidade : ''))
+    .filter(Boolean)
+    .join(', ');
 
   const enderecoEntrega = cliente.endereco
     ? `${cliente.endereco}${cliente.numero ? ', ' + cliente.numero : ''}${cliente.bairro ? ' - ' + cliente.bairro : ''}`
     : '';
+
+  const customFields: any[] = [
+    { id: CF.CODIGO_ORCAMENTO, value: orcamento.codigo || '' },
+    { id: CF.VALOR_ORCAMENTO, value: String(orcamento.total || 0) },
+    { id: CF.TIPO_ENTREGA, value: orcamento.tipo_entrega || '' },
+    { id: CF.ENDERECO_ENTREGA, value: enderecoEntrega },
+    { id: CF.STATUS_PEDIDO, value: orcamento.status || '' },
+    { id: CF.CANAL_VENDA, value: orcamento.fonte || '' },
+    { id: CF.OBSERVACOES_PEDIDO, value: orcamento.observacoes || '' },
+    { id: CF.DATA_ENTREGA, value: orcamento.data_entrega || '' },
+    { id: CF.DATA_RETIRADA, value: orcamento.data_retirada || '' },
+    { id: CF.PRODUTOS_COMPRADOS, value: produtosList },
+    { id: CF.TOTAL_COMPRAS, value: totalCompras },
+    { id: CF.QTD_COMPRAS, value: qtdCompras },
+  ];
+  if (ultimaCompra) customFields.push({ id: CF.ULTIMA_COMPRA, value: ultimaCompra });
 
   const body = {
     locationId: GHL_LOCATION_ID,
@@ -133,20 +149,9 @@ async function createContact(orcamento: any, cliente: any, itens: any[]): Promis
     city: cliente.cidade || '',
     state: cliente.estado || '',
     postalCode: cliente.cep || '',
-    source: 'Dep\u00f3sito Oliveira',
+    source: 'Deposito Oliveira',
     tags,
-    customFields: [
-      { id: CF.CODIGO_ORCAMENTO, value: orcamento.codigo || '' },
-      { id: CF.VALOR_ORCAMENTO, value: String(orcamento.total || 0) },
-      { id: CF.TIPO_ENTREGA, value: orcamento.tipo_entrega || '' },
-      { id: CF.ENDERECO_ENTREGA, value: enderecoEntrega },
-      { id: CF.STATUS_PEDIDO, value: orcamento.status || '' },
-      { id: CF.CANAL_VENDA, value: orcamento.fonte || '' },
-      { id: CF.OBSERVACOES_PEDIDO, value: orcamento.observacoes || '' },
-      { id: CF.DATA_ENTREGA, value: orcamento.data_entrega || '' },
-      { id: CF.DATA_RETIRADA, value: orcamento.data_retirada || '' },
-      { id: CF.PRODUTOS_COMPRADOS, value: produtosList },
-    ].filter(f => f.value),
+    customFields: customFields.filter(f => f.value !== '' && f.value !== null && f.value !== undefined),
   };
 
   const resp = await fetch(`${GHL_API_BASE}/contacts/`, {
@@ -155,6 +160,7 @@ async function createContact(orcamento: any, cliente: any, itens: any[]): Promis
     body: JSON.stringify(body),
     cache: 'no-store',
   });
+
   const createData = await resp.json().catch(() => null);
   if (!resp.ok) {
     if (createData?.meta?.contactId) {
@@ -167,34 +173,48 @@ async function createContact(orcamento: any, cliente: any, itens: any[]): Promis
   return createData?.contact?.id || null;
 }
 
-async function updateContact(contactId: string, orcamento: any, cliente: any, itens: any[]): Promise<void> {
+async function updateContact(
+  contactId: string,
+  orcamento: any,
+  cliente: any,
+  itens: any[],
+  totalCompras: number,
+  qtdCompras: number,
+  ultimaCompra: string | null
+): Promise<void> {
   const headers = ghlHeaders();
   const statusTag = STATUS_TO_TAG[orcamento.status];
   const canalTag = orcamento.fonte ? CANAL_TO_TAG[orcamento.fonte] : null;
   const produtoTags = gerarTagsProduto(itens);
   const tags = [statusTag, canalTag, ...produtoTags].filter(Boolean) as string[];
 
-  const produtosList = itens.map((it: any) =>
-    it.produto_nome + (it.quantidade ? ' x' + it.quantidade : '')
-  ).filter(Boolean).join(', ');
+  const produtosList = itens
+    .map((it: any) => it.produto_nome + (it.quantidade ? ' x' + it.quantidade : ''))
+    .filter(Boolean)
+    .join(', ');
 
   const enderecoEntrega = cliente?.endereco
     ? `${cliente.endereco}${cliente.numero ? ', ' + cliente.numero : ''}${cliente.bairro ? ' - ' + cliente.bairro : ''}`
     : '';
 
+  const customFields: any[] = [
+    { id: CF.STATUS_PEDIDO, value: orcamento.status || '' },
+    { id: CF.VALOR_ORCAMENTO, value: String(orcamento.total || 0) },
+    { id: CF.TIPO_ENTREGA, value: orcamento.tipo_entrega || '' },
+    { id: CF.DATA_ENTREGA, value: orcamento.data_entrega || '' },
+    { id: CF.DATA_RETIRADA, value: orcamento.data_retirada || '' },
+    { id: CF.OBSERVACOES_PEDIDO, value: orcamento.observacoes || '' },
+    { id: CF.CODIGO_ORCAMENTO, value: orcamento.codigo || '' },
+    { id: CF.PRODUTOS_COMPRADOS, value: produtosList },
+    { id: CF.ENDERECO_ENTREGA, value: enderecoEntrega },
+    { id: CF.TOTAL_COMPRAS, value: totalCompras },
+    { id: CF.QTD_COMPRAS, value: qtdCompras },
+  ];
+  if (ultimaCompra) customFields.push({ id: CF.ULTIMA_COMPRA, value: ultimaCompra });
+
   const body = {
     tags,
-    customFields: [
-      { id: CF.STATUS_PEDIDO, value: orcamento.status || '' },
-      { id: CF.VALOR_ORCAMENTO, value: String(orcamento.total || 0) },
-      { id: CF.TIPO_ENTREGA, value: orcamento.tipo_entrega || '' },
-      { id: CF.DATA_ENTREGA, value: orcamento.data_entrega || '' },
-      { id: CF.DATA_RETIRADA, value: orcamento.data_retirada || '' },
-      { id: CF.OBSERVACOES_PEDIDO, value: orcamento.observacoes || '' },
-      { id: CF.CODIGO_ORCAMENTO, value: orcamento.codigo || '' },
-      { id: CF.PRODUTOS_COMPRADOS, value: produtosList },
-      { id: CF.ENDERECO_ENTREGA, value: enderecoEntrega },
-    ].filter(f => f.value),
+    customFields: customFields.filter(f => f.value !== '' && f.value !== null && f.value !== undefined),
   };
 
   await fetch(`${GHL_API_BASE}/contacts/${contactId}`, {
@@ -209,7 +229,6 @@ async function createOrUpdateOpportunity(contactId: string, orcamento: any, clie
   const headers = ghlHeaders();
   const stageId = STATUS_TO_STAGE[orcamento.status] || STATUS_TO_STAGE['orcamento'] || '';
 
-  // Search for existing opportunity by contact
   const searchResp = await fetch(
     `${GHL_API_BASE}/opportunities/search?pipeline_id=${GHL_PIPELINE_ID}&location_id=${GHL_LOCATION_ID}&contact_id=${contactId}`,
     { headers, cache: 'no-store' }
@@ -223,11 +242,11 @@ async function createOrUpdateOpportunity(contactId: string, orcamento: any, clie
     if (match) existingOppId = match.id;
   }
 
-  const oppStatus = orcamento.status === 'completo' ? 'won'
-    : orcamento.status === 'cancelado' ? 'lost'
-    : 'open';
+  const oppStatus =
+    orcamento.status === 'completo' ? 'won' :
+    orcamento.status === 'cancelado' ? 'lost' : 'open';
 
-  const oppName = `${orcamento.codigo || 'ORD'} \u2014 ${clienteNome} \u2014 R$ ${(orcamento.total || 0).toLocaleString('pt-BR')}`;
+  const oppName = `${orcamento.codigo || 'ORD'} — ${clienteNome} — R$ ${(orcamento.total || 0).toLocaleString('pt-BR')}`;
 
   if (existingOppId) {
     await fetch(`${GHL_API_BASE}/opportunities/${existingOppId}`, {
@@ -276,8 +295,16 @@ export async function POST(request: NextRequest) {
     const { data: orcamento, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, status, tipo_entrega, total, fonte, observacoes,
-        data_entrega, data_retirada,
+        id,
+        codigo,
+        status,
+        tipo_entrega,
+        total,
+        fonte,
+        observacoes,
+        data_entrega,
+        data_retirada,
+        cliente_id,
         clientes (id, nome, telefone, cep, endereco, numero, bairro, cidade, estado),
         orcamento_itens (id, quantidade, produto_nome)
       `)
@@ -297,11 +324,32 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'no phone' });
     }
 
+    // Buscar todos os orcamentos deste cliente (exceto cancelados e status 'orcamento')
+    const { data: todosOrcamentos } = await supabaseAdmin
+      .from('orcamentos')
+      .select('total, criado_em, status')
+      .eq('cliente_id', (orcamento as any).cliente_id)
+      .not('status', 'in', '("cancelado","orcamento")');
+
+    const orcamentosFinalizados = todosOrcamentos || [];
+
+    const totalCompras = orcamentosFinalizados.reduce((sum, o) => sum + (Number(o.total) || 0), 0);
+    const qtdCompras = orcamentosFinalizados.length;
+    const ultimaCompra = orcamentosFinalizados.length > 0
+      ? orcamentosFinalizados
+          .map(o => o.criado_em)
+          .sort()
+          .reverse()[0]
+          ?.split('T')[0]
+      : null;
+
+    console.log('[GHL Sync] Agregados do cliente:', { totalCompras, qtdCompras, ultimaCompra });
+
     let contactId = await lookupContact(cliente.telefone);
     if (contactId) {
-      await updateContact(contactId, orcamento, cliente, itens);
+      await updateContact(contactId, orcamento, cliente, itens, totalCompras, qtdCompras, ultimaCompra);
     } else {
-      contactId = await createContact(orcamento, cliente, itens);
+      contactId = await createContact(orcamento, cliente, itens, totalCompras, qtdCompras, ultimaCompra);
     }
 
     if (!contactId) {
@@ -315,7 +363,6 @@ export async function POST(request: NextRequest) {
 
     console.log('[GHL Sync] Success - contact:', contactId);
     return NextResponse.json({ success: true, contactId });
-
   } catch (error) {
     console.log('[GHL Sync] Error (non-blocking):', error);
     return NextResponse.json({ error: 'sync failed' }, { status: 500 });
