@@ -26,6 +26,7 @@ interface ItemOrcamento {
   quantidade: number;
   avulso?: boolean;
   preco_custom?: number;
+  obs?: string;
 }
 
 interface DadosFrete {
@@ -460,6 +461,22 @@ export default function OrcamentoApp() {  // Auth state
     });
   };
 
+  const PRECO_MEIO_M3 = 120;
+  const PRODUTOS_MEIO_M3 = ['areia', 'pedrisco', 'po de pedra', 'pó de pedra', 'pedra brita', 'brita'];
+  const isMeioM3Produto = (produto: Produto) =>
+    produto.unidade === 'm³' &&
+    PRODUTOS_MEIO_M3.some(n => produto.nome.toLowerCase().includes(n));
+
+  const adicionarMeioMetro = (produto: Produto) => {
+    const idMeio = produto.id + '-meio';
+    setItens(prev => {
+      const existing = prev.find(i => i.produto.id === idMeio);
+      if (existing) return prev.map(i => i.produto.id === idMeio ? { ...i, quantidade: parseFloat((i.quantidade + 0.5).toFixed(1)) } : i);
+      const prodMeio: Produto = { ...produto, id: idMeio, nome: produto.nome + ' (½ m³)' };
+      return [...prev, { produto: prodMeio, quantidade: 0.5, preco_custom: PRECO_MEIO_M3 / 0.5 }];
+    });
+  };
+
   const adicionarItensAvulsos = (itens: Array<{nome: string; quantidade: number; preco: number; especificacoes?: string}>) => {
     itens.forEach(item => {
       const produtoAvulso: Produto = {
@@ -474,7 +491,7 @@ export default function OrcamentoApp() {  // Auth state
         categoria: 'Ferro',
         codigo: '',
       };
-      const novoItem: ItemOrcamento = { produto: produtoAvulso, quantidade: item.quantidade, avulso: true, preco_custom: item.preco };
+      const novoItem: ItemOrcamento = { produto: produtoAvulso, quantidade: item.quantidade, avulso: true, preco_custom: item.preco, obs: item.especificacoes };
       setItens(prev => [...prev, novoItem]);
     });
   };
@@ -503,7 +520,7 @@ export default function OrcamentoApp() {  // Auth state
 
   const getQuantidade = (produtoId: string) => itens.find(i => i.produto.id === produtoId)?.quantidade || 0;
 
-  const subtotal = itens.reduce((acc, item) => acc + (item.produto.preco * item.quantidade), 0);
+  const subtotal = itens.reduce((acc, item) => acc + ((item.preco_custom ?? item.produto.preco) * item.quantidade), 0);
   const totalFrete = tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete ? dadosFrete.frete : 0;
   const total = subtotal + totalFrete;
 
@@ -676,7 +693,7 @@ export default function OrcamentoApp() {  // Auth state
         cliente_numero: numeroEndereco || null,
         cliente_complemento: complementoEndereco || null,
         cliente_recebedor: recebedor || null,
-        observacoes: (() => { const ferroItens = itens.filter(i => i.avulso); const ferroStr = ferroItens.length > 0 ? '\n[FERRO: ' + ferroItens.map(i => i.produto.nome + ' ' + i.quantidade + 'm').join(', ') + ']' : ''; return (observacoes || '') + ferroStr || null; })(),
+        observacoes: (() => { const ferroItens = itens.filter(i => i.avulso); const ferroStr = ferroItens.length > 0 ? '\n[FERRO: ' + ferroItens.map(i => i.produto.nome + ' ' + i.quantidade + 'm' + (i.obs ? ' (' + i.obs + ')' : '')).join(', ') + ']' : ''; return (observacoes || '') + ferroStr || null; })(),
         tipo_entrega: tipoEntrega,
         valor_frete: totalFrete,
         subtotal,
@@ -852,7 +869,9 @@ export default function OrcamentoApp() {  // Auth state
     if (dataEnt) printWindow.document.write(`<div class="info"><span>Data de entrega:</span> ${new Date(dataEnt + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     if (dataRet) printWindow.document.write(`<div class="info"><span>Data de retirada:</span> ${new Date(dataRet + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     const fonteVal = d ? (d as any).fonte : fonteVenda;
-    const obs = d ? d.observacoes : observacoes;
+    const ferroItensLocal = !d ? itens.filter(i => i.avulso) : [];
+    const ferroStrLocal = ferroItensLocal.length > 0 ? '\n[FERRO: ' + ferroItensLocal.map(i => i.produto.nome + ' ' + i.quantidade + 'm' + (i.obs ? ' (' + i.obs + ')' : '')).join(', ') + ']' : '';
+    const obs = d ? d.observacoes : ((observacoes || '') + ferroStrLocal || null);
     const formaPag = d ? (d as any).forma_pagamento as string | null : null;
     const formaPagLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', debito: 'Débito', credito: 'Crédito', boleto: 'Boleto', pagamento_na_entrega: 'Pagamento na Entrega' };
     if (obs) printWindow.document.write(`<div class="info"><span>Observações:</span> ${obs}</div>`);
@@ -1549,7 +1568,12 @@ export default function OrcamentoApp() {  // Auth state
                     {produto.estoque >= 999 ? '📦 Sob demanda' : produto.estoque <= 0 ? '⛔ Sem estoque' : `${produto.abaixo_minimo ? '⚠️ ' : produto.estoque <= produto.estoque_minimo * 2 ? '🟡 ' : '🟢 '}Estoque: ${produto.estoque} ${produto.unidade === 'm³' ? 'm³' : (produto.estoque !== 1 ? produto.unidade + 's' : produto.unidade)}`}
                   </p>
                     {qtd === 0 ? (
-                      <button onClick={() => adicionarItem(produto)} className="w-full bg-[#F7941D] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">+ Adicionar</button>
+                      <div className="flex flex-col gap-1.5">
+                        <button onClick={() => adicionarItem(produto)} className="w-full bg-[#F7941D] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">+ Adicionar</button>
+                        {isMeioM3Produto(produto) && (
+                          <button onClick={() => adicionarMeioMetro(produto)} className="w-full bg-amber-100 text-amber-800 border border-amber-300 py-1.5 rounded-lg text-xs font-semibold hover:bg-amber-200 transition">½ m³ · R$120</button>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex items-center justify-between bg-[#FFF3E0] rounded-lg p-1">
                         <button onClick={() => removerItem(produto.id)} className="w-8 h-8 bg-[#F7941D] text-white rounded-md font-bold hover:bg-[#E8850A] transition">-</button>
