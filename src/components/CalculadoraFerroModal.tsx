@@ -40,7 +40,8 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
   const handleAdicionar = () => {
     if (metrosTotal <= 0) return;
     const nomeMedida = medida === 'padrao' ? '9x15/9x20' : 'Medida Especial';
-    const nome = 'Ferro ' + nomeMedida + ' - ' + barras + ' barras';
+    const nomeBase = 'Ferro ' + nomeMedida + ' - ' + barras + ' barras';
+    const nome = obs ? nomeBase + ' | ' + obs : nomeBase;
     const especDesc = quantidade + ' peça(s) x ' + metrosPorPeca + 'm' + (obs ? ' | ' + obs : '');
     onAdicionarItens([{
       nome,
