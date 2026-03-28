@@ -266,7 +266,7 @@ export default function OrcamentoApp() {  // Auth state
   const [erroFrete, setErroFrete] = useState('');
   const [enderecoViaCEP, setEnderecoViaCEP] = useState('');
   const [salvandoOrcamento, setSalvandoOrcamento] = useState(false);
-  const [orcamentoSalvo, setOrcamentoSalvo] = useState<{ codigo: string } | null>(null);
+  const [orcamentoSalvo, setOrcamentoSalvo] = useState<{ codigo: string; id?: string } | null>(null);
   const [orcamentos, setOrcamentos] = useState<OrcamentoSalvo[]>([]);
   const [loadingHistorico, setLoadingHistorico] = useState(false);
   const [buscaHistorico, setBuscaHistorico] = useState('');
@@ -702,7 +702,7 @@ export default function OrcamentoApp() {  // Auth state
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo });
+        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
         setEditandoId(null);
       } else {
         const res = await fetch('/api/orcamentos', {
@@ -711,7 +711,7 @@ export default function OrcamentoApp() {  // Auth state
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo });
+        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
       }
     } catch (e) { console.error('Erro ao salvar orcamento', e); }
     setSalvandoOrcamento(false);
@@ -2175,7 +2175,16 @@ export default function OrcamentoApp() {  // Auth state
             <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono whitespace-pre-wrap text-gray-700 max-h-64 overflow-y-auto">{gerarTextoWhatsApp()}</div>
             <div className="space-y-3">
               <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">📱 Enviar por WhatsApp</button>
-              <button onClick={() => imprimirOrcamento()} className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-[#F7941D] transition">🖨️ Imprimir</button>
+              <button onClick={async () => {
+                if (orcamentoSalvo?.id) {
+                  try {
+                    const res = await fetch(`/api/orcamentos/${orcamentoSalvo.id}`, { cache: 'no-store' });
+                    const det = await res.json();
+                    if (det && !det.error) { imprimirOrcamento({ ...det, reagendamentos: det.reagendamentos ?? 0, orcamento_itens: det.orcamento_itens || [] }); return; }
+                  } catch (e) { /* fallback */ }
+                }
+                imprimirOrcamento();
+              }} className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-[#F7941D] transition">🖨️ Imprimir</button>
               <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">📋 Copiar Texto</button>
               <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
                 className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
