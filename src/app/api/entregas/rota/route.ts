@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
-const DEPOSITO_ADDRESS = 'Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021';
+const DEPOSITO_ADDRESS = 'Av. InocÃªncio SerÃ¡fico, 4020 - Centro, CarapicuÃ­ba - SP, 06380-021';
 const DEPOSITO_LAT = -23.5237;
 const DEPOSITO_LNG = -46.8389;
 
@@ -65,6 +65,8 @@ interface EntregaItem {
   data_entrega: string | null;
   observacoes: string;
   distancia_km: number | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 // GET - carrega entregas do dia (pendentes, em rota e completas)
@@ -119,16 +121,16 @@ export async function GET(request: NextRequest) {
         const cidade = cliente?.cidade ? String(cliente.cidade) + '-' + String(cliente.estado || '') : '';
 
         let distanciaKm: number | null = null;
+        let coordsCache: {lat: number, lng: number} | null = null;
         if (GOOGLE_MAPS_API_KEY && endereco) {
           const fullAddr = [endereco, numero, bairro, cep].filter(Boolean).join(', ') + ', Brasil';
           // Try Distance Matrix API first (real driving distance)
           distanciaKm = await getDrivingDistanceKm(fullAddr, GOOGLE_MAPS_API_KEY);
+          // Always geocode to get lat/lng for nearest-neighbor routing
+          coordsCache = await geocodeAddress(fullAddr, GOOGLE_MAPS_API_KEY);
           // Fallback to haversine if Distance Matrix fails
-          if (distanciaKm === null) {
-            const coords = await geocodeAddress(fullAddr, GOOGLE_MAPS_API_KEY);
-            if (coords) {
-              distanciaKm = Math.round(haversineKm(DEPOSITO_LAT, DEPOSITO_LNG, coords.lat, coords.lng) * 10) / 10;
-            }
+          if (distanciaKm === null && coordsCache) {
+            distanciaKm = Math.round(haversineKm(DEPOSITO_LAT, DEPOSITO_LNG, coordsCache.lat, coordsCache.lng) * 10) / 10;
           }
         }
 
@@ -145,19 +147,43 @@ export async function GET(request: NextRequest) {
           data_entrega: e.data_entrega ? String(e.data_entrega) : null,
           observacoes: e.observacoes ? String(e.observacoes) : '',
           distancia_km: distanciaKm,
+          lat: coordsCache ? coordsCache.lat : null,
+          lng: coordsCache ? coordsCache.lng : null,
         };
       })
     );
 
-    // Sort by distance (nulls last)
-    entregasComDist.sort((a, b) => {
-      if (a.distancia_km === null && b.distancia_km === null) return 0;
+    // Nearest Neighbor heuristic: start from depot, always go to closest unvisited delivery
+    const withCoords = entregasComDist.filter(e => e.lat !== null && e.lng !== null);
+    const withoutCoords = entregasComDist.filter(e => e.lat === null || e.lng === null);
+
+    const optimized: typeof entregasComDist = [];
+    const remaining = [...withCoords];
+    let curLat = DEPOSITO_LAT;
+    let curLng = DEPOSITO_LNG;
+
+    while (remaining.length > 0) {
+      let bestIdx = 0;
+      let bestDist = Infinity;
+      for (let i = 0; i < remaining.length; i++) {
+        const d = haversineKm(curLat, curLng, remaining[i].lat!, remaining[i].lng!);
+        if (d < bestDist) { bestDist = d; bestIdx = i; }
+      }
+      const next = remaining.splice(bestIdx, 1)[0];
+      optimized.push(next);
+      curLat = next.lat!;
+      curLng = next.lng!;
+    }
+
+    // Append entries without coords at the end (sorted by distancia_km)
+    withoutCoords.sort((a, b) => {
       if (a.distancia_km === null) return 1;
       if (b.distancia_km === null) return -1;
       return a.distancia_km - b.distancia_km;
     });
+    const entregasOrdenadas = [...optimized, ...withoutCoords];
 
-    return NextResponse.json({ entregas: entregasComDist, total: entregasComDist.length });
+    return NextResponse.json({ entregas: entregasOrdenadas, total: entregasOrdenadas.length });
   } catch (error) {
     console.error('Erro ao carregar entregas:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
@@ -224,7 +250,7 @@ export async function POST(request: NextRequest) {
     // Build Google Maps URL
     const entregasComEnd = ordered.filter(e => e.endereco);
     const waypointsForUrl = entregasComEnd
-      .map((e) => encodeURIComponent([e.endereco, e.numero ? 'nº ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
+      .map((e) => encodeURIComponent([e.endereco, e.numero ? 'nÂº ' + e.numero : '', e.cep].filter(Boolean).join(', ')))
       .join('|');
     const mapsUrl = entregasComEnd.length > 0
       ? `https://www.google.com/maps/dir/?api=1&origin=${encodeURIComponent(DEPOSITO_ADDRESS)}&destination=${encodeURIComponent(DEPOSITO_ADDRESS)}&waypoints=${waypointsForUrl}&travelmode=driving`
