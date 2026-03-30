@@ -257,7 +257,7 @@ export default function OrcamentoApp() {  // Auth state
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia'>('produtos');
-  const [mensagensIA, setMensagensIA] = useState([]);
+  const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
@@ -1393,7 +1393,7 @@ export default function OrcamentoApp() {  // Auth state
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  async function enviarPerguntaIA(pergunta, tipo) {
+  async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
     const textoEnviar = pergunta || inputIA;
     if (!textoEnviar && !tipo) return;
     setCarregandoIA(true);
@@ -1403,7 +1403,7 @@ export default function OrcamentoApp() {  // Auth state
       analise_clientes: '👥 Análise de Clientes',
       previsao_estoque: '📦 Previsão de Estoque',
     };
-    const msgUsuario = textoEnviar || (tipo ? (labels[tipo] || tipo) : '');
+    const msgUsuario = textoEnviar || (tipo ? (labels[tipo as keyof typeof labels] || tipo) : '');
     setMensagensIA(prev => [...prev, { role: 'user', content: msgUsuario }]);
     setInputIA('');
     try {
