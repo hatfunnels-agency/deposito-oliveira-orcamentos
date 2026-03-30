@@ -150,24 +150,24 @@ interface RotaResponse {
 
 const UNIT_MAP: Record<string, string> = {
   'arame': 'KG',
-  'areia': 'mÃÂÃÂ³',
-  'areia ensacada': 'mÃÂÃÂ³',
+  'areia': 'm³',
+  'areia ensacada': 'm³',
   'ferro': 'metro',
-  'pedra brita': 'mÃÂÃÂ³',
-  'pedra': 'mÃÂÃÂ³',
-  'brita': 'mÃÂÃÂ³',
+  'pedra brita': 'm³',
+  'pedra': 'm³',
+  'brita': 'm³',
   'prego': 'KG',
   'pregos': 'KG',
-  'pedrisco': 'mÃÂÃÂ³',
-  'po de pedra': 'mÃÂÃÂ³',
-  'pÃÂÃÂ³ de pedra': 'mÃÂÃÂ³',
+  'pedrisco': 'm³',
+  'po de pedra': 'm³',
+  'pó de pedra': 'm³',
   'cimento': 'saco',
   'telha': 'unidade',
   'parafuso': 'unidade',
   'tijolo': 'unidade',
   'barra de ferro': 'barra',
   'vergalhao': 'barra',
-  'vergalhÃÂÃÂ£o': 'barra',
+  'vergalhão': 'barra',
 };
 
 
@@ -187,15 +187,15 @@ function formatBRL(value: number): string {
 }
 
 const PESO_MEDIO_KG: Record<string, number> = {
-  saco: 50, unidade: 5, barra: 15, metro: 10, rolo: 20, 'mÃÂÃÂ³': 800, kg: 1, milheiro: 2500,
+  saco: 50, unidade: 5, barra: 15, metro: 10, rolo: 20, 'm³': 800, kg: 1, milheiro: 2500,
 };
 
 const STATUS_LABELS: Record<string, string> = {
-  orcamento: 'OrÃÂÃÂ§amento',
+  orcamento: 'Orçamento',
   entrega_pendente: 'Entrega Pendente',
   em_rota: 'Em Rota',
   completo: 'Completo',
-  ocorrencia: 'OcorrÃÂÃÂªncia',
+  ocorrencia: 'Ocorrência',
   cancelado: 'Cancelado',
 };
 
@@ -257,6 +257,9 @@ export default function OrcamentoApp() {  // Auth state
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia'>('produtos');
+  const [mensagensIA, setMensagensIA] = useState([]);
+  const [inputIA, setInputIA] = useState('');
+  const [carregandoIA, setCarregandoIA] = useState(false);
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
   const [dadosFrete, setDadosFrete] = useState<DadosFrete | null>(null);
@@ -338,10 +341,6 @@ export default function OrcamentoApp() {  // Auth state
   const [mostrarEditProduto, setMostrarEditProduto] = useState(false);
   const [mostrarNovoProduto, setMostrarNovoProduto] = useState(false);
   const [mostrarHistoricoProduto, setMostrarHistoricoProduto] = useState(false);
-  // IA chat states
-  const [mensagensIA, setMensagensIA] = useState<Array<{role: 'user'|'assistant', content: string}>>([]);
-  const [inputIA, setInputIA] = useState('');
-  const [carregandoIA, setCarregandoIA] = useState(false);
   const [produtoSelecionado, setProdutoSelecionado] = useState<Produto | null>(null);
   const [entradaQtd, setEntradaQtd] = useState('');
   const [entradaObs, setEntradaObs] = useState('');
@@ -466,9 +465,9 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   const PRECO_MEIO_M3 = 120;
-  const PRODUTOS_MEIO_M3 = ['areia', 'pedrisco', 'po de pedra', 'pÃÂÃÂ³ de pedra', 'pedra brita', 'brita'];
+  const PRODUTOS_MEIO_M3 = ['areia', 'pedrisco', 'po de pedra', 'pó de pedra', 'pedra brita', 'brita'];
   const isMeioM3Produto = (produto: Produto) =>
-    produto.unidade === 'mÃÂÃÂ³' &&
+    produto.unidade === 'm³' &&
     PRODUTOS_MEIO_M3.some(n => produto.nome.toLowerCase().includes(n));
 
   const adicionarMeioMetro = (produto: Produto) => {
@@ -476,7 +475,7 @@ export default function OrcamentoApp() {  // Auth state
     setItens(prev => {
       const existing = prev.find(i => i.produto.id === idMeio);
       if (existing) return prev.map(i => i.produto.id === idMeio ? { ...i, quantidade: parseFloat((i.quantidade + 0.5).toFixed(1)) } : i);
-      const prodMeio: Produto = { ...produto, id: idMeio, nome: produto.nome + ' (ÃÂÃÂ½ mÃÂÃÂ³)' };
+      const prodMeio: Produto = { ...produto, id: idMeio, nome: produto.nome + ' (½ m³)' };
       return [...prev, { produto: prodMeio, quantidade: 0.5, preco_custom: PRECO_MEIO_M3 / 0.5 }];
     });
   };
@@ -571,7 +570,7 @@ export default function OrcamentoApp() {  // Auth state
         if (data.bairro) setBuscaEndereco('');
       }
     } catch {
-      setErroFrete('Erro ao buscar endereÃÂÃÂ§o.');
+      setErroFrete('Erro ao buscar endereço.');
     }
     setBuscandoEndereco(false);
   };
@@ -605,7 +604,7 @@ export default function OrcamentoApp() {  // Auth state
         if (data.error) {
           setErroFrete(data.error);
         } else if (!data.dentro_area) {
-          setErroFrete(data.mensagem || 'EndereÃÂÃÂ§o fora da ÃÂÃÂ¡rea de entrega');
+          setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
         } else {
           setDadosFrete(data);
           if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
@@ -639,7 +638,7 @@ export default function OrcamentoApp() {  // Auth state
               if (freteData.error) {
                 setErroFrete(freteData.error);
               } else if (!freteData.dentro_area) {
-                setErroFrete(freteData.mensagem || 'EndereÃÂÃÂ§o fora da ÃÂÃÂ¡rea de entrega');
+                setErroFrete(freteData.mensagem || 'Endereço fora da área de entrega');
               } else {
                 setDadosFrete(freteData);
                 if (freteData.endereco_completo) setEnderecoViaCEP(freteData.endereco_completo);
@@ -652,7 +651,7 @@ export default function OrcamentoApp() {  // Auth state
           if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
         }
       } catch {
-        setErroFrete('Erro ao buscar endereÃÂÃÂ§o.');
+        setErroFrete('Erro ao buscar endereço.');
       }
       setBuscandoEndereco(false);
     }
@@ -660,7 +659,7 @@ export default function OrcamentoApp() {  // Auth state
 
   const calcularFrete = async () => {
     if (!cepDestino || cepDestino.replace(/\D/g, '').length !== 8) {
-      setErroFrete('Digite um CEP vÃÂÃÂ¡lido.');
+      setErroFrete('Digite um CEP válido.');
       return;
     }
     setCalculandoFrete(true);
@@ -676,7 +675,7 @@ export default function OrcamentoApp() {  // Auth state
       if (data.error) {
         setErroFrete(data.error);
       } else if (!data.dentro_area) {
-        setErroFrete(data.mensagem || 'EndereÃÂÃÂ§o fora da ÃÂÃÂ¡rea de entrega');
+        setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
       } else {
         setDadosFrete(data);
         if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
@@ -767,14 +766,14 @@ export default function OrcamentoApp() {  // Auth state
     if (detalhe) {
       const endCompleto = [
         detalhe.clientes?.endereco,
-        detalhe.clientes?.numero ? `nÃÂÃÂº ${detalhe.clientes.numero}` : '',
+        detalhe.clientes?.numero ? `nº ${detalhe.clientes.numero}` : '',
         detalhe.clientes?.complemento,
         detalhe.clientes?.bairro,
         detalhe.clientes?.cidade ? `${detalhe.clientes.cidade}-${detalhe.clientes.estado}` : '',
       ].filter(Boolean).join(', ');
       const linhas = [
-        '*ORÃÂÃÂAMENTO - DepÃÂÃÂ³sito Oliveira*',
-        `CÃÂÃÂ³digo: ${detalhe.codigo}`,
+        '*ORÇAMENTO - Depósito Oliveira*',
+        `Código: ${detalhe.codigo}`,
         '',
         '-----------------------------',
         '',
@@ -783,25 +782,25 @@ export default function OrcamentoApp() {  // Auth state
         detalhe.clientes?.recebedor ? `*Recebedor:* ${detalhe.clientes.recebedor}` : '',
         '',
         '*Produtos:*',
-        ...detalhe.orcamento_itens.map(i => `ÃÂÃÂ· ${i.produto_nome} ${i.quantidade}${i.unidade === 'mÃÂÃÂ³' ? 'mÃÂÃÂ³' : (i.unidade ? ' ' + i.unidade : '')} = R$ ${formatBRL(i.subtotal)}`),
+        ...detalhe.orcamento_itens.map(i => `· ${i.produto_nome} ${i.quantidade}${i.unidade === 'm³' ? 'm³' : (i.unidade ? ' ' + i.unidade : '')} = R$ ${formatBRL(i.subtotal)}`),
         '',
         `*Subtotal:* R$ ${formatBRL(detalhe.subtotal)}`,
         detalhe.tipo_entrega === 'entrega' && detalhe.valor_frete > 0 ? `*Frete:* R$ ${formatBRL(detalhe.valor_frete)}` : '*Retirada na loja*',
-        detalhe.tipo_entrega === 'entrega' && endCompleto ? `*EndereÃÂÃÂ§o:* ${endCompleto}` : '',
+        detalhe.tipo_entrega === 'entrega' && endCompleto ? `*Endereço:* ${endCompleto}` : '',
         detalhe.data_entrega ? `*Data de entrega:* ${new Date(detalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
         '',
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         '',
         detalhe.observacoes ? `_Obs: ${detalhe.observacoes}_` : '',
-        '_OrÃÂÃÂ§amento vÃÂÃÂ¡lido por 7 dias_',
+        '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
       ].filter((l): l is string => typeof l === 'string' && l.length > 0);
       return linhas.join('\n');
     }
     const codigo = orcamentoSalvo?.codigo;
     const linhas = [
-      '*ORÃÂÃÂAMENTO - DepÃÂÃÂ³sito Oliveira*',
-      codigo ? `CÃÂÃÂ³digo: ${codigo}` : '',
+      '*ORÇAMENTO - Depósito Oliveira*',
+      codigo ? `Código: ${codigo}` : '',
       '',
       '-----------------------------',
       '',
@@ -810,21 +809,21 @@ export default function OrcamentoApp() {  // Auth state
       recebedor ? `*Recebedor:* ${recebedor}` : '',
       '',
       '*Produtos:*',
-      ...itens.map(i => `ÃÂÃÂ· ${i.produto.nome} ${i.quantidade}${i.produto.unidade === 'mÃÂÃÂ³' ? 'mÃÂÃÂ³' : (i.produto.unidade ? ' ' + i.produto.unidade : '')} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
+      ...itens.map(i => `· ${i.produto.nome} ${i.quantidade}${i.produto.unidade === 'm³' ? 'm³' : (i.produto.unidade ? ' ' + i.produto.unidade : '')} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
       '',
       `*Subtotal:* R$ ${formatBRL(subtotal)}`,
       tipoEntrega === 'entrega' && dadosFrete ? `*Frete:* R$ ${formatBRL(dadosFrete.frete || 0)}` : '*Retirada na loja*',
       tipoEntrega === 'entrega' && dataEntrega ? `*Data de entrega:* ${new Date(dataEntrega + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
       '',
       `*TOTAL: R$ ${formatBRL(total)}*`,
-      `ÃÂ°ÃÂÃÂÃÂ³ CartÃÂÃÂ£o (+8%): R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO))} | 2x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 2)} | 6x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 6)}`,
+      `💳 Cartão (+8%): R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO))} | 2x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 2)} | 6x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 6)}`,
       '',
       observacoes ? `_Obs: ${observacoes}_` : '',
-      '_OrÃÂÃÂ§amento vÃÂÃÂ¡lido por 7 dias_',
+      '_Orçamento válido por 7 dias_',
       '_Sujeito a disponibilidade de estoque_',
       '',
-      '_DepÃÂÃÂ³sito Oliveira ÃÂ¢ÃÂÃÂ (11) 4187-1801_',
-      '_Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 ÃÂ¢ÃÂÃÂ CarapicuÃÂÃÂ­ba/SP_',
+      '_Depósito Oliveira — (11) 4187-1801_',
+      '_Av. Inocêncio Seráfico, 4020 — Carapicuíba/SP_',
     ].filter((l): l is string => !!l);
     return linhas.join('\n');
   };
@@ -857,19 +856,19 @@ export default function OrcamentoApp() {  // Auth state
     const tot = d ? d.total : total;
     const tipo = d ? d.tipo_entrega : tipoEntrega;
     const frete = d ? d.valor_frete : totalFrete;
-    const end = d ? [d.clientes?.endereco, d.clientes?.numero ? `nÃÂÃÂº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ') : enderecoViaCEP;
+    const end = d ? [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ') : enderecoViaCEP;
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
     const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    printWindow.document.write(`<!DOCTYPE html><html><head><title>OrÃÂÃÂ§amento ${cod}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#333}h1{color:#F7941D;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#F7941D;color:white;padding:10px 8px;text-align:left}td{padding:8px}tfoot td{font-weight:bold;border-top:2px solid #F7941D}.info{margin:12px 0}.info span{font-weight:bold}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:13px}</style></head><body>`);
-    printWindow.document.write(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:60px;width:auto" /><div><h1 style="margin:0;font-size:20px">DepÃÂÃÂ³sito Oliveira</h1><p style="margin:2px 0;color:#666;font-size:12px">Materiais de ConstruÃÂÃÂ§ÃÂÃÂ£o</p><p style="margin:2px 0;color:#666;font-size:12px">Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 - Centro | CarapicuÃÂÃÂ­ba - SP, 06380-021</p><p style="margin:2px 0;color:#666;font-size:12px">Tel: (11) 4187-1801</p></div></div>`);
+    printWindow.document.write(`<!DOCTYPE html><html><head><title>Orçamento ${cod}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#333}h1{color:#F7941D;margin-bottom:4px}table{width:100%;border-collapse:collapse;margin:16px 0}th{background:#F7941D;color:white;padding:10px 8px;text-align:left}td{padding:8px}tfoot td{font-weight:bold;border-top:2px solid #F7941D}.info{margin:12px 0}.info span{font-weight:bold}.footer{margin-top:24px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:13px}</style></head><body>`);
+    printWindow.document.write(`<div style="display:flex;align-items:center;gap:12px;margin-bottom:8px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:60px;width:auto" /><div><h1 style="margin:0;font-size:20px">Depósito Oliveira</h1><p style="margin:2px 0;color:#666;font-size:12px">Materiais de Construção</p><p style="margin:2px 0;color:#666;font-size:12px">Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p style="margin:2px 0;color:#666;font-size:12px">Tel: (11) 4187-1801</p></div></div>`);
     printWindow.document.write(`<hr style="border:1px solid #F7941D;margin:16px 0">`);
-    if (cod) printWindow.document.write(`<div class="info"><span>CÃÂÃÂ³digo:</span> ${cod}</div>`);
+    if (cod) printWindow.document.write(`<div class="info"><span>Código:</span> ${cod}</div>`);
     printWindow.document.write(`<div class="info"><span>Data:</span> ${dataCriacao}</div>`);
     printWindow.document.write(`<div class="info"><span>Cliente:</span> ${nome}</div>`);
     if (tel) printWindow.document.write(`<div class="info"><span>Telefone:</span> ${tel}</div>`);
-    printWindow.document.write(`<div class="info"><span>Entrega:</span> ${tipo === 'entrega' ? 'Entrega no endereÃÂÃÂ§o' : 'Retirada na loja'}</div>`);
-    if (tipo === 'entrega' && end) printWindow.document.write(`<div class="info"><span>EndereÃÂÃÂ§o:</span> ${end}</div>`);
+    printWindow.document.write(`<div class="info"><span>Entrega:</span> ${tipo === 'entrega' ? 'Entrega no endereço' : 'Retirada na loja'}</div>`);
+    if (tipo === 'entrega' && end) printWindow.document.write(`<div class="info"><span>Endereço:</span> ${end}</div>`);
     if (dataEnt) printWindow.document.write(`<div class="info"><span>Data de entrega:</span> ${new Date(dataEnt + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     if (dataRet) printWindow.document.write(`<div class="info"><span>Data de retirada:</span> ${new Date(dataRet + 'T12:00:00').toLocaleDateString('pt-BR')}</div>`);
     const fonteVal = d ? (d as any).fonte : fonteVenda;
@@ -877,15 +876,15 @@ export default function OrcamentoApp() {  // Auth state
     const ferroStrLocal = ferroItensLocal.length > 0 ? '\n[FERRO: ' + ferroItensLocal.map(i => i.produto.nome + ' ' + i.quantidade + 'm' + (i.obs ? ' (' + i.obs + ')' : '')).join(', ') + ']' : '';
     const obs = d ? d.observacoes : ((observacoes || '') + ferroStrLocal || null);
     const formaPag = d ? (d as any).forma_pagamento as string | null : null;
-    const formaPagLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', debito: 'DÃÂÃÂ©bito', credito: 'CrÃÂÃÂ©dito', boleto: 'Boleto', pagamento_na_entrega: 'Pagamento na Entrega' };
-    if (obs) printWindow.document.write(`<div class="info"><span>ObservaÃÂÃÂ§ÃÂÃÂµes:</span> ${obs}</div>`);
+    const formaPagLabel: Record<string, string> = { dinheiro: 'Dinheiro', pix: 'PIX', debito: 'Débito', credito: 'Crédito', boleto: 'Boleto', pagamento_na_entrega: 'Pagamento na Entrega' };
+    if (obs) printWindow.document.write(`<div class="info"><span>Observações:</span> ${obs}</div>`);
     if (formaPag) printWindow.document.write(`<div class="info"><span>Forma de pagamento:</span> ${formaPagLabel[formaPag] || formaPag}</div>`);
-    printWindow.document.write(`<table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:center">Unidade</th><th style="text-align:right">PreÃÂÃÂ§o Unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;padding:10px 8px">Subtotal:</td><td style="text-align:right;padding:10px 8px">R$ ${formatBRL(sub)}</td></tr>`);
+    printWindow.document.write(`<table><thead><tr><th>Produto</th><th style="text-align:center">Qtd</th><th style="text-align:center">Unidade</th><th style="text-align:right">Preço Unit.</th><th style="text-align:right">Subtotal</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" style="text-align:right;padding:10px 8px">Subtotal:</td><td style="text-align:right;padding:10px 8px">R$ ${formatBRL(sub)}</td></tr>`);
     if (tipo === 'entrega' && frete > 0) printWindow.document.write(`<tr><td colspan="4" style="text-align:right;padding:4px 8px">Frete:</td><td style="text-align:right;padding:4px 8px">R$ ${formatBRL(frete)}</td></tr>`);
     printWindow.document.write(`<tr><td colspan="4" style="text-align:right;padding:10px 8px;font-size:18px;color:#F7941D">TOTAL:</td><td style="text-align:right;padding:10px 8px;font-size:18px;color:#F7941D">R$ ${formatBRL(tot)}</td></tr></tfoot></table>`);
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    printWindow.document.write(`<div style="margin-top:10px;padding:10px;border:1px solid #ddd;border-radius:5px;background:#fffbf0"><p style="margin:0 0 6px 0"><strong>&#128181; ÃÂÃÂ vista:</strong> R$ ${formatBRL(tot)}</p><p style="margin:0 0 6px 0"><strong>&#128179; No cartÃÂÃÂ£o (+8%):</strong> R$ ${formatBRL(valorCartaoImp)}</p><p style="margin:0;font-size:12px;color:#666">${Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => `${n}x R$ ${formatBRL(valorCartaoImp / n)}`).join(' | ')}</p></div>`);
-    printWindow.document.write(`<div class="footer"><p><strong>DepÃÂÃÂ³sito Oliveira</strong> ÃÂ¢ÃÂÃÂ Materiais de ConstruÃÂÃÂ§ÃÂÃÂ£o</p><p>Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 - Centro, CarapicuÃÂÃÂ­ba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p><p style="margin-top:8px">OrÃÂÃÂ§amento vÃÂÃÂ¡lido por 7 dias. Sujeito a disponibilidade de estoque.</p></div></body></html>`);
+    printWindow.document.write(`<div style="margin-top:10px;padding:10px;border:1px solid #ddd;border-radius:5px;background:#fffbf0"><p style="margin:0 0 6px 0"><strong>&#128181; À vista:</strong> R$ ${formatBRL(tot)}</p><p style="margin:0 0 6px 0"><strong>&#128179; No cartão (+8%):</strong> R$ ${formatBRL(valorCartaoImp)}</p><p style="margin:0;font-size:12px;color:#666">${Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => `${n}x R$ ${formatBRL(valorCartaoImp / n)}`).join(' | ')}</p></div>`);
+    printWindow.document.write(`<div class="footer"><p><strong>Depósito Oliveira</strong> — Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p><p style="margin-top:8px">Orçamento válido por 7 dias. Sujeito a disponibilidade de estoque.</p></div></body></html>`);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
   };
@@ -964,7 +963,7 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   const excluirOrcamento = async (id: string) => {
-    if (!confirm('Tem certeza? Esta aÃÂÃÂ§ÃÂÃÂ£o nÃÂÃÂ£o pode ser desfeita.')) return;
+    if (!confirm('Tem certeza? Esta ação não pode ser desfeita.')) return;
     setExcluindoId(id);
     try {
       const res = await fetch(`/api/orcamentos/${id}`, { method: 'DELETE' });
@@ -978,14 +977,14 @@ export default function OrcamentoApp() {  // Auth state
         if (abaAtiva === 'entregas') carregarEntregas();
       }
     } catch (e) {
-      console.error('Erro ao excluir orÃÂÃÂ§amento', e);
-      alert('Erro ao excluir orÃÂÃÂ§amento.');
+      console.error('Erro ao excluir orçamento', e);
+      alert('Erro ao excluir orçamento.');
     }
     setExcluindoId(null);
   };
 
   const excluirProduto = async (id: string) => {
-    if (!confirm('Tem certeza? O produto serÃÂÃÂ¡ desativado e nÃÂÃÂ£o aparecerÃÂÃÂ¡ mais no catÃÂÃÂ¡logo.')) return;
+    if (!confirm('Tem certeza? O produto será desativado e não aparecerá mais no catálogo.')) return;
     setExcluindoProdutoId(id);
     try {
       await fetch(`/api/produtos/${id}`, {
@@ -1148,26 +1147,26 @@ export default function OrcamentoApp() {  // Auth state
       amanha.setDate(amanha.getDate() + 1);
       const d = dataEntregas || amanha.toISOString().slice(0, 10);
       const dt = new Date(d + 'T12:00:00');
-      const diasSemana = ['Domingo', 'Segunda-Feira', 'TerÃÂÃÂ§a-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'SÃÂÃÂ¡bado'];
+      const diasSemana = ['Domingo', 'Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado'];
       return dt.toLocaleDateString('pt-BR') + ' - ' + diasSemana[dt.getDay()];
     })();
     const kmTotal = rotaGerada.distancia_total_km;
     const tempoMin = rotaGerada.tempo_estimado_min || rotaGerada.duracao_total_min;
     const tempoStr = tempoMin ? (tempoMin >= 60 ? Math.floor(tempoMin / 60) + 'h ' + (tempoMin % 60) + 'min' : tempoMin + ' min') : '';
     let html = `<!DOCTYPE html><html><head><title>Rota ${dataStr}</title><style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}h1{font-size:18px;margin-bottom:2px}.header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}.stats{display:flex;gap:16px;margin:8px 0;flex-wrap:wrap}.stat{background:#f5f5f5;border-radius:6px;padding:6px 12px;text-align:center}.stat-label{font-size:11px;color:#666}.stat-value{font-weight:bold;font-size:15px}.entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}.parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}.check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}.itens{margin:6px 0;padding:6px 8px;border-top:2px solid #f0a04b;border-bottom:1px solid #ddd;font-size:12px;color:#222;background:#fffbf5;border-radius:3px}.itens-label{font-weight:bold;color:#c45e00;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:3px}@media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}</style></head><body>`;
-    html += `<div class="header"><h1>ÃÂ°ÃÂÃÂÃÂ Rota de Entregas - DepÃÂÃÂ³sito Oliveira</h1><p style="margin:2px 0;color:#555;font-size:12px">Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 - CarapicuÃÂÃÂ­ba/SP | Tel: (11) 4187-1801</p><p style="margin:4px 0;font-size:13px"><strong>${dataStr}</strong></p><div class="stats"><div class="stat"><div class="stat-label">Paradas</div><div class="stat-value">${rotaGerada.entregas.length}</div></div>${kmTotal ? '<div class="stat"><div class="stat-label">DistÃÂÃÂ¢ncia total</div><div class="stat-value">' + kmTotal.toFixed(1) + ' km</div></div>' : ''}${tempoStr ? '<div class="stat"><div class="stat-label">Tempo estimado</div><div class="stat-value">' + tempoStr + '</div></div>' : ''}</div></div>`;
+    html += `<div class="header"><h1>🚚 Rota de Entregas - Depósito Oliveira</h1><p style="margin:2px 0;color:#555;font-size:12px">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p><p style="margin:4px 0;font-size:13px"><strong>${dataStr}</strong></p><div class="stats"><div class="stat"><div class="stat-label">Paradas</div><div class="stat-value">${rotaGerada.entregas.length}</div></div>${kmTotal ? '<div class="stat"><div class="stat-label">Distância total</div><div class="stat-value">' + kmTotal.toFixed(1) + ' km</div></div>' : ''}${tempoStr ? '<div class="stat"><div class="stat-label">Tempo estimado</div><div class="stat-value">' + tempoStr + '</div></div>' : ''}</div></div>`;
     (rotaGerada.entregas || []).forEach((e, idx) => {
-            const endCompleto = (e.endereco + (e.numero ? ', nÃÂÃÂº ' + e.numero : '')).trim();
-      html += `<div class="entrega"><div class="check-area">ÃÂ¢ÃÂÃÂ Entregue</div><span class="parada-num">${idx + 1}</span><strong>${e.cliente_nome}</strong>`;
-      if (e.cliente_telefone) html += ` ÃÂ¢ÃÂÃÂ ${e.cliente_telefone}`;
+            const endCompleto = (e.endereco + (e.numero ? ', nº ' + e.numero : '')).trim();
+      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${idx + 1}</span><strong>${e.cliente_nome}</strong>`;
+      if (e.cliente_telefone) html += ` — ${e.cliente_telefone}`;
       html += `<br/><span style="color:#555">${endCompleto}</span>`;
       if (e.recebedor) html += `<br/><em style="font-size:12px">Recebedor: ${e.recebedor}</em>`;
-      html += `<div class="itens"><div class="itens-label">ÃÂ°ÃÂÃÂÃÂ¦ Itens para carregar:</div>${e.itens_resumo || '<em style="color:#aaa">Nenhum item registrado</em>'}</div>`;
+      html += `<div class="itens"><div class="itens-label">📦 Itens para carregar:</div>${e.itens_resumo || '<em style="color:#aaa">Nenhum item registrado</em>'}</div>`;
       html += `<div style="display:flex;justify-content:space-between;margin-top:4px"><span>Valor: <strong>R$ ${(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</strong></span><span style="color:#888;font-size:12px">${e.codigo}</span></div>`;
       if (e.observacoes) html += `<div style="color:#666;font-style:italic;font-size:12px;margin-top:2px">Obs: ${e.observacoes}</div>`;
       html += `</div>`;
     });
-    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>DepÃÂÃÂ³sito Oliveira</strong> ÃÂ¢ÃÂÃÂ Materiais de ConstruÃÂÃÂ§ÃÂÃÂ£o<br>Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 - Centro, CarapicuÃÂÃÂ­ba - SP, 06380-021 ÃÂ¢ÃÂÃÂ Tel: (11) 4187-1801</div></body></html>`;
+    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>Depósito Oliveira</strong> — Materiais de Construção<br>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021 — Tel: (11) 4187-1801</div></body></html>`;
     printWindow.document.write(html);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1245,10 +1244,10 @@ export default function OrcamentoApp() {  // Auth state
       .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
       @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
     </style></head><body>`;
-    html += `<div class="header"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:50px;width:auto;border-radius:4px" /><div><h1 style="margin:0;font-size:18px">ÃÂ°ÃÂÃÂÃÂ Rotas de Entrega - DepÃÂÃÂ³sito Oliveira</h1><p style="margin:2px 0;font-size:11px;color:#555">Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 - CarapicuÃÂÃÂ­ba/SP | Tel: (11) 4187-1801</p></div></div><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' ÃÂ¢ÃÂÃÂ ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
+    html += `<div class="header"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:50px;width:auto;border-radius:4px" /><div><h1 style="margin:0;font-size:18px">🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;font-size:11px;color:#555">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p></div></div><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
     rotaParaImprimir.rota_otimizada.forEach((e, idx) => {
-      const endCompleto = [e.endereco, e.numero ? `nÃÂÃÂº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
-      html += `<div class="entrega"><div class="check-area">ÃÂ¢ÃÂÃÂ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
+      const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
+      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
       if (e.cliente_telefone) html += ` - ${e.cliente_telefone}`;
       html += `<br/><span style="color:#555">${endCompleto}</span>`;
       if (e.recebedor) html += `<br/><em>Recebedor: ${e.recebedor}</em>`;
@@ -1257,7 +1256,7 @@ export default function OrcamentoApp() {  // Auth state
       if (e.observacoes) html += `<div style="color:#666;font-style:italic;margin-top:2px">Obs: ${e.observacoes}</div>`;
       html += `</div>`;
     });
-    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>DepÃÂÃÂ³sito Oliveira</strong> ÃÂ¢ÃÂÃÂ Materiais de ConstruÃÂÃÂ§ÃÂÃÂ£o<br>Av. InocÃÂÃÂªncio SerÃÂÃÂ¡fico, 4020 - Centro, CarapicuÃÂÃÂ­ba - SP, 06380-021 ÃÂ¢ÃÂÃÂ Tel: (11) 4187-1801</div></body></html>`;
+    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>Depósito Oliveira</strong> — Materiais de Construção<br>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021 — Tel: (11) 4187-1801</div></body></html>`;
     printWindow.document.write(html);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1299,7 +1298,7 @@ export default function OrcamentoApp() {  // Auth state
           produto_id: produtoSelecionado.id,
           tipo: 'ajuste',
           quantidade: parseFloat(ajusteQtd),
-          observacoes: ajusteObs || 'Ajuste de inventÃÂÃÂ¡rio',
+          observacoes: ajusteObs || 'Ajuste de inventário',
         }),
       });
       setMostrarAjuste(false);
@@ -1394,35 +1393,32 @@ export default function OrcamentoApp() {  // Auth state
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
+  async function enviarPerguntaIA(pergunta, tipo) {
     const textoEnviar = pergunta || inputIA;
     if (!textoEnviar && !tipo) return;
     setCarregandoIA(true);
-    if (textoEnviar) {
-      setMensagensIA(prev => [...prev, { role: 'user', content: textoEnviar }]);
-    } else if (tipo) {
-      const labels: Record<string,string> = {
-        resumo_dia: 'Ã°ÂÂÂ Gerar Resumo do Dia',
-        relatorio_semanal: 'Ã°ÂÂÂ Gerar RelatÃÂ³rio Semanal',
-        analise_clientes: 'Ã°ÂÂÂ¥ AnÃÂ¡lise de Clientes',
-        previsao_estoque: 'Ã°ÂÂÂ¦ PrevisÃÂ£o de Estoque',
-      };
-      setMensagensIA(prev => [...prev, { role: 'user', content: labels[tipo] || tipo }]);
-    }
+    const labels = {
+      resumo_dia: '📊 Resumo do Dia',
+      relatorio_semanal: '📈 Relatório Semanal',
+      analise_clientes: '👥 Análise de Clientes',
+      previsao_estoque: '📦 Previsão de Estoque',
+    };
+    const msgUsuario = textoEnviar || (tipo ? (labels[tipo] || tipo) : '');
+    setMensagensIA(prev => [...prev, { role: 'user', content: msgUsuario }]);
     setInputIA('');
     try {
       const res = await fetch('/api/ai/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pergunta: textoEnviar || undefined, tipo: tipo || undefined }),
-        cache: 'no-store',
+        body: JSON.stringify({ pergunta: msgUsuario, tipo }),
       });
-      const data = await res.json();
-      setMensagensIA(prev => [...prev, { role: 'assistant', content: data.resposta || data.error || 'Erro' }]);
+      const json = await res.json();
+      setMensagensIA(prev => [...prev, { role: 'assistant', content: json.resposta || 'Sem resposta.' }]);
     } catch {
       setMensagensIA(prev => [...prev, { role: 'assistant', content: 'Erro ao conectar com a IA.' }]);
+    } finally {
+      setCarregandoIA(false);
     }
-    setCarregandoIA(false);
   }
 
   if (loading) {
@@ -1436,34 +1432,29 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
     );
   }
 
-
-
-
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-[#E8850A] text-white shadow-lg print:hidden">
         <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="DepÃÂÃÂ³sito Oliveira" className="h-10 w-auto" style={{borderRadius:'4px'}} />
+            <img src="/logo.png" alt="Depósito Oliveira" className="h-10 w-auto" style={{borderRadius:'4px'}} />
             <div>
-              <h1 className="text-2xl font-bold">DepÃÂÃÂ³sito Oliveira</h1>
-              <p className="text-white/80 text-sm">Sistema de OrÃÂÃÂ§amentos</p>
+              <h1 className="text-2xl font-bold">Depósito Oliveira</h1>
+              <p className="text-white/80 text-sm">Sistema de Orçamentos</p>
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button onClick={() => setAbaAtiva('estoque')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">ÃÂ°ÃÂÃÂÃÂ¦ Estoque</button>
-            <button onClick={() => setAbaAtiva('entregas')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">ÃÂ°ÃÂÃÂÃÂ Entregas</button>
-            <button onClick={() => setAbaAtiva('historico')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">HistÃÂÃÂ³rico</button>
-            {(userProfile?.papel === 'admin' || userProfile?.papel === 'gerente') && (
-              <button onClick={() => setAbaAtiva('ia')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">Ã°ÂÂ¤Â IA</button>
-            )}
+            <button onClick={() => setAbaAtiva('estoque')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">📦 Estoque</button>
+            <button onClick={() => setAbaAtiva('entregas')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">🚚 Entregas</button>
+            <button onClick={() => setAbaAtiva('historico')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">Histórico</button>
+            <button onClick={() => setAbaAtiva('ia')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">🤖 IA</button>
             <button onClick={() => setAbaAtiva('orcamento')} className="relative bg-white text-[#F7941D] font-bold px-4 py-2 rounded-lg hover:bg-[#FFF3E0] transition">
-              OrÃÂÃÂ§amento
+              Orçamento
               {itens.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{itens.reduce((a, i) => a + i.quantidade, 0)}</span>}
             </button>
           <button onClick={() => {
             if (itens.length > 0) {
-              if (!confirm('VocÃÂÃÂª tem um orÃÂÃÂ§amento em andamento. Descartar e comeÃÂÃÂ§ar novo?')) return;
+              if (!confirm('Você tem um orçamento em andamento. Descartar e começar novo?')) return;
               setItens([]);
             }
             setClienteNomeNovo('');
@@ -1474,7 +1465,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
           }}
             className="bg-green-500 text-white text-sm px-3 py-2 rounded-lg font-semibold hover:bg-green-600 transition whitespace-nowrap"
           >
-            ÃÂ¢ÃÂÃÂ Novo OrÃÂÃÂ§amento
+            ➕ Novo Orçamento
           </button>
           </div>
           <div className="flex items-center gap-2 ml-4 pl-4 border-l border-white/30">
@@ -1491,7 +1482,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
           {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'CatÃÂÃÂ¡logo' : aba === 'orcamento' ? `OrÃÂÃÂ§amento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'HistÃÂÃÂ³rico' : aba === 'entregas' ? 'ÃÂ°ÃÂÃÂÃÂ Entregas' : 'ÃÂ°ÃÂÃÂÃÂ¦ Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -1503,7 +1494,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         <div style={{position:'fixed',top:0,left:0,right:0,bottom:0,background:'rgba(0,0,0,0.5)',zIndex:100,display:'flex',alignItems:'flex-start',justifyContent:'center',padding:'16px',overflowY:'auto'}}>
           <div style={{background:'white',borderRadius:'12px',width:'100%',maxWidth:'500px',marginTop:'20px'}}>
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-2">ÃÂ¢ÃÂÃÂ Novo OrÃÂÃÂ§amento</h2>
+            <h2 className="text-xl font-bold text-gray-800 mb-2">➕ Novo Orçamento</h2>
             <p className="text-sm text-gray-500 mb-6">Preencha os dados do cliente antes de selecionar os produtos</p>
             <div className="space-y-4">
               <div>
@@ -1527,7 +1518,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Notas / EspecificaÃÂÃÂ§ÃÂÃÂµes do pedido</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Notas / Especificações do pedido</label>
                 <textarea
                   placeholder="Anote os detalhes do pedido (ex: 2 sapatas 20x20, 3 vigas de 4m, ferro 3/8 para coluna...)"
                   value={clienteNotasNovo}
@@ -1539,7 +1530,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
               <button
                 onClick={() => {
                   if (!clienteNomeNovo.trim() || !clienteTelefoneNovo.trim()) {
-                    alert('Nome e telefone sÃÂÃÂ£o obrigatÃÂÃÂ³rios');
+                    alert('Nome e telefone são obrigatórios');
                     return;
                   }
                   setNomeCliente(clienteNomeNovo);
@@ -1566,7 +1557,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
             {etapaOrcamento === 'produtos' && clienteNomeNovo && (
             <div className="bg-[#FFF3E0] border border-[#F7941D] rounded-xl p-3 mb-4 flex items-center justify-between flex-wrap gap-2">
               <div>
-                <span className="text-sm font-bold text-[#F7941D]">ÃÂ°ÃÂÃÂÃÂ OrÃÂÃÂ§amento para: {clienteNomeNovo}</span>
+                <span className="text-sm font-bold text-[#F7941D]">📋 Orçamento para: {clienteNomeNovo}</span>
                 <span className="text-xs text-gray-600 ml-3">{clienteTelefoneNovo}</span>
               </div>
               {clienteNotasNovo && (
@@ -1599,20 +1590,20 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-8">
               {produtosFiltrados.map(produto => {
                 const qtd = getQuantidade(produto.id);
-                const stepVal = produto.unidade === 'mÃÂÃÂ³' ? 0.5 : 1;
+                const stepVal = produto.unidade === 'm³' ? 0.5 : 1;
                 return (
                   <div key={produto.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition">
                     <div className="mb-2"><span className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-0.5 rounded-full">{produto.categoria}</span></div>
                     <h3 className="font-semibold text-gray-800 text-sm mb-1 min-h-[40px]">{produto.nome}</h3>
                     <p className="text-[#F7941D] font-bold text-lg mb-1">R$ {formatBRL(produto.preco)}<span className="text-xs text-gray-400 font-normal">/{produto.unidade}</span></p>
                     <p className={`text-xs mb-3 ${produto.estoque <= 0 ? 'text-red-600 font-bold' : produto.abaixo_minimo ? 'text-red-500 font-medium' : produto.estoque <= produto.estoque_minimo * 2 ? 'text-yellow-600' : 'text-green-600'}`}>
-                    {produto.estoque >= 999 ? 'ÃÂ°ÃÂÃÂÃÂ¦ Sob demanda' : produto.estoque <= 0 ? 'ÃÂ¢ÃÂÃÂ Sem estoque' : `${produto.abaixo_minimo ? 'ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ ' : produto.estoque <= produto.estoque_minimo * 2 ? 'ÃÂ°ÃÂÃÂÃÂ¡ ' : 'ÃÂ°ÃÂÃÂÃÂ¢ '}Estoque: ${produto.estoque} ${produto.unidade === 'mÃÂÃÂ³' ? 'mÃÂÃÂ³' : (produto.estoque !== 1 ? produto.unidade + 's' : produto.unidade)}`}
+                    {produto.estoque >= 999 ? '📦 Sob demanda' : produto.estoque <= 0 ? '⛔ Sem estoque' : `${produto.abaixo_minimo ? '⚠️ ' : produto.estoque <= produto.estoque_minimo * 2 ? '🟡 ' : '🟢 '}Estoque: ${produto.estoque} ${produto.unidade === 'm³' ? 'm³' : (produto.estoque !== 1 ? produto.unidade + 's' : produto.unidade)}`}
                   </p>
                     {qtd === 0 ? (
                       <div className="flex flex-col gap-1.5">
                         <button onClick={() => adicionarItem(produto)} className="w-full bg-[#F7941D] text-white py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">+ Adicionar</button>
                         {isMeioM3Produto(produto) && (
-                          <button onClick={() => adicionarMeioMetro(produto)} className="w-full bg-amber-100 text-amber-800 border border-amber-300 py-1.5 rounded-lg text-xs font-semibold hover:bg-amber-200 transition">ÃÂÃÂ½ mÃÂÃÂ³ ÃÂÃÂ· R$120</button>
+                          <button onClick={() => adicionarMeioMetro(produto)} className="w-full bg-amber-100 text-amber-800 border border-amber-300 py-1.5 rounded-lg text-xs font-semibold hover:bg-amber-200 transition">½ m³ · R$120</button>
                         )}
                       </div>
                     ) : (
@@ -1638,23 +1629,23 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
           <div className="max-w-2xl mx-auto pb-8">
             {itens.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <p className="text-5xl mb-4">ÃÂ°ÃÂÃÂÃÂ</p>
-                <p className="text-lg">Seu orÃÂÃÂ§amento estÃÂÃÂ¡ vazio</p>
+                <p className="text-5xl mb-4">🛒</p>
+                <p className="text-lg">Seu orçamento está vazio</p>
                 <button onClick={() => setAbaAtiva('produtos')} className="mt-4 bg-[#F7941D] text-white px-6 py-2 rounded-lg hover:bg-[#E8850A] transition">Ver Produtos</button>
               </div>
             ) : (
               <div className="space-y-4">
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
-                    <p className="text-sm text-yellow-800 font-medium">ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ Editando orÃÂÃÂ§amento existente</p>
+                    <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
                     <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
-                      className="text-xs text-yellow-700 underline">Cancelar ediÃÂÃÂ§ÃÂÃÂ£o</button>
+                      className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="p-4 border-b border-gray-100 bg-gray-50"><h2 className="font-bold text-gray-700">Itens do OrÃÂÃÂ§amento</h2></div>
+                  <div className="p-4 border-b border-gray-100 bg-gray-50"><h2 className="font-bold text-gray-700">Itens do Orçamento</h2></div>
                   {itens.map(item => {
-                    const stepVal = item.produto.unidade === 'mÃÂÃÂ³' ? 0.5 : 1;
+                    const stepVal = item.produto.unidade === 'm³' ? 0.5 : 1;
                     return (
                       <div key={item.produto.id} className="flex items-center gap-3 p-4 border-b border-gray-50 last:border-0">
                         <div className="flex-1">
@@ -1690,7 +1681,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                     {(['retirada', 'entrega'] as const).map(tipo => (
                       <button key={tipo} onClick={() => setTipoEntrega(tipo)}
                         className={`flex-1 py-2 rounded-lg text-sm font-medium border-2 transition ${tipoEntrega === tipo ? 'border-[#F7941D] bg-[#FFF3E0] text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                        {tipo === 'retirada' ? 'Retirar na Loja' : 'Entrega no EndereÃÂÃÂ§o'}
+                        {tipo === 'retirada' ? 'Retirar na Loja' : 'Entrega no Endereço'}
                       </button>
                     ))}
                   </div>
@@ -1700,7 +1691,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                     <div className="relative flex gap-2">
                       <input
                         type="text"
-                        placeholder="CEP ou endereÃÂÃÂ§o (rua, bairro, cidade...)"
+                        placeholder="CEP ou endereço (rua, bairro, cidade...)"
                         value={buscaEndereco || cepDestino}
                         onChange={e => {
                           const val = e.target.value;
@@ -1761,15 +1752,15 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                       {dadosFrete && dadosFrete.dentro_area && (
                         <div className="bg-green-50 border border-green-200 rounded-lg p-3">
                           <p className="text-sm font-medium text-green-800">{dadosFrete.endereco_completo}</p>
-                          <p className="text-xs text-green-600 mt-1">{dadosFrete.distancia_km} km ÃÂ¢ÃÂÃÂ ~{dadosFrete.duracao_min} min</p>
+                          <p className="text-xs text-green-600 mt-1">{dadosFrete.distancia_km} km — ~{dadosFrete.duracao_min} min</p>
                           <p className="text-sm font-bold text-green-700 mt-1">
-                            {dadosFrete.frete === 0 ? 'ÃÂ¢ÃÂÃÂ Frete grÃÂÃÂ¡tis!' : `Frete: R$ ${formatBRL(dadosFrete.frete || 0)}`}
+                            {dadosFrete.frete === 0 ? '✅ Frete grátis!' : `Frete: R$ ${formatBRL(dadosFrete.frete || 0)}`}
                           </p>
                         </div>
                       )}
                       {/* Feature 8 - Numero, complemento, recebedor */}
                       <div className="grid grid-cols-2 gap-2">
-                        <input type="text" placeholder="NÃÂÃÂºmero *" value={numeroEndereco} onChange={e => setNumeroEndereco(e.target.value)}
+                        <input type="text" placeholder="Número *" value={numeroEndereco} onChange={e => setNumeroEndereco(e.target.value)}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                         <input type="text" placeholder="Complemento (opcional)" value={complementoEndereco} onChange={e => setComplementoEndereco(e.target.value)}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
@@ -1785,7 +1776,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                   )}
           {tipoEntrega === 'retirada' && (
             <div className="mt-3">
-              <label className="block text-sm font-medium text-gray-700 mb-1">ÃÂ°ÃÂÃÂÃÂ Data de retirada</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">📅 Data de retirada</label>
               <input
                 type="date"
                 className="w-full border border-gray-200 rounded-lg p-2.5 text-sm focus:ring-2 focus:ring-orange-400 focus:border-transparent"
@@ -1800,7 +1791,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                 <div className="bg-[#E8850A] text-white rounded-xl p-4">
                   <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Subtotal:</span><span className="font-medium">R$ {formatBRL(subtotal)}</span></div>
                   {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete && dadosFrete.frete > 0 && <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Frete ({dadosFrete.distancia_km}km):</span><span className="font-medium">R$ {formatBRL(dadosFrete.frete)}</span></div>}
-                  {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete === 0 && <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Frete:</span><span className="font-medium text-green-300">GrÃÂÃÂ¡tis!</span></div>}
+                  {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete === 0 && <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Frete:</span><span className="font-medium text-green-300">Grátis!</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-[#F7941D]"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl">R$ {formatBRL(total)}</span></div>
                 </div>
               {/* Card pricing */}
@@ -1808,15 +1799,15 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                 const valorCartao = total * (1 + ACRESCIMO_CARTAO);
                 return (
                   <div className="mt-2 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
-                    <div className="flex justify-between text-gray-600 mb-1"><span>ÃÂ°ÃÂÃÂÃÂµ ÃÂÃÂ vista:</span><span className="font-bold text-gray-800">R$ {formatBRL(total)}</span></div>
-                    <div className="flex justify-between text-gray-600 mb-1"><span>ÃÂ°ÃÂÃÂÃÂ³ No cartÃÂÃÂ£o (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista:</span><span className="font-bold text-gray-800">R$ {formatBRL(total)}</span></div>
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💳 No cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
                     <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
                   </div>
                 );
               })()}
-                {/* ObservaÃÂÃÂ§ÃÂÃÂµes field */}
+                {/* Observações field */}
               <textarea
-                placeholder="ObservaÃÂÃÂ§ÃÂÃÂµes (ex: ligar antes de entregar, horÃÂÃÂ¡rio preferido...)"
+                placeholder="Observações (ex: ligar antes de entregar, horário preferido...)"
                 value={observacoes}
                 onChange={e => setObservacoes(e.target.value)}
                 rows={3}
@@ -1824,13 +1815,13 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
               />
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
-                  <span>ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ Editando orÃÂÃÂ§amento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
-                  <button type="button" onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setObservacoes(''); }} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">ÃÂ¢ÃÂÃÂ Cancelar</button>
+                  <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
+                  <button type="button" onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setObservacoes(''); }} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
                 </div>
               )}
               <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
                   className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
-                  {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar OrÃÂÃÂ§amento' : 'Gerar OrÃÂÃÂ§amento'}
+                  {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
                 </button>
               </div>
             )}
@@ -1841,7 +1832,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         {abaAtiva === 'historico' && (
           <div className="pb-8">
             <div className="flex flex-col md:flex-row gap-3 mb-6">
-              <input type="text" placeholder="Buscar por cÃÂÃÂ³digo, nome ou telefone..." value={buscaHistorico}
+              <input type="text" placeholder="Buscar por código, nome ou telefone..." value={buscaHistorico}
                 onChange={e => setBuscaHistorico(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregarHistorico()}
                 className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
               <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
@@ -1855,12 +1846,12 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
               <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]"></div></div>
             ) : orcamentos.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
-                <p className="text-4xl mb-4">ÃÂ°ÃÂÃÂÃÂ</p>
-                <p>Nenhum orÃÂÃÂ§amento encontrado</p>
+                <p className="text-4xl mb-4">📋</p>
+                <p>Nenhum orçamento encontrado</p>
               </div>
             ) : (
               <div>
-                <p className="text-sm text-gray-500 mb-4">{totalOrcamentos} orÃÂÃÂ§amento(s) encontrado(s)</p>
+                <p className="text-sm text-gray-500 mb-4">{totalOrcamentos} orçamento(s) encontrado(s)</p>
                 <div className="space-y-3">
                   {orcamentos.map(orc => (
                     <div key={orc.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 cursor-pointer hover:shadow-md transition" onClick={() => abrirDetalhe(orc.id)}>
@@ -1874,22 +1865,22 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                             
                           </div>
                           <p className="text-sm font-medium text-gray-800">{orc.clientes?.nome || 'Cliente'}</p>
-                          <p className="text-xs text-gray-500">{orc.clientes?.telefone || ''} {orc.clientes?.cidade ? `ÃÂ¢ÃÂÃÂ¢ ${orc.clientes.cidade}-${orc.clientes.estado}` : ''}</p>
+                          <p className="text-xs text-gray-500">{orc.clientes?.telefone || ''} {orc.clientes?.cidade ? `• ${orc.clientes.cidade}-${orc.clientes.estado}` : ''}</p>
                           <p className="text-xs text-gray-400 mt-1">{new Date(orc.criado_em).toLocaleDateString('pt-BR')} {new Date(orc.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                           {(orc.tipo_entrega === 'entrega' && orc.data_entrega) && (
-                            <p className="text-xs text-blue-600 mt-1">ÃÂ°ÃÂÃÂÃÂ Entrega: {new Date(orc.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}{orc.clientes?.endereco ? ' ÃÂÃÂ· ' + orc.clientes.endereco + (orc.clientes.numero ? ', ' + orc.clientes.numero : '') + (orc.clientes.bairro ? ' ÃÂ¢ÃÂÃÂ ' + orc.clientes.bairro : '') : ''}</p>
+                            <p className="text-xs text-blue-600 mt-1">🚛 Entrega: {new Date(orc.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}{orc.clientes?.endereco ? ' · ' + orc.clientes.endereco + (orc.clientes.numero ? ', ' + orc.clientes.numero : '') + (orc.clientes.bairro ? ' — ' + orc.clientes.bairro : '') : ''}</p>
                           )}
                           {(orc.tipo_entrega === 'retirada' && orc.data_retirada) && (
-                            <p className="text-xs text-green-600 mt-1">ÃÂ°ÃÂÃÂÃÂª Retirada: {new Date(orc.data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
+                            <p className="text-xs text-green-600 mt-1">🏪 Retirada: {new Date(orc.data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
                           )}
                           {orc.resumo_itens && (
-                            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">ÃÂ°ÃÂÃÂÃÂ¦ {orc.resumo_itens}</p>
+                            <p className="text-xs text-gray-500 mt-0.5 truncate max-w-xs">📦 {orc.resumo_itens}</p>
                           )}
                           {orc.clientes?.recebedor && (
-                            <p className="text-xs text-gray-500 mt-0.5">ÃÂ°ÃÂÃÂÃÂ¤ Recebedor: {orc.clientes.recebedor}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">👤 Recebedor: {orc.clientes.recebedor}</p>
                           )}
                           {orc.motorista_nome && (
-                            <p className="text-xs text-gray-500 mt-0.5">ÃÂ°ÃÂÃÂÃÂ {orc.motorista_nome}</p>
+                            <p className="text-xs text-gray-500 mt-0.5">🚗 {orc.motorista_nome}</p>
                           )}
                         </div>
                         <div className="text-right">
@@ -1963,25 +1954,25 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
-                          {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depÃÂÃÂ³sito</p>}
+                          {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
                         </div>
                         <button
                           onClick={ev => { ev.stopPropagation(); setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]); }}
                           className="shrink-0 text-xs text-orange-500 hover:text-orange-700 px-2 py-1 rounded hover:bg-orange-50 whitespace-nowrap"
                         >
-                          {expandedDia.includes(e.id) ? 'ÃÂ¢ÃÂÃÂ² Fechar' : 'ÃÂ°ÃÂÃÂÃÂ¦ Ver pedido'}
+                          {expandedDia.includes(e.id) ? '▲ Fechar' : '📦 Ver pedido'}
                         </button>
                       </div>
                       {expandedDia.includes(e.id) && (
                         <div className="border-t border-gray-100 bg-orange-50 px-4 py-3 text-xs space-y-1">
                           {e.itens_resumo && (
                             <div>
-                              <span className="font-semibold text-gray-700">ÃÂ°ÃÂÃÂÃÂ¦ Itens: </span>
+                              <span className="font-semibold text-gray-700">📦 Itens: </span>
                               <span className="text-gray-700">{e.itens_resumo}</span>
                             </div>
                           )}
                           <div className="flex gap-4 flex-wrap mt-1">
-                            <span><span className="font-semibold text-gray-600">CÃÂÃÂ³digo:</span> <span className="text-orange-700 font-mono">{e.codigo}</span></span>
+                            <span><span className="font-semibold text-gray-600">Código:</span> <span className="text-orange-700 font-mono">{e.codigo}</span></span>
                             <span><span className="font-semibold text-gray-600">Total:</span> <span className="font-bold text-gray-800">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span></span>
                             {e.cliente_telefone && <span><span className="font-semibold text-gray-600">Tel:</span> <a href={'tel:' + e.cliente_telefone} className="text-blue-600" onClick={ev => ev.stopPropagation()}>{e.cliente_telefone}</a></span>}
                             {e.recebedor && <span><span className="font-semibold text-gray-600">Recebedor:</span> {e.recebedor}</span>}
@@ -2013,11 +2004,11 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
 
               {rotaGerada && (
                 <div className="border border-green-200 bg-green-50 rounded-lg p-4 mb-2">
-                  <p className="text-sm font-bold text-green-800 mb-3">ÃÂ¢ÃÂÃÂ Rota gerada!</p>
+                  <p className="text-sm font-bold text-green-800 mb-3">✅ Rota gerada!</p>
                   <div className="flex gap-3 mb-3 flex-wrap">
                     {(rotaGerada.distancia_total_km ?? 0) > 0 && (
                       <div className="bg-white border border-green-200 rounded-lg px-3 py-2 text-center">
-                        <p className="text-xs text-gray-500">DistÃÂÃÂ¢ncia total</p>
+                        <p className="text-xs text-gray-500">Distância total</p>
                         <p className="font-bold text-gray-800 text-sm">{rotaGerada.distancia_total_km!.toFixed(1)} km</p>
                       </div>
                     )}
@@ -2042,14 +2033,14 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                         rel="noopener noreferrer"
                         className="flex-1 block text-center bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700"
                       >
-                        ÃÂ°ÃÂÃÂÃÂºÃÂ¯ÃÂ¸ÃÂ Abrir Rota no Google Maps
+                        🗺️ Abrir Rota no Google Maps
                       </a>
                     )}
                     <button
                       onClick={imprimirRotaDia}
                       className="flex-1 bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-800"
                     >
-                      ÃÂ°ÃÂÃÂÃÂ¨ÃÂ¯ÃÂ¸ÃÂ Imprimir Rota
+                      🖨️ Imprimir Rota
                     </button>
                   </div>
                 </div>
@@ -2059,7 +2050,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
             {/* === SECTION 2: EM ROTA === */}
             <div className="bg-white rounded-xl shadow-sm border border-purple-100 p-4">
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-lg">ÃÂ°ÃÂÃÂÃÂ</span>
+                <span className="text-lg">🚚</span>
                 <h2 className="font-bold text-purple-700">Em Rota</h2>
                 {entregasEmRota.length > 0 && (
                   <span className="ml-auto bg-purple-100 text-purple-700 text-xs font-bold px-2 py-1 rounded-full">{entregasEmRota.length}</span>
@@ -2079,21 +2070,21 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
-                          {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depÃÂÃÂ³sito</p>}
+                          {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <button
                             onClick={() => setExpandedEmRota(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
                             className="text-xs text-purple-500 hover:text-purple-700 px-2 py-1 rounded hover:bg-purple-50 whitespace-nowrap"
                           >
-                            {expandedEmRota.includes(e.id) ? 'ÃÂ¢ÃÂÃÂ² Fechar' : 'ÃÂ°ÃÂÃÂÃÂ¦ Ver'}
+                            {expandedEmRota.includes(e.id) ? '▲ Fechar' : '📦 Ver'}
                           </button>
                           <button
                             onClick={() => marcarEntregue(e.id)}
                             disabled={loadingCompleto === e.id}
                             className="text-xs bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 disabled:opacity-50 whitespace-nowrap font-medium"
                           >
-                            {loadingCompleto === e.id ? '...' : 'ÃÂ¢ÃÂÃÂ Entregue'}
+                            {loadingCompleto === e.id ? '...' : '✔ Entregue'}
                           </button>
                         </div>
                       </div>
@@ -2101,12 +2092,12 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                         <div className="border-t border-purple-100 bg-purple-50 px-4 py-3 text-xs space-y-1">
                           {e.itens_resumo && (
                             <div>
-                              <span className="font-semibold text-gray-700">ÃÂ°ÃÂÃÂÃÂ¦ Itens: </span>
+                              <span className="font-semibold text-gray-700">📦 Itens: </span>
                               <span className="text-gray-700">{e.itens_resumo}</span>
                             </div>
                           )}
                           <div className="flex gap-4 flex-wrap mt-1">
-                            <span><span className="font-semibold text-gray-600">CÃÂÃÂ³digo:</span> <span className="text-purple-700 font-mono">{e.codigo}</span></span>
+                            <span><span className="font-semibold text-gray-600">Código:</span> <span className="text-purple-700 font-mono">{e.codigo}</span></span>
                             <span><span className="font-semibold text-gray-600">Total:</span> <span className="font-bold text-gray-800">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span></span>
                             {e.cliente_telefone && <span><span className="font-semibold text-gray-600">Tel:</span> <a href={'tel:' + e.cliente_telefone} className="text-blue-600">{e.cliente_telefone}</a></span>}
                             {e.recebedor && <span><span className="font-semibold text-gray-600">Recebedor:</span> {e.recebedor}</span>}
@@ -2123,7 +2114,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
             {/* === SECTION 3: COMPLETOS === */}
             <div className="bg-white rounded-xl shadow-sm border border-green-100 p-4">
               <div className="flex items-center gap-2 mb-4">
-                <span className="text-lg">ÃÂ¢ÃÂÃÂ</span>
+                <span className="text-lg">✅</span>
                 <h2 className="font-bold text-green-700">Entregas Completas</h2>
                 {entregasCompletas.length > 0 && (
                   <span className="ml-auto bg-green-100 text-green-700 text-xs font-bold px-2 py-1 rounded-full">{entregasCompletas.length}</span>
@@ -2139,7 +2130,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                   {entregasCompletas.map((e, idx) => (
                     <div key={e.id} className="border border-green-200 rounded-lg text-sm overflow-hidden opacity-80">
                       <div className="p-3 flex items-start gap-3">
-                        <span className="text-green-500 text-sm mt-0.5 w-5 text-center shrink-0">ÃÂ¢ÃÂÃÂ</span>
+                        <span className="text-green-500 text-sm mt-0.5 w-5 text-center shrink-0">✓</span>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-gray-600">{e.cliente_nome}</p>
                           <p className="text-gray-500 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
@@ -2150,7 +2141,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                             onClick={() => setExpandedCompleto(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
                             className="text-xs text-green-500 hover:text-green-700 px-2 py-1 rounded hover:bg-green-50 whitespace-nowrap"
                           >
-                            {expandedCompleto.includes(e.id) ? 'ÃÂ¢ÃÂÃÂ²' : 'ÃÂ¢ÃÂÃÂ¼'}
+                            {expandedCompleto.includes(e.id) ? '▲' : '▼'}
                           </button>
                         </div>
                       </div>
@@ -2158,12 +2149,12 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                         <div className="border-t border-green-100 bg-green-50 px-4 py-3 text-xs space-y-1">
                           {e.itens_resumo && (
                             <div>
-                              <span className="font-semibold text-gray-700">ÃÂ°ÃÂÃÂÃÂ¦ Itens: </span>
+                              <span className="font-semibold text-gray-700">📦 Itens: </span>
                               <span className="text-gray-700">{e.itens_resumo}</span>
                             </div>
                           )}
                           <div className="flex gap-4 flex-wrap mt-1">
-                            <span><span className="font-semibold text-gray-600">CÃÂÃÂ³digo:</span> <span className="text-green-700 font-mono">{e.codigo}</span></span>
+                            <span><span className="font-semibold text-gray-600">Código:</span> <span className="text-green-700 font-mono">{e.codigo}</span></span>
                             {e.cliente_telefone && <span><span className="font-semibold text-gray-600">Tel:</span> {e.cliente_telefone}</span>}
                             {e.recebedor && <span><span className="font-semibold text-gray-600">Recebedor:</span> {e.recebedor}</span>}
                           </div>
@@ -2186,13 +2177,13 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         <div className="pb-8">
           {produtosAbaixoMinimo.length > 0 && (
             <button onClick={() => setFiltroEstoqueBaixo(!filtroEstoqueBaixo)} className={`w-full mb-4 p-3 rounded-xl text-sm font-medium transition ${filtroEstoqueBaixo ? 'bg-red-100 border-2 border-red-400 text-red-800' : 'bg-yellow-50 border border-yellow-200 text-yellow-800 hover:bg-yellow-100'}`}>
-              ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ {produtosAbaixoMinimo.length} produto(s) abaixo do estoque mÃÂÃÂ­nimo {filtroEstoqueBaixo ? '(ver todos)' : '(filtrar)'}
+              ⚠️ {produtosAbaixoMinimo.length} produto(s) abaixo do estoque mínimo {filtroEstoqueBaixo ? '(ver todos)' : '(filtrar)'}
             </button>
           )}
           <div className="flex flex-wrap gap-3 mb-6">
-            <button onClick={() => setMostrarNovoProduto(true)} className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">ÃÂ¢ÃÂÃÂ Novo Produto</button>
-            <button onClick={() => { setProdutoSelecionado(null); setMostrarEntrada(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">ÃÂ°ÃÂÃÂÃÂ¥ Registrar Entrada</button>
-            <button onClick={() => { setProdutoSelecionado(null); setMostrarAjuste(true); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition">ÃÂ°ÃÂÃÂÃÂ Ajuste InventÃÂÃÂ¡rio</button>
+            <button onClick={() => setMostrarNovoProduto(true)} className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">➕ Novo Produto</button>
+            <button onClick={() => { setProdutoSelecionado(null); setMostrarEntrada(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">📥 Registrar Entrada</button>
+            <button onClick={() => { setProdutoSelecionado(null); setMostrarAjuste(true); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition">📋 Ajuste Inventário</button>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
@@ -2203,7 +2194,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                   <th className="text-right px-2 py-3 font-medium text-gray-600">Venda</th>
                   <th className="text-right px-2 py-3 font-medium text-gray-600">Custo</th>
                   <th className="text-right px-2 py-3 font-medium text-gray-600">Margem</th>
-                  <th className="text-center px-2 py-3 font-medium text-gray-600">AÃÂÃÂ§ÃÂÃÂµes</th>
+                  <th className="text-center px-2 py-3 font-medium text-gray-600">Ações</th>
                 </tr></thead>
                 <tbody>
                   {produtosEstoque.map(p => {
@@ -2211,15 +2202,15 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                     const estoqueColor = p.estoque <= 0 ? 'text-red-700 bg-red-50' : p.abaixo_minimo ? 'text-red-600 bg-red-50' : p.estoque <= p.estoque_minimo * 2 ? 'text-yellow-700 bg-yellow-50' : 'text-green-700 bg-green-50';
                     return (
                       <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} ÃÂÃÂ· {p.codigo || '-'}{p.estoque_compartilhado_com ? ' ÃÂÃÂ· ÃÂ°ÃÂÃÂÃÂ estoque compartilhado' : ''}</p></td>
+                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}</p></td>
                         <td className="px-2 py-3 text-center"><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque >= 999 ? 'Sob demanda' : `${p.estoque} ${p.unidade}`}</span>{p.estoque < 999 && <p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p>}</td>
                         <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
                         <td className="px-2 py-3 text-right text-gray-500">R$ {formatBRL(p.preco_custo || 0)}</td>
                         <td className="px-2 py-3 text-right"><span className={`text-xs font-bold ${Number(margem) >= 30 ? 'text-green-600' : Number(margem) >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{margem}%</span></td>
                         <td className="px-2 py-3 text-center"><div className="flex gap-1 justify-center flex-wrap">
-                          <button onClick={() => abrirEditProduto(p)} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ</button>
-                          <button onClick={() => { setProdutoSelecionado(p); setEntradaQtd(''); setEntradaObs(''); setMostrarEntrada(true); }} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">ÃÂ°ÃÂÃÂÃÂ¥</button>
-                          <button onClick={() => abrirHistoricoProduto(p)} className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-1 rounded hover:bg-[#FFF3E0]">ÃÂ°ÃÂÃÂÃÂ</button>
+                          <button onClick={() => abrirEditProduto(p)} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">✏️</button>
+                          <button onClick={() => { setProdutoSelecionado(p); setEntradaQtd(''); setEntradaObs(''); setMostrarEntrada(true); }} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">📥</button>
+                          <button onClick={() => abrirHistoricoProduto(p)} className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-1 rounded hover:bg-[#FFF3E0]">📊</button>
                         </div></td>
                       </tr>
                     );
@@ -2234,12 +2225,12 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
       {mostrarModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-2 text-center">OrÃÂÃÂ§amento {editandoId ? 'Atualizado' : 'Gerado'}!</h2>
-            {orcamentoSalvo && <p className="text-center text-green-600 font-bold mb-2">CÃÂÃÂ³digo: {orcamentoSalvo.codigo}</p>}
+            <h2 className="text-xl font-bold text-gray-800 mb-2 text-center">Orçamento {editandoId ? 'Atualizado' : 'Gerado'}!</h2>
+            {orcamentoSalvo && <p className="text-center text-green-600 font-bold mb-2">Código: {orcamentoSalvo.codigo}</p>}
             
             <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono whitespace-pre-wrap text-gray-700 max-h-64 overflow-y-auto">{gerarTextoWhatsApp()}</div>
             <div className="space-y-3">
-              <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">ÃÂ°ÃÂÃÂÃÂ± Enviar por WhatsApp</button>
+              <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">📱 Enviar por WhatsApp</button>
               <button onClick={async () => {
                 if (orcamentoSalvo?.id) {
                   try {
@@ -2249,8 +2240,8 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                   } catch (e) { /* fallback */ }
                 }
                 imprimirOrcamento();
-              }} className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-[#F7941D] transition">ÃÂ°ÃÂÃÂÃÂ¨ÃÂ¯ÃÂ¸ÃÂ Imprimir</button>
-              <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">ÃÂ°ÃÂÃÂÃÂ Copiar Texto</button>
+              }} className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-[#F7941D] transition">🖨️ Imprimir</button>
+              <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">📋 Copiar Texto</button>
               <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
                 className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
             </div>
@@ -2281,31 +2272,31 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-2">Cliente</h3>
                   <p className="text-sm text-gray-800 font-medium">{orcamentoDetalhe.clientes?.nome || 'Cliente'}</p>
-                  {orcamentoDetalhe.clientes?.telefone && <p className="text-sm text-gray-600">ÃÂ°ÃÂÃÂÃÂ {orcamentoDetalhe.clientes.telefone}</p>}
-                  {orcamentoDetalhe.clientes?.recebedor && <p className="text-sm text-gray-600">ÃÂ°ÃÂÃÂÃÂ¤ Recebedor: {orcamentoDetalhe.clientes.recebedor}</p>}
+                  {orcamentoDetalhe.clientes?.telefone && <p className="text-sm text-gray-600">📞 {orcamentoDetalhe.clientes.telefone}</p>}
+                  {orcamentoDetalhe.clientes?.recebedor && <p className="text-sm text-gray-600">👤 Recebedor: {orcamentoDetalhe.clientes.recebedor}</p>}
                 </div>
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-2">Entrega</h3>
-                  <p className="text-sm text-gray-800">{orcamentoDetalhe.tipo_entrega === 'entrega' ? 'ÃÂ°ÃÂÃÂÃÂ Entrega no endereÃÂÃÂ§o' : 'ÃÂ°ÃÂÃÂÃÂª Retirada na loja'}</p>
+                  <p className="text-sm text-gray-800">{orcamentoDetalhe.tipo_entrega === 'entrega' ? '🚚 Entrega no endereço' : '🏪 Retirada na loja'}</p>
                   {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.clientes?.endereco && (
                     <p className="text-sm text-gray-600 mt-1">
-                      {[orcamentoDetalhe.clientes.endereco, orcamentoDetalhe.clientes.numero ? `nÃÂÃÂº ${orcamentoDetalhe.clientes.numero}` : '', orcamentoDetalhe.clientes.complemento, orcamentoDetalhe.clientes.bairro, orcamentoDetalhe.clientes.cidade ? `${orcamentoDetalhe.clientes.cidade}-${orcamentoDetalhe.clientes.estado}` : ''].filter(Boolean).join(', ')}
+                      {[orcamentoDetalhe.clientes.endereco, orcamentoDetalhe.clientes.numero ? `nº ${orcamentoDetalhe.clientes.numero}` : '', orcamentoDetalhe.clientes.complemento, orcamentoDetalhe.clientes.bairro, orcamentoDetalhe.clientes.cidade ? `${orcamentoDetalhe.clientes.cidade}-${orcamentoDetalhe.clientes.estado}` : ''].filter(Boolean).join(', ')}
                     </p>
                   )}
-                  {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">ÃÂ°ÃÂÃÂÃÂ Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
-                  {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">ÃÂ°ÃÂÃÂÃÂ Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
-                  {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">ÃÂ¢ÃÂÃÂ ÃÂ¯ÃÂ¸ÃÂ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
+                  {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                  {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                  {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-3">Produtos</h3>
                   <div className="space-y-2">
                     {orcamentoDetalhe.orcamento_itens.length === 0 ? (
-                      <p className="text-sm text-gray-500 italic py-2">Nenhum produto registrado. Edite o orÃÂÃÂ§amento para adicionar os produtos.</p>
+                      <p className="text-sm text-gray-500 italic py-2">Nenhum produto registrado. Edite o orçamento para adicionar os produtos.</p>
                     ) : orcamentoDetalhe.orcamento_itens.map(item => (
                       <div key={item.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                         <div className="flex-1">
                           <p className="text-sm font-medium text-gray-800">{item.produto_nome}</p>
-                          <p className="text-xs text-gray-500">{item.quantidade} {item.unidade} ÃÂÃÂ R$ {formatBRL(item.preco_unitario)}</p>
+                          <p className="text-xs text-gray-500">{item.quantidade} {item.unidade} × R$ {formatBRL(item.preco_unitario)}</p>
                         </div>
                         <p className="font-bold text-[#F7941D] text-sm">R$ {formatBRL(item.subtotal)}</p>
                       </div>
@@ -2323,29 +2314,29 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                   const valorCartao = totalDetalhe * (1 + ACRESCIMO_CARTAO);
                   return (
                     <div className="mt-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-sm">
-                      <div className="flex justify-between mb-1"><span className="text-gray-600">ÃÂ°ÃÂÃÂÃÂµ ÃÂÃÂ vista:</span><span className="font-bold">R$ {formatBRL(totalDetalhe)}</span></div>
-                      <div className="flex justify-between mb-1"><span className="text-gray-600">ÃÂ°ÃÂÃÂÃÂ³ CartÃÂÃÂ£o (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
+                      <div className="flex justify-between mb-1"><span className="text-gray-600">💵 À vista:</span><span className="font-bold">R$ {formatBRL(totalDetalhe)}</span></div>
+                      <div className="flex justify-between mb-1"><span className="text-gray-600">💳 Cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
                       <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-white border border-orange-300 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
                     </div>
                   );
                 })()}
                 {orcamentoDetalhe.observacoes && (
                   <div className="p-6 border-b border-gray-100">
-                    <h3 className="font-bold text-gray-700 mb-2">ObservaÃÂÃÂ§ÃÂÃÂµes</h3>
+                    <h3 className="font-bold text-gray-700 mb-2">Observações</h3>
                     <p className="text-sm text-gray-600">{orcamentoDetalhe.observacoes}</p>
                   </div>
                 )}
                 <div className="p-6 space-y-2">
-                  <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2.5 rounded-xl font-bold hover:bg-green-600 transition text-sm">ÃÂ°ÃÂÃÂÃÂ± Enviar por WhatsApp</button>
-                  <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2.5 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">ÃÂ°ÃÂÃÂÃÂ¨ÃÂ¯ÃÂ¸ÃÂ Imprimir</button>
+                  <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2.5 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
+                  <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2.5 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
                   {/* Bug 6 fix - Edit button restored for orcamento status */}
                   {orcamentoDetalhe.status === 'orcamento' && (
-                    <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ Editar OrÃÂÃÂ§amento</button>
+                    <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
                   )}
                   {/* Feature 9 - Reschedule button */}
                   {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
-                      className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">ÃÂ°ÃÂÃÂÃÂ Reagendar Entrega</button>
+                      className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
                   {['orcamento', 'cancelado'].includes(orcamentoDetalhe.status) && (
                     <button
@@ -2353,7 +2344,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                       disabled={excluindoId === orcamentoDetalhe.id}
                       className="w-full bg-red-500 text-white py-2.5 rounded-xl font-bold hover:bg-red-600 transition text-sm disabled:opacity-50"
                     >
-                      {excluindoId === orcamentoDetalhe.id ? 'Excluindo...' : 'ÃÂ°ÃÂÃÂÃÂÃÂ¯ÃÂ¸ÃÂ Excluir OrÃÂÃÂ§amento'}
+                      {excluindoId === orcamentoDetalhe.id ? 'Excluindo...' : '🗑️ Excluir Orçamento'}
                     </button>
                   )}
                   
@@ -2383,8 +2374,8 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                       <option value="">Forma de pagamento...</option>
                       <option value="dinheiro">Dinheiro</option>
                       <option value="pix">PIX</option>
-                      <option value="debito">DÃÂÃÂ©bito</option>
-                      <option value="credito">CrÃÂÃÂ©dito</option>
+                      <option value="debito">Débito</option>
+                      <option value="credito">Crédito</option>
                       <option value="boleto">Boleto</option>
                       <option value="pagamento_na_entrega">Pagamento na Entrega</option>
                     </select>
@@ -2402,7 +2393,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
       {mostrarReagendar && reagendandoId && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarReagendar(false); setReagendandoId(null); }}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ°ÃÂÃÂÃÂ Reagendar Entrega</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📅 Reagendar Entrega</h2>
             <input type="date" value={novaDataEntrega} min={todayStr} onChange={e => setNovaDataEntrega(e.target.value)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] mb-4" />
             <div className="flex gap-3">
@@ -2420,14 +2411,14 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
       {mostrarEntrada && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarEntrada(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ°ÃÂÃÂÃÂ¥ Registrar Entrada</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📥 Registrar Entrada</h2>
             <div className="space-y-3">
               <select value={produtoSelecionado?.id || ''} onChange={e => setProdutoSelecionado(produtos.find(p => p.id === e.target.value) || null)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Selecione o produto</option>
                 {produtos.map(p => <option key={p.id} value={p.id}>{p.nome} (atual: {p.estoque_armazenamento || p.estoque} {p.unidade_armazenamento || p.unidade})</option>)}
               </select>
               <input type="number" placeholder={`Quantidade (${produtoSelecionado?.unidade_armazenamento || 'unidades'})`} value={entradaQtd} onChange={e => setEntradaQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
-              <input type="text" placeholder="ObservaÃÂÃÂ§ÃÂÃÂµes (ex: Fornecedor Luan - NF 12345)" value={entradaObs} onChange={e => setEntradaObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input type="text" placeholder="Observações (ex: Fornecedor Luan - NF 12345)" value={entradaObs} onChange={e => setEntradaObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setMostrarEntrada(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
@@ -2437,19 +2428,19 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         </div>
       )}
 
-      {/* Modal Ajuste InventÃÂÃÂ¡rio */}
+      {/* Modal Ajuste Inventário */}
       {mostrarAjuste && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarAjuste(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ°ÃÂÃÂÃÂ Ajuste de InventÃÂÃÂ¡rio</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">📋 Ajuste de Inventário</h2>
             <div className="space-y-3">
               <select value={produtoSelecionado?.id || ''} onChange={e => { const p = produtos.find(pp => pp.id === e.target.value); setProdutoSelecionado(p || null); if (p) setAjusteQtd(String(p.estoque_armazenamento || p.estoque)); }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
                 <option value="">Selecione o produto</option>
                 {produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
               </select>
               {produtoSelecionado && <p className="text-xs text-gray-500">Estoque atual: {produtoSelecionado.estoque_armazenamento || produtoSelecionado.estoque} {produtoSelecionado.unidade_armazenamento || produtoSelecionado.unidade}</p>}
-              <input type="number" placeholder="Novo estoque (contagem fÃÂÃÂ­sica)" value={ajusteQtd} onChange={e => setAjusteQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
-              <input type="text" placeholder="ObservaÃÂÃÂ§ÃÂÃÂµes (ex: InventÃÂÃÂ¡rio mensal)" value={ajusteObs} onChange={e => setAjusteObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+              <input type="number" placeholder="Novo estoque (contagem física)" value={ajusteQtd} onChange={e => setAjusteQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
+              <input type="text" placeholder="Observações (ex: Inventário mensal)" value={ajusteObs} onChange={e => setAjusteObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setMostrarAjuste(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
@@ -2463,25 +2454,25 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
       {mostrarEditProduto && produtoSelecionado && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarEditProduto(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ Editar Produto</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">✏️ Editar Produto</h2>
             <div className="space-y-3">
               <input type="text" placeholder="Nome" value={editNome} onChange={e => setEditNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="CÃÂÃÂ³digo" value={editCodigo} onChange={e => setEditCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="text" placeholder="Código" value={editCodigo} onChange={e => setEditCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                 <input type="text" placeholder="Categoria" value={editCategoria} onChange={e => setEditCategoria(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">PreÃÂÃÂ§o Venda</label><input type="number" value={editPrecoVenda} onChange={e => setEditPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
-                <div><label className="text-xs text-gray-500">PreÃÂÃÂ§o Custo</label><input type="number" value={editPrecoCusto} onChange={e => setEditPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+                <div><label className="text-xs text-gray-500">Preço Venda</label><input type="number" value={editPrecoVenda} onChange={e => setEditPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+                <div><label className="text-xs text-gray-500">Preço Custo</label><input type="number" value={editPrecoCusto} onChange={e => setEditPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">Estoque MÃÂÃÂ­nimo</label><input type="number" value={editEstoqueMinimo} onChange={e => setEditEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
+                <div><label className="text-xs text-gray-500">Estoque Mínimo</label><input type="number" value={editEstoqueMinimo} onChange={e => setEditEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
                 <div><label className="text-xs text-gray-500">Unidade Venda</label><input type="text" value={editUnidadeVenda} onChange={e => setEditUnidadeVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
               </div>
             </div>
             <div className="flex gap-3 mt-4">
               <button onClick={() => setMostrarEditProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
-              <button onClick={() => produtoSelecionado && excluirProduto(produtoSelecionado.id)} disabled={!!excluindoProdutoId} className="px-4 bg-red-100 text-red-700 py-2 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50">{excluindoProdutoId ? '...' : 'ÃÂ°ÃÂÃÂÃÂÃÂ¯ÃÂ¸ÃÂ'}</button>
+              <button onClick={() => produtoSelecionado && excluirProduto(produtoSelecionado.id)} disabled={!!excluindoProdutoId} className="px-4 bg-red-100 text-red-700 py-2 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50">{excluindoProdutoId ? '...' : '🗑️'}</button>
               <button onClick={salvarEdicaoProduto} disabled={salvandoEstoque} className="flex-1 bg-[#F7941D] text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Salvar'}</button>
             </div>
           </div>
@@ -2492,16 +2483,16 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
       {mostrarNovoProduto && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarNovoProduto(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ¢ÃÂÃÂ Novo Produto</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">➕ Novo Produto</h2>
             <div className="space-y-3">
               <input type="text" placeholder="Nome do produto *" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="CÃÂÃÂ³digo" value={novoCodigo} onChange={e => setNovoCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="text" placeholder="Código" value={novoCodigo} onChange={e => setNovoCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                 <input type="text" placeholder="Categoria" value={novoCategoria} onChange={e => setNovoCategoria(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">PreÃÂÃÂ§o Venda *</label><input type="number" value={novoPrecoVenda} onChange={e => setNovoPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
-                <div><label className="text-xs text-gray-500">PreÃÂÃÂ§o Custo</label><input type="number" value={novoPrecoCusto} onChange={e => setNovoPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+                <div><label className="text-xs text-gray-500">Preço Venda *</label><input type="number" value={novoPrecoVenda} onChange={e => setNovoPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
+                <div><label className="text-xs text-gray-500">Preço Custo</label><input type="number" value={novoPrecoCusto} onChange={e => setNovoPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
               </div>
               <div className="grid grid-cols-3 gap-2">
                 <div><label className="text-xs text-gray-500">Unidade</label><input type="text" value={novoUnidade} onChange={e => setNovoUnidade(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
@@ -2510,7 +2501,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div><label className="text-xs text-gray-500">Estoque Inicial</label><input type="number" value={novoEstoqueInicial} onChange={e => setNovoEstoqueInicial(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
-                <div><label className="text-xs text-gray-500">Estoque MÃÂÃÂ­nimo</label><input type="number" value={novoEstoqueMinimo} onChange={e => setNovoEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
+                <div><label className="text-xs text-gray-500">Estoque Mínimo</label><input type="number" value={novoEstoqueMinimo} onChange={e => setNovoEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
               </div>
             </div>
             <div className="flex gap-3 mt-4">
@@ -2529,9 +2520,9 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
             onClick={() => { setAbaAtiva('orcamento'); setEtapaOrcamento('revisao'); }}
             className="w-full bg-[#F7941D] text-white py-4 rounded-xl font-bold text-base shadow-lg hover:bg-[#E8850A] transition flex items-center justify-between px-5"
           >
-            <span>ÃÂ°ÃÂÃÂÃÂ {itens.reduce((a, i) => a + i.quantidade, 0)} itens</span>
+            <span>🛒 {itens.reduce((a, i) => a + i.quantidade, 0)} itens</span>
             <span>R$ {itens.reduce((a, i) => a + i.quantidade * i.produto.preco, 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
-            <span>Ver OrÃÂÃÂ§amento ÃÂ¢ÃÂÃÂ</span>
+            <span>Ver Orçamento →</span>
           </button>
         </div>
       )}
@@ -2540,10 +2531,10 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
       {mostrarAtribuirMotorista && entregaSelecionadaId && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarAtribuirMotorista(false); setEntregaSelecionadaId(null); }}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ°ÃÂÃÂÃÂ Atribuir Motorista</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">🚗 Atribuir Motorista</h2>
             <div className="space-y-2 mb-4">
               <button onClick={() => atribuirMotorista(entregaSelecionadaId, null)} disabled={atribuindoMotorista === entregaSelecionadaId} className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-gray-50 text-sm text-gray-600">
-                ÃÂ¢ÃÂÃÂ Remover atribuiÃÂÃÂ§ÃÂÃÂ£o
+                ✕ Remover atribuição
               </button>
               {motoristas.map(m => (
                 <button key={m.id} onClick={() => atribuirMotorista(entregaSelecionadaId, m.id)} disabled={atribuindoMotorista === entregaSelecionadaId} className="w-full text-left px-4 py-3 rounded-lg border border-gray-200 hover:bg-[#FFF3E0] hover:border-[#F7941D] text-sm">
@@ -2556,11 +2547,11 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         </div>
       )}
 
-      {/* Modal GestÃÂÃÂ£o de Motoristas */}
+      {/* Modal Gestão de Motoristas */}
       {mostrarGestaoMotoristas && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarGestaoMotoristas(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[80vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ GestÃÂÃÂ£o de Motoristas</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-4">⚙️ Gestão de Motoristas</h2>
             <div className="space-y-2 mb-6">
               {motoristas.map(m => (
                 <div key={m.id} className="p-3 rounded-lg border border-gray-200">
@@ -2569,7 +2560,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                       <input type="text" value={editandoMotoristaNome} onChange={e => setEditandoMotoristaNome(e.target.value)}
                         placeholder="Nome" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
                       <input type="text" value={editandoMotoristaVeiculo} onChange={e => setEditandoMotoristaVeiculo(e.target.value)}
-                        placeholder="VeÃÂÃÂ­culo" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
+                        placeholder="Veículo" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
                       <input type="text" value={editandoMotoristaTelefone} onChange={e => setEditandoMotoristaTelefone(e.target.value)}
                         placeholder="Telefone" className="w-full border border-gray-300 rounded px-2 py-1 text-sm" />
                       <div className="flex gap-2">
@@ -2595,7 +2586,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
                           setEditandoMotoristaNome(m.nome);
                           setEditandoMotoristaVeiculo(m.veiculo || '');
                           setEditandoMotoristaTelefone(m.telefone || '');
-                        }} className="text-xs text-blue-500 hover:text-blue-700 px-2 py-1">ÃÂ¢ÃÂÃÂÃÂ¯ÃÂ¸ÃÂ Editar</button>
+                        }} className="text-xs text-blue-500 hover:text-blue-700 px-2 py-1">✏️ Editar</button>
                         <button onClick={() => {
                           fetch('/api/motoristas', { method: 'PATCH', headers: {'Content-Type':'application/json'},
                             body: JSON.stringify({ id: m.id, ativo: false }) })
@@ -2611,7 +2602,7 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
               <h3 className="font-medium text-gray-700 mb-3">Adicionar Motorista</h3>
               <div className="space-y-2">
                 <input type="text" placeholder="Nome *" value={novoMotoristaNome} onChange={e => setNovoMotoristaNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                <input type="text" placeholder="VeÃÂÃÂ­culo (ex: CaminhÃÂÃÂ£o 3)" value={novoMotoristaVeiculo} onChange={e => setNovoMotoristaVeiculo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                <input type="text" placeholder="Veículo (ex: Caminhão 3)" value={novoMotoristaVeiculo} onChange={e => setNovoMotoristaVeiculo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div className="flex gap-2 mt-3">
                 <button onClick={() => setMostrarGestaoMotoristas(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg text-sm">Fechar</button>
@@ -2622,23 +2613,23 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         </div>
       )}
 
-      {/* Modal HistÃÂÃÂ³rico MovimentaÃÂÃÂ§ÃÂÃÂµes */}
+      {/* Modal Histórico Movimentações */}
       {mostrarHistoricoProduto && produtoSelecionado && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarHistoricoProduto(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-2">ÃÂ°ÃÂÃÂÃÂ HistÃÂÃÂ³rico - {produtoSelecionado.nome}</h2>
+            <h2 className="text-lg font-bold text-gray-800 mb-2">📊 Histórico - {produtoSelecionado.nome}</h2>
             <p className="text-sm text-gray-500 mb-4">Estoque atual: {produtoSelecionado.estoque} {produtoSelecionado.unidade}</p>
             {movimentacoes.length === 0 ? (
-              <p className="text-center text-gray-400 py-8">Nenhuma movimentaÃÂÃÂ§ÃÂÃÂ£o registrada</p>
+              <p className="text-center text-gray-400 py-8">Nenhuma movimentação registrada</p>
             ) : (
               <div className="space-y-2">
                 {movimentacoes.map(m => (
                   <div key={m.id} className={`p-3 rounded-lg border text-sm ${m.tipo === 'entrada' ? 'bg-green-50 border-green-200' : m.tipo === 'saida' ? 'bg-red-50 border-red-200' : m.tipo === 'cancelamento' ? 'bg-[#FFF3E0] border-[#F7941D]' : 'bg-yellow-50 border-yellow-200'}`}>
                     <div className="flex justify-between items-center">
-                      <span className="font-medium">{m.tipo === 'entrada' ? 'ÃÂ°ÃÂÃÂÃÂ¥ Entrada' : m.tipo === 'saida' ? 'ÃÂ°ÃÂÃÂÃÂ¤ SaÃÂÃÂ­da' : m.tipo === 'cancelamento' ? 'ÃÂ¢ÃÂÃÂ©ÃÂ¯ÃÂ¸ÃÂ Cancelamento' : 'ÃÂ°ÃÂÃÂÃÂ Ajuste'}</span>
+                      <span className="font-medium">{m.tipo === 'entrada' ? '📥 Entrada' : m.tipo === 'saida' ? '📤 Saída' : m.tipo === 'cancelamento' ? '↩️ Cancelamento' : '📋 Ajuste'}</span>
                       <span className="text-xs text-gray-500">{new Date(m.criado_em).toLocaleDateString('pt-BR')} {new Date(m.criado_em).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
                     </div>
-                    <p className="text-xs mt-1">{m.estoque_anterior} ÃÂ¢ÃÂÃÂ {m.estoque_novo} ({m.tipo === 'saida' ? '-' : '+'}{m.quantidade})</p>
+                    <p className="text-xs mt-1">{m.estoque_anterior} → {m.estoque_novo} ({m.tipo === 'saida' ? '-' : '+'}{m.quantidade})</p>
                     {m.observacoes && <p className="text-xs text-gray-600 mt-1">{m.observacoes}</p>}
                   </div>
                 ))}
@@ -2649,56 +2640,73 @@ async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
         </div>
       )}
 
-      {/* ===== IA TAB ===== */}
+      {/* === ABA IA === */}
       {abaAtiva === 'ia' && (
         <div className="pb-8">
           <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
-            <h2 className="text-lg font-bold text-gray-800 mb-1">Ã°ÂÂ¤Â Assistente IA Ã¢ÂÂ DepÃÂ³sito Oliveira</h2>
-            <p className="text-xs text-gray-500">Pergunte qualquer coisa sobre vendas, clientes, estoque ou performance do negÃÂ³cio.</p>
+            <h2 className="text-lg font-bold text-gray-800 mb-1">🤖 Assistente IA</h2>
+            <p className="text-sm text-gray-500">Pergunte qualquer coisa sobre o negócio</p>
           </div>
-          <div className="flex flex-wrap gap-2 mb-4">
-            <button onClick={() => enviarPerguntaIA(undefined, 'resumo_dia')} className="px-4 py-2 bg-orange-100 text-orange-800 rounded-lg hover:bg-orange-200 text-sm font-medium transition">Ã°ÂÂÂ Resumo do Dia</button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'relatorio_semanal')} className="px-4 py-2 bg-blue-100 text-blue-800 rounded-lg hover:bg-blue-200 text-sm font-medium transition">Ã°ÂÂÂ RelatÃÂ³rio Semanal</button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'analise_clientes')} className="px-4 py-2 bg-green-100 text-green-800 rounded-lg hover:bg-green-200 text-sm font-medium transition">Ã°ÂÂÂ¥ AnÃÂ¡lise de Clientes</button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'previsao_estoque')} className="px-4 py-2 bg-purple-100 text-purple-800 rounded-lg hover:bg-purple-200 text-sm font-medium transition">Ã°ÂÂÂ¦ PrevisÃÂ£o de Estoque</button>
+          <div className="grid grid-cols-2 gap-3 mb-4">
+            <button onClick={() => enviarPerguntaIA(undefined, 'resumo_dia')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
+              <div className="text-xl mb-1">📊</div>
+              <div className="font-semibold text-gray-800 text-sm">Resumo do Dia</div>
+              <div className="text-xs text-gray-500">Faturamento e pedidos hoje</div>
+            </button>
+            <button onClick={() => enviarPerguntaIA(undefined, 'relatorio_semanal')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
+              <div className="text-xl mb-1">📈</div>
+              <div className="font-semibold text-gray-800 text-sm">Relatório Semanal</div>
+              <div className="text-xs text-gray-500">Performance da semana</div>
+            </button>
+            <button onClick={() => enviarPerguntaIA(undefined, 'analise_clientes')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
+              <div className="text-xl mb-1">👥</div>
+              <div className="font-semibold text-gray-800 text-sm">Análise de Clientes</div>
+              <div className="text-xs text-gray-500">Perfil e comportamento</div>
+            </button>
+            <button onClick={() => enviarPerguntaIA(undefined, 'previsao_estoque')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
+              <div className="text-xl mb-1">📦</div>
+              <div className="font-semibold text-gray-800 text-sm">Previsão de Estoque</div>
+              <div className="text-xs text-gray-500">Reposição necessária</div>
+            </button>
           </div>
-          <div className="bg-white rounded-xl shadow-sm border mb-4 overflow-hidden">
-            <div className="p-4 min-h-[300px] max-h-[500px] overflow-y-auto space-y-4" id="ia-chat-messages">
+          <div className="bg-white rounded-xl shadow-sm border p-4">
+            <div className="h-80 overflow-y-auto mb-4 space-y-3">
               {mensagensIA.length === 0 && (
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 text-lg">Ã°ÂÂ¤Â</div>
-                  <div className="bg-gray-50 rounded-xl rounded-tl-none px-4 py-3 max-w-[85%]">
-                    <p className="text-sm text-gray-700">OlÃÂ¡! Sou o assistente IA do DepÃÂ³sito Oliveira. Pergunte qualquer coisa sobre <strong>vendas</strong>, <strong>clientes</strong>, <strong>estoque</strong> ou <strong>performance do negÃÂ³cio</strong>.</p>
-                  </div>
-                </div>
+                <p className="text-gray-400 text-sm text-center pt-8">Use os botões acima ou digite uma pergunta</p>
               )}
               {mensagensIA.map((msg, idx) => (
-                <div key={idx} className={msg.role === 'user' ? 'flex gap-3 justify-end' : 'flex gap-3'}>
-                  {msg.role === 'assistant' && <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 text-lg">Ã°ÂÂ¤Â</div>}
-                  <div className={msg.role === 'user' ? 'bg-[#F7941D] text-white rounded-xl rounded-tr-none px-4 py-3 max-w-[85%] text-sm' : 'bg-gray-50 rounded-xl rounded-tl-none px-4 py-3 max-w-[85%]'}>
-                    <p className={msg.role === 'assistant' ? 'text-sm text-gray-700 whitespace-pre-wrap' : 'text-sm'}>{msg.content}</p>
+                <div key={idx} className={msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
+                  <div className={msg.role === 'user'
+                    ? 'bg-orange-100 text-gray-800 rounded-2xl rounded-tr-sm px-4 py-2 max-w-xs text-sm'
+                    : 'bg-gray-100 text-gray-800 rounded-2xl rounded-tl-sm px-4 py-2 max-w-sm text-sm'}>
+                    <p className="whitespace-pre-wrap">{msg.content}</p>
                   </div>
-                  {msg.role === 'user' && <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center flex-shrink-0 text-sm">Ã°ÂÂÂ¤</div>}
                 </div>
               ))}
               {carregandoIA && (
-                <div className="flex gap-3">
-                  <div className="w-8 h-8 rounded-full bg-orange-100 flex items-center justify-center flex-shrink-0 text-lg">Ã°ÂÂ¤Â</div>
-                  <div className="bg-gray-50 rounded-xl rounded-tl-none px-4 py-3">
-                    <div className="flex gap-1 items-center">
-                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{animationDelay:'0ms'}}></div>
-                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{animationDelay:'150ms'}}></div>
-                      <div className="w-2 h-2 bg-orange-400 rounded-full animate-bounce" style={{animationDelay:'300ms'}}></div>
-                      <span className="text-xs text-gray-500 ml-2">Pensando...</span>
-                    </div>
-                  </div>
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2 text-sm text-gray-500">Pensando...</div>
                 </div>
               )}
             </div>
-          </div>
-          <div className="flex gap-2">
-            <input type="text" value={inputIA} onChange={e => setInputIA(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !carregandoIA) enviarPerguntaIA(); }} placeholder="Pergunte sobre vendas, clientes, estoque..." className="flex-1 border rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" disabled={carregandoIA} />
-            <button onClick={() => enviarPerguntaIA()} disabled={carregandoIA || !inputIA.trim()} className="bg-[#F7941D] text-white px-5 py-3 rounded-xl font-medium text-sm hover:bg-[#E8850A] transition disabled:opacity-50 disabled:cursor-not-allowed">Enviar</button>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={inputIA}
+                onChange={e => setInputIA(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !carregandoIA) enviarPerguntaIA(inputIA, undefined); }}
+                placeholder="Pergunte sobre vendas, estoque, clientes..."
+                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                disabled={carregandoIA}
+              />
+              <button
+                onClick={() => enviarPerguntaIA(inputIA, undefined)}
+                disabled={carregandoIA || !inputIA.trim()}
+                className="bg-[#F7941D] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#E8850A] transition disabled:opacity-50"
+              >
+                Enviar
+              </button>
+            </div>
           </div>
         </div>
       )}
