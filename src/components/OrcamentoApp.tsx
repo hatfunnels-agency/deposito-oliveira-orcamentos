@@ -718,7 +718,18 @@ export default function OrcamentoApp() {  // Auth state
         cliente_numero: numeroEndereco || null,
         cliente_complemento: complementoEndereco || null,
         cliente_recebedor: recebedor || null,
-        observacoes: (() => { const ferroItens = itens.filter(i => i.avulso); const ferroStr = ferroItens.length > 0 ? '\n[FERRO: ' + ferroItens.map(i => i.produto.nome + ' ' + i.quantidade + 'm' + (i.obs ? ' (' + i.obs + ')' : '')).join(', ') + ']' : ''; return (observacoes || '') + ferroStr || null; })(),
+        observacoes: (() => {
+          const ferroItens = itens.filter(i => i.avulso);
+          const ferroStr = ferroItens.length > 0
+            ? '\nFERRAGEM:\n' + ferroItens.map(i => {
+                const preco = (i.preco_custom !== undefined ? i.preco_custom : i.produto.preco);
+                const total = preco * i.quantidade;
+                const obsLabel = i.obs ? ' — ' + i.obs : '';
+                return '• ' + i.produto.nome + ' — ' + i.quantidade + 'm — R$ ' + total.toLocaleString('pt-BR', {minimumFractionDigits:2}) + obsLabel;
+              }).join('\n')
+            : '';
+          return (observacoes || '') + ferroStr || null;
+        })(),
         tipo_entrega: tipoEntrega,
         valor_frete: totalFrete,
         subtotal,
@@ -814,7 +825,20 @@ export default function OrcamentoApp() {  // Auth state
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         '',
         (detalhe as any).status_pagamento === 'completo' ? '*✅ Pagamento: Pago*' : (detalhe as any).status_pagamento === 'parcial' ? '*⚠️ Pagamento: Parcial*' : '',
-        detalhe.observacoes ? `_Obs: ${detalhe.observacoes}_` : '',
+        ...(() => {
+          const rawObs = detalhe.observacoes || '';
+          const ferrIdx = rawObs.indexOf('FERRAGEM:');
+          const obsTexto = ferrIdx >= 0 ? rawObs.substring(0, ferrIdx).trim() : rawObs.trim();
+          const ferrTexto = ferrIdx >= 0 ? rawObs.substring(ferrIdx).trim() : '';
+          const linhas: string[] = [];
+          if (obsTexto) linhas.push(`_Obs: ${obsTexto}_`);
+          if (ferrTexto) {
+            linhas.push('');
+            linhas.push('*🔩 FERRAGEM:*');
+            ferrTexto.replace('FERRAGEM:', '').trim().split('\n').filter(Boolean).forEach(l => linhas.push(l));
+          }
+          return linhas;
+        })(),
         '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
       ].filter((l): l is string => typeof l === 'string' && l.length > 0);
@@ -884,13 +908,20 @@ export default function OrcamentoApp() {  // Auth state
     const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
     const ferroItensImp = !d ? itens.filter(i => i.avulso) : [];
-    const ferroStrImp = ferroItensImp.length > 0 ? '[FERRO: ' + ferroItensImp.map(i => i.produto.nome + ' ' + i.quantidade + 'm' + (i.obs ? ' (' + i.obs + ')' : '')).join(', ') + ']' : '';
+    const ferroStrImp = ferroItensImp.length > 0
+      ? '\nFERRAGEM:\n' + ferroItensImp.map(i => {
+          const preco = (i.preco_custom !== undefined ? i.preco_custom : i.produto.preco);
+          const total = preco * i.quantidade;
+          const obsLabel = i.obs ? ' — ' + i.obs : '';
+          return '• ' + i.produto.nome + ' — ' + i.quantidade + 'm — R$ ' + total.toLocaleString('pt-BR', {minimumFractionDigits:2}) + obsLabel;
+        }).join('\n')
+      : '';
     const obsImp = d ? d.observacoes : ((observacoes || '') + ferroStrImp || null);
     const formaPagImp = d ? (d as any).forma_pagamento as string | null : null;
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A5;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:12px;margin-bottom:8px}.hdr img{height:52px;width:auto}.hdr h1{margin:0;font-size:18px;color:#F7941D}.hdr p{margin:2px 0;color:#666;font-size:11px}hr{border:none;border-top:2px solid #F7941D;margin:8px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin:6px 0}.ir{font-size:12px;line-height:1.6}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}th{background:#F7941D;color:white;padding:6px 7px;text-align:left}td{padding:5px 7px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:16px;color:#F7941D;padding:6px 7px}.pagto{margin:8px 0;padding:8px 10px;border:1px solid #ddd;border-radius:4px;background:#fffbf0;font-size:12px}.parc{color:#666;font-size:10.5px;margin-top:4px}.ftr{margin-top:8px;padding-top:6px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${obsImp?'<div class="ir full"><b>Obs:</b> '+obsImp+'</div>':''}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp&&statusPagImp!=='pendente'?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A5;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:12px;margin-bottom:8px}.hdr img{height:52px;width:auto}.hdr h1{margin:0;font-size:18px;color:#F7941D}.hdr p{margin:2px 0;color:#666;font-size:11px}hr{border:none;border-top:2px solid #F7941D;margin:8px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin:6px 0}.ir{font-size:12px;line-height:1.6}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}th{background:#F7941D;color:white;padding:6px 7px;text-align:left}td{padding:5px 7px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:16px;color:#F7941D;padding:6px 7px}.pagto{margin:8px 0;padding:8px 10px;border:1px solid #ddd;border-radius:4px;background:#fffbf0;font-size:12px}.parc{color:#666;font-size:10.5px;margin-top:4px}.ftr{margin-top:8px;padding-top:6px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; if (ferrLinhas.length > 0) html += '<div class="ir full"><b>🔩 Ferragem:</b><br>'+ferrLinhas.join('<br>')+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp&&statusPagImp!=='pendente'?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -2478,12 +2509,33 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                   );
                 })()}
-                {orcamentoDetalhe.observacoes && (
-                  <div className="px-4 py-2 border-b border-gray-100">
-                    <h3 className="font-bold text-gray-700 mb-1 text-sm">Observações</h3>
-                    <p className="text-sm text-gray-600">{orcamentoDetalhe.observacoes}</p>
-                  </div>
-                )}
+                {orcamentoDetalhe.observacoes && (() => {
+                  const rawObs = orcamentoDetalhe.observacoes || '';
+                  const ferrIdx = rawObs.indexOf('FERRAGEM:');
+                  const obsTexto = ferrIdx >= 0 ? rawObs.substring(0, ferrIdx).trim() : rawObs.trim();
+                  const ferrTexto = ferrIdx >= 0 ? rawObs.substring(ferrIdx) : '';
+                  const ferrLinhas = ferrTexto ? ferrTexto.replace('FERRAGEM:', '').trim().split('\n').filter(Boolean) : [];
+                  return (
+                    <>
+                      {obsTexto && (
+                        <div className="px-4 py-2 border-b border-gray-100">
+                          <h3 className="font-bold text-gray-700 mb-1 text-sm">Observações</h3>
+                          <p className="text-sm text-gray-600 whitespace-pre-line">{obsTexto}</p>
+                        </div>
+                      )}
+                      {ferrLinhas.length > 0 && (
+                        <div className="px-4 py-2 border-b border-gray-100">
+                          <h3 className="font-bold text-gray-700 mb-1 text-sm">🔩 Ferragem</h3>
+                          <div className="space-y-0.5">
+                            {ferrLinhas.map((linha, i) => (
+                              <p key={i} className="text-xs text-gray-600">{linha}</p>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
                 <div className="px-4 py-3 space-y-1.5">
                   <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
                   <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
