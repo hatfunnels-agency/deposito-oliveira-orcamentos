@@ -65,6 +65,7 @@ interface OrcamentoDetalhe {
   reagendamentos: number;
   motorista_id?: string | null;
   forma_pagamento?: string | null;
+  status_pagamento?: string | null;
   clientes: {
     id: string;
     nome: string;
@@ -101,6 +102,7 @@ interface OrcamentoSalvo {
   resumo_itens?: string;
   bling_pedido_id?: string | null;
   forma_pagamento?: string | null;
+  status_pagamento?: string | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null; recebedor?: string | null } | null;
 }
 
@@ -210,6 +212,16 @@ const STATUS_COLORS: Record<string, string> = {
   cancelado: 'bg-gray-200 text-gray-600',
 };
 
+const STATUS_PAGAMENTO_LABELS: Record<string, string> = {
+  pendente: '⏳ Pgto Pendente',
+  parcial: '⚠️ Pgto Parcial',
+  completo: '✅ Pago',
+};
+const STATUS_PAGAMENTO_COLORS: Record<string, string> = {
+  pendente: 'bg-yellow-100 text-yellow-800',
+  parcial: 'bg-orange-100 text-orange-800',
+  completo: 'bg-green-100 text-green-800',
+};
 const ACRESCIMO_CARTAO = 0.08;
 const MAX_PARCELAS = 6;
 const CAPACIDADE_CAMINHAO_M3 = 10;
@@ -796,6 +808,7 @@ export default function OrcamentoApp() {  // Auth state
         '',
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         '',
+        (detalhe as any).status_pagamento === 'completo' ? '*✅ Pagamento: Pago*' : (detalhe as any).status_pagamento === 'parcial' ? '*⚠️ Pagamento: Parcial*' : '',
         detalhe.observacoes ? `_Obs: ${detalhe.observacoes}_` : '',
         '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
@@ -869,9 +882,10 @@ export default function OrcamentoApp() {  // Auth state
     const ferroStrImp = ferroItensImp.length > 0 ? '[FERRO: ' + ferroItensImp.map(i => i.produto.nome + ' ' + i.quantidade + 'm' + (i.obs ? ' (' + i.obs + ')' : '')).join(', ') + ']' : '';
     const obsImp = d ? d.observacoes : ((observacoes || '') + ferroStrImp || null);
     const formaPagImp = d ? (d as any).forma_pagamento as string | null : null;
+    const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A5;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:12px;margin-bottom:8px}.hdr img{height:52px;width:auto}.hdr h1{margin:0;font-size:18px;color:#F7941D}.hdr p{margin:2px 0;color:#666;font-size:11px}hr{border:none;border-top:2px solid #F7941D;margin:8px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin:6px 0}.ir{font-size:12px;line-height:1.6}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}th{background:#F7941D;color:white;padding:6px 7px;text-align:left}td{padding:5px 7px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:16px;color:#F7941D;padding:6px 7px}.pagto{margin:8px 0;padding:8px 10px;border:1px solid #ddd;border-radius:4px;background:#fffbf0;font-size:12px}.parc{color:#666;font-size:10.5px;margin-top:4px}.ftr{margin-top:8px;padding-top:6px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${obsImp?'<div class="ir full"><b>Obs:</b> '+obsImp+'</div>':''}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A5;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:13px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:12px;margin-bottom:8px}.hdr img{height:52px;width:auto}.hdr h1{margin:0;font-size:18px;color:#F7941D}.hdr p{margin:2px 0;color:#666;font-size:11px}hr{border:none;border-top:2px solid #F7941D;margin:8px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin:6px 0}.ir{font-size:12px;line-height:1.6}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}th{background:#F7941D;color:white;padding:6px 7px;text-align:left}td{padding:5px 7px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:16px;color:#F7941D;padding:6px 7px}.pagto{margin:8px 0;padding:8px 10px;border:1px solid #ddd;border-radius:4px;background:#fffbf0;font-size:12px}.parc{color:#666;font-size:10.5px;margin-top:4px}.ftr{margin-top:8px;padding-top:6px;border-top:1px solid #ddd;font-size:10px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${obsImp?'<div class="ir full"><b>Obs:</b> '+obsImp+'</div>':''}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp&&statusPagImp!=='pendente'?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1870,6 +1884,11 @@ export default function OrcamentoApp() {  // Auth state
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[orc.status] || 'bg-gray-100 text-gray-600'}`}>
                               {STATUS_LABELS[orc.status] || orc.status}
                             </span>
+                            {orc.status_pagamento && orc.status_pagamento !== 'pendente' && (
+                              <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_PAGAMENTO_COLORS[orc.status_pagamento] || 'bg-gray-100 text-gray-600'}`}>
+                                {STATUS_PAGAMENTO_LABELS[orc.status_pagamento] || orc.status_pagamento}
+                              </span>
+                            )}
                             
                           </div>
                           <p className="text-sm font-medium text-gray-800">{orc.clientes?.nome || 'Cliente'}</p>
@@ -2386,6 +2405,27 @@ export default function OrcamentoApp() {  // Auth state
                       <option value="credito">Crédito</option>
                       <option value="boleto">Boleto</option>
                       <option value="pagamento_na_entrega">Pagamento na Entrega</option>
+                    </select>
+                  </div>
+                  {/* Status de Pagamento */}
+                  <div className="flex items-center gap-3 mt-3">
+                    <span className="text-sm text-gray-600">Pgto status:</span>
+                    <select
+                      value={orcamentoDetalhe.status_pagamento || 'pendente'}
+                      onChange={e => {
+                        const val = e.target.value;
+                        fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
+                          method: 'PATCH',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ status_pagamento: val }),
+                          cache: 'no-store',
+                        }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, status_pagamento: val }));
+                      }}
+                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
+                    >
+                      <option value="pendente">⏳ Pendente</option>
+                      <option value="parcial">⚠️ Parcial</option>
+                      <option value="completo">✅ Completo</option>
                     </select>
                   </div>
                 </div>
