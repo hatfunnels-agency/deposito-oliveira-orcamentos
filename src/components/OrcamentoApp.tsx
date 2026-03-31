@@ -455,9 +455,10 @@ export default function OrcamentoApp() {  // Auth state
       .catch(() => {});
   }, []);
 
+  const paginaHistoricoRef = useRef(1);
   const carregarHistorico = useCallback(async (pagina?: number) => {
     setLoadingHistorico(true);
-    const p = pagina ?? paginaHistorico;
+    const p = pagina ?? paginaHistoricoRef.current;
     try {
       const params = new URLSearchParams({ limite: '20', pagina: String(p) });
       if (buscaHistorico) params.set('busca', buscaHistorico);
@@ -468,7 +469,7 @@ export default function OrcamentoApp() {  // Auth state
       setTotalOrcamentos(data.total || 0);
     } catch (e) { console.error('Erro ao carregar historico', e); }
     setLoadingHistorico(false);
-  }, [buscaHistorico, filtroStatus, paginaHistorico]);
+  }, [buscaHistorico, filtroStatus]);
 
   useEffect(() => {
     if (abaAtiva === 'historico') carregarHistorico();
@@ -477,6 +478,7 @@ export default function OrcamentoApp() {  // Auth state
   // Reset page to 1 when search/filter changes
   useEffect(() => {
     setPaginaHistorico(1);
+    paginaHistoricoRef.current = 1;
   }, [buscaHistorico, filtroStatus]);
 
   const categorias = ['Todas', ...Array.from(new Set(produtos.map(p => p.categoria)))];
@@ -2013,7 +2015,7 @@ export default function OrcamentoApp() {  // Auth state
               {totalOrcamentos > 20 && (
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
                   <button
-                    onClick={() => { const p = paginaHistorico - 1; setPaginaHistorico(p); carregarHistorico(p); }}
+                    onClick={() => { const p = paginaHistorico - 1; setPaginaHistorico(p); paginaHistoricoRef.current = p; carregarHistorico(p); }}
                     disabled={paginaHistorico <= 1 || loadingHistorico}
                     className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                   >
@@ -2023,7 +2025,7 @@ export default function OrcamentoApp() {  // Auth state
                     Página {paginaHistorico} de {Math.ceil(totalOrcamentos / 20)}
                   </span>
                   <button
-                    onClick={() => { const p = paginaHistorico + 1; setPaginaHistorico(p); carregarHistorico(p); }}
+                    onClick={() => { const p = paginaHistorico + 1; setPaginaHistorico(p); paginaHistoricoRef.current = p; carregarHistorico(p); }}
                     disabled={paginaHistorico >= Math.ceil(totalOrcamentos / 20) || loadingHistorico}
                     className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
                   >
