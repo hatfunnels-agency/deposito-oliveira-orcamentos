@@ -21,7 +21,7 @@ export async function GET(
             .select(`
                     id, codigo, tipo_entrega, valor_frete, subtotal, total,
                             status, observacoes, criado_em, atualizado_em,
-                                    data_entrega, data_retirada, fonte, forma_pagamento, status_pagamento,
+                                    data_entrega, data_retirada, fonte, forma_pagamento,
                                             data_entrega_original, reagendamentos, bling_pedido_id, motorista_id, leva_id,
                                                     clientes (
                                                               id, nome, telefone, cep, endereco, bairro, cidade, estado,
@@ -58,7 +58,6 @@ export async function PATCH(
                   cliente_nome, cliente_telefone, cliente_cep, cliente_endereco,
                   cliente_numero, cliente_complemento, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
-                  status_pagamento,
           } = body;
 
       const updateData: Record<string, unknown> = {
@@ -75,7 +74,6 @@ export async function PATCH(
           if (motorista_id !== undefined) updateData.motorista_id = motorista_id;
           if (leva_id !== undefined) updateData.leva_id = leva_id;
           if (forma_pagamento !== undefined) updateData.forma_pagamento = forma_pagamento;
-          if (status_pagamento !== undefined) updateData.status_pagamento = status_pagamento;
 
       // Reschedule logic
       if (data_entrega !== undefined) {
