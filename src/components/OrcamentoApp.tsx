@@ -1977,7 +1977,7 @@ export default function OrcamentoApp() {  // Auth state
                             )}
                             {orc.forma_pagamento && (
                               <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600">
-                                {orc.forma_pagamento === 'cartao' ? '💳 Cartão' : orc.forma_pagamento === 'pix' ? '📱 Pix' : orc.forma_pagamento === 'dinheiro' ? '💵 Dinheiro' : orc.forma_pagamento}
+                                {orc.forma_pagamento === 'cartao' ? '💳 Cartão' : orc.forma_pagamento === 'credito' ? '💳 Crédito' : orc.forma_pagamento === 'debito' ? '💳 Débito' : orc.forma_pagamento === 'pix' ? '📱 Pix' : orc.forma_pagamento === 'dinheiro' ? '💵 Dinheiro' : orc.forma_pagamento === 'boleto' ? '📄 Boleto' : orc.forma_pagamento === 'pagamento_na_entrega' ? '🚚 Pgto Entrega' : orc.forma_pagamento}
                               </span>
                             )}
                             
