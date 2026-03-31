@@ -27,6 +27,7 @@ const CF = {
 const STATUS_TO_STAGE: Record<string, string> = {
   'orcamento': process.env.GHL_STAGE_ORCAMENTO || '',
   'entrega_pendente': process.env.GHL_STAGE_ENTREGA || '',
+  'retirada_pendente': process.env.GHL_STAGE_ENTREGA || '',
   'em_rota': process.env.GHL_STAGE_EM_ROTA || '',
   'completo': process.env.GHL_STAGE_COMPLETO || '',
 };
@@ -34,6 +35,7 @@ const STATUS_TO_STAGE: Record<string, string> = {
 const STATUS_TO_TAG: Record<string, string> = {
   'orcamento': 'status:orcamento',
   'entrega_pendente': 'status:entrega-pendente',
+  'retirada_pendente': 'status:retirada-pendente',
   'em_rota': 'status:em-rota',
   'completo': 'status:completo',
   'ocorrencia': 'status:ocorrencia',
