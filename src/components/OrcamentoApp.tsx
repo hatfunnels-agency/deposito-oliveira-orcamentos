@@ -1652,7 +1652,7 @@ export default function OrcamentoApp() {  // Auth state
                       <div key={item.produto.id} className="flex items-center gap-3 p-4 border-b border-gray-50 last:border-0">
                         <div className="flex-1">
                           <p className="font-medium text-gray-800 text-sm">{item.produto.nome}</p>
-                          <p className="text-xs text-gray-500">R$ {formatBRL(item.produto.preco)}/{item.produto.unidade}</p>
+                          <p className="text-xs text-gray-500">R$ {formatBRL(item.preco_custom ?? item.produto.preco)}/{item.produto.unidade}</p>
                         </div>
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerItem(item.produto.id)} className="w-7 h-7 bg-red-100 text-red-600 rounded font-bold hover:bg-red-200 transition text-sm">-</button>
@@ -1661,7 +1661,7 @@ export default function OrcamentoApp() {  // Auth state
                             className="w-16 text-center font-bold border border-gray-200 rounded px-1 py-1 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
                           <button onClick={() => adicionarItem(item.produto)} className="w-7 h-7 bg-green-100 text-green-600 rounded font-bold hover:bg-green-200 transition text-sm">+</button>
                         </div>
-                        <p className="w-24 text-right font-bold text-[#F7941D] text-sm">R$ {formatBRL(item.produto.preco * item.quantidade)}</p>
+                        <p className="w-24 text-right font-bold text-[#F7941D] text-sm">R$ {formatBRL((item.preco_custom ?? item.produto.preco) * item.quantidade)}</p>
                       </div>
                     );
                   })}
