@@ -173,6 +173,7 @@ export async function GET(request: NextRequest) {
                 fonte,
                 forma_pagamento,
                 status_pagamento,
+                ferragem_status,
                 motorista_id,
                 reagendamentos,
                 bling_pedido_id,
@@ -202,6 +203,13 @@ export async function GET(request: NextRequest) {
 
       if (status) {
               query = query.eq('status', status);
+      }
+
+      const ferragemStatus = searchParams.get('ferragem_status');
+      if (ferragemStatus === 'pendente') {
+              query = query.ilike('observacoes', '%FERRAGEM:%').is('ferragem_status', null);
+      } else if (ferragemStatus === 'em_producao') {
+              query = query.eq('ferragem_status', 'em_producao');
       }
 
       if (busca) {
