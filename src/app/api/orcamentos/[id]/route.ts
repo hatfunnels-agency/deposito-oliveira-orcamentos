@@ -145,8 +145,8 @@ export async function PATCH(
 
             const previousStatus = body._previous_status;
 
-            // Baixa de estoque ao confirmar entrega pendente
-            if (status === 'entrega_pendente' && orderItems && orderItems.length > 0) {
+            // Baixa de estoque ao confirmar entrega ou retirada pendente
+            if ((status === 'entrega_pendente' || status === 'retirada_pendente') && orderItems && orderItems.length > 0) {
                       for (const item of orderItems) {
                                   if (!item.produto_id) continue;
 
@@ -188,7 +188,7 @@ export async function PATCH(
             if (
                       status === 'cancelado' &&
                       previousStatus &&
-                      ['entrega_pendente', 'em_rota'].includes(previousStatus) &&
+                      ['entrega_pendente', 'retirada_pendente', 'em_rota'].includes(previousStatus) &&
                       orderItems &&
                       orderItems.length > 0
                     ) {
