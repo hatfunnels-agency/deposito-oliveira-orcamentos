@@ -2284,26 +2284,26 @@ export default function OrcamentoApp() {  // Auth state
               <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]"></div></div>
             ) : orcamentoDetalhe ? (
               <div>
-                <div className="p-6 border-b border-gray-100">
-                  <div className="flex items-center justify-between mb-3">
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <div className="flex items-center justify-between mb-1">
                     <div className="flex items-center gap-2">
-                      <span className="font-bold text-[#F7941D] text-lg">{orcamentoDetalhe.codigo}</span>
+                      <span className="font-bold text-[#F7941D] text-base">{orcamentoDetalhe.codigo}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[orcamentoDetalhe.status] || 'bg-gray-100 text-gray-600'}`}>
                         {STATUS_LABELS[orcamentoDetalhe.status] || orcamentoDetalhe.status}
                       </span>
                     </div>
                     <button onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                   </div>
-                  <p className="text-sm text-gray-500">Criado em: {new Date(orcamentoDetalhe.criado_em).toLocaleDateString('pt-BR')} {new Date(orcamentoDetalhe.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                  <p className="text-xs text-gray-400">Criado em: {new Date(orcamentoDetalhe.criado_em).toLocaleDateString('pt-BR')} {new Date(orcamentoDetalhe.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
-                <div className="p-6 border-b border-gray-100">
-                  <h3 className="font-bold text-gray-700 mb-2">Cliente</h3>
+                <div className="px-4 py-2 border-b border-gray-100">
+                  <h3 className="font-bold text-gray-700 mb-1 text-sm">Cliente</h3>
                   <p className="text-sm text-gray-800 font-medium">{orcamentoDetalhe.clientes?.nome || 'Cliente'}</p>
                   {orcamentoDetalhe.clientes?.telefone && <p className="text-sm text-gray-600">📞 {orcamentoDetalhe.clientes.telefone}</p>}
                   {orcamentoDetalhe.clientes?.recebedor && <p className="text-sm text-gray-600">👤 Recebedor: {orcamentoDetalhe.clientes.recebedor}</p>}
                 </div>
-                <div className="p-6 border-b border-gray-100">
-                  <h3 className="font-bold text-gray-700 mb-2">Entrega</h3>
+                <div className="px-4 py-2 border-b border-gray-100">
+                  <h3 className="font-bold text-gray-700 mb-1 text-sm">Entrega</h3>
                   <p className="text-sm text-gray-800">{orcamentoDetalhe.tipo_entrega === 'entrega' ? '🚚 Entrega no endereço' : '🏪 Retirada na loja'}</p>
                   {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.clientes?.endereco && (
                     <p className="text-sm text-gray-600 mt-1">
@@ -2315,10 +2315,10 @@ export default function OrcamentoApp() {  // Auth state
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
                 {/* Gestão do Pedido */}
-                <div className="px-6 pt-4 pb-2">
-                  <div className="border border-[#F7941D] rounded-xl bg-[#FFF8F0] p-4">
-                    <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
-                    <div className="space-y-3">
+                <div className="px-4 pt-3 pb-1">
+                  <div className="border border-[#F7941D] rounded-xl bg-[#FFF8F0] p-3">
+                    <h3 className="font-bold text-[#F7941D] text-sm mb-2">⚙️ Gestão do Pedido</h3>
+                    <div className="space-y-2">
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
                         <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
@@ -2373,8 +2373,8 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                   </div>
                 </div>
-                <div className="p-6 border-b border-gray-100">
-                  <h3 className="font-bold text-gray-700 mb-3">Produtos</h3>
+                <div className="px-4 py-2 border-b border-gray-100">
+                  <h3 className="font-bold text-gray-700 mb-2 text-sm">Produtos</h3>
                   <div className="space-y-2">
                     {orcamentoDetalhe.orcamento_itens.length === 0 ? (
                       <p className="text-sm text-gray-500 italic py-2">Nenhum produto registrado. Edite o orçamento para adicionar os produtos.</p>
@@ -2389,17 +2389,17 @@ export default function OrcamentoApp() {  // Auth state
                     ))}
                   </div>
                 </div>
-                <div className="p-6 border-b border-gray-100">
+                <div className="px-4 py-2 border-b border-gray-100">
                   <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Subtotal:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.subtotal)}</span></div>
                   {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.valor_frete > 0 && <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Frete:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.valor_frete)}</span></div>}
-                  <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl text-[#F7941D]">R$ {formatBRL(orcamentoDetalhe.total)}</span></div>
+                  <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-lg text-[#F7941D]">R$ {formatBRL(orcamentoDetalhe.total)}</span></div>
                 </div>
                 {/* Card pricing - details modal */}
                 {(() => {
                   const totalDetalhe = orcamentoDetalhe.total;
                   const valorCartao = totalDetalhe * (1 + ACRESCIMO_CARTAO);
                   return (
-                    <div className="mt-2 bg-orange-50 border border-orange-200 rounded-xl px-3 py-2 text-sm">
+                    <div className="mt-1 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm">
                       <div className="flex justify-between mb-1"><span className="text-gray-600">💵 À vista:</span><span className="font-bold">R$ {formatBRL(totalDetalhe)}</span></div>
                       <div className="flex justify-between mb-1"><span className="text-gray-600">💳 Cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
                       <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-white border border-orange-300 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
@@ -2407,28 +2407,28 @@ export default function OrcamentoApp() {  // Auth state
                   );
                 })()}
                 {orcamentoDetalhe.observacoes && (
-                  <div className="p-6 border-b border-gray-100">
-                    <h3 className="font-bold text-gray-700 mb-2">Observações</h3>
+                  <div className="px-4 py-2 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-700 mb-1 text-sm">Observações</h3>
                     <p className="text-sm text-gray-600">{orcamentoDetalhe.observacoes}</p>
                   </div>
                 )}
-                <div className="p-6 space-y-2">
-                  <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2.5 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
-                  <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2.5 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
+                <div className="px-4 py-3 space-y-1.5">
+                  <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
+                  <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
                   {/* Bug 6 fix - Edit button restored for orcamento status */}
                   {orcamentoDetalhe.status === 'orcamento' && (
-                    <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
+                    <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
                   )}
                   {/* Feature 9 - Reschedule button */}
                   {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
-                      className="w-full bg-yellow-500 text-white py-2.5 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
+                      className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
                   {['orcamento', 'cancelado'].includes(orcamentoDetalhe.status) && (
                     <button
                       onClick={() => excluirOrcamento(orcamentoDetalhe.id)}
                       disabled={excluindoId === orcamentoDetalhe.id}
-                      className="w-full bg-red-500 text-white py-2.5 rounded-xl font-bold hover:bg-red-600 transition text-sm disabled:opacity-50"
+                      className="w-full bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition text-sm disabled:opacity-50"
                     >
                       {excluindoId === orcamentoDetalhe.id ? 'Excluindo...' : '🗑️ Excluir Orçamento'}
                     </button>
