@@ -193,6 +193,7 @@ const PESO_MEDIO_KG: Record<string, number> = {
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
   entrega_pendente: 'Entrega Pendente',
+  retirada_pendente: 'Retirada Pendente',
   em_rota: 'Em Rota',
   completo: 'Completo',
   ocorrencia: 'Ocorrência',
@@ -202,7 +203,8 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   orcamento: 'bg-gray-100 text-gray-700',
   entrega_pendente: 'bg-orange-100 text-orange-800',
-  em_rota: 'bg-purple-100 text-purple-800',
+  retirada_pendente: 'bg-purple-100 text-purple-800',
+  em_rota: 'bg-blue-100 text-blue-800',
   completo: 'bg-green-200 text-green-900',
   ocorrencia: 'bg-red-100 text-red-800',
   cancelado: 'bg-gray-200 text-gray-600',
@@ -883,7 +885,7 @@ export default function OrcamentoApp() {  // Auth state
         body: JSON.stringify({ status: novoStatus, _previous_status: statusAnterior }),
       });
       carregarHistorico();
-      if (novoStatus === 'entrega_pendente' || novoStatus === 'cancelado') carregarProdutos();
+      if (novoStatus === 'entrega_pendente' || novoStatus === 'retirada_pendente' || novoStatus === 'cancelado') carregarProdutos();
       if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
         setOrcamentoDetalhe({ ...orcamentoDetalhe, status: novoStatus });
       }
