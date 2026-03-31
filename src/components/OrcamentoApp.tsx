@@ -922,7 +922,26 @@ export default function OrcamentoApp() {  // Auth state
     setRecebedor(detalhe.clientes?.recebedor || '');
     setObservacoes(detalhe.observacoes || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
-      // Try to find matching product by name for better data quality
+      // Itens avulsos (ferro) têm produto_id null — restaurar como avulso
+      if (oi.produto_id === null) {
+        return {
+          produto: {
+            id: 'avulso-' + idx,
+            nome: oi.produto_nome,
+            preco: oi.preco_unitario,
+            estoque: 999,
+            unidade: oi.unidade || 'm',
+            categoria: 'Ferro',
+            preco_custo: 0,
+            estoque_minimo: 0,
+            abaixo_minimo: false,
+          },
+          quantidade: oi.quantidade,
+          avulso: true,
+          preco_custom: oi.preco_unitario,
+        };
+      }
+      // Produto normal: busca por nome para dados atualizados
       const matchProduto = produtos.find(p => p.nome === oi.produto_nome);
       return {
         produto: {
