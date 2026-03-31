@@ -476,7 +476,7 @@ export default function OrcamentoApp() {  // Auth state
       const existing = prev.find(i => i.produto.id === idMeio);
       if (existing) return prev.map(i => i.produto.id === idMeio ? { ...i, quantidade: parseFloat((i.quantidade + 0.5).toFixed(1)) } : i);
       const prodMeio: Produto = { ...produto, id: idMeio, nome: produto.nome + ' (½ m³)' };
-      return [...prev, { produto: prodMeio, quantidade: 0.5, preco_custom: PRECO_MEIO_M3 / 0.5 }];
+      return [...prev, { produto: prodMeio, quantidade: 0.5, preco_custom: PRECO_MEIO_M3 / 0.5, avulso: true }];
     });
   };
 
