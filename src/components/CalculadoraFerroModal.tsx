@@ -26,9 +26,21 @@ function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): num
   return medida === 'especial' ? 25 : 20;
 }
 
+type TipoElemento = 'coluna' | 'viga' | 'sapata' | 'cinta' | 'outro';
+
+const TIPO_LABELS: Record<TipoElemento, string> = {
+  coluna: 'Coluna',
+  viga: 'Viga',
+  sapata: 'Sapata',
+  cinta: 'Cinta',
+  outro: 'Outro',
+};
+
 export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Props) {
   const [medida, setMedida] = useState<'9x15' | '9x20' | 'especial'>('9x15');
   const [barras, setBarras] = useState<4 | 6 | 8>(4);
+  const [tipo, setTipo] = useState<TipoElemento>('coluna');
+  const [medidaEspecial, setMedidaEspecial] = useState('');
   const [quantidade, setQuantidade] = useState<number>(1);
   const [metrosPorPeca, setMetrosPorPeca] = useState<number>(0);
   const [obs, setObs] = useState('');
@@ -39,10 +51,15 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
 
   const handleAdicionar = () => {
     if (metrosTotal <= 0) return;
-    const nomeMedida = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : 'Especial';
-    const nomeBase = 'Ferro ' + nomeMedida + ' - ' + barras + ' barras';
+    const nomeMedida = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial');
+    const tipoLabel = TIPO_LABELS[tipo];
+    const barrasSuffix = medida === 'especial' ? ' — ' + barras + ' barras (especial)' : ' — ' + barras + ' barras';
+    const nomeBase = tipoLabel + ' ' + nomeMedida + barrasSuffix;
     const nome = obs ? nomeBase + ' | ' + obs : nomeBase;
-    const especDesc = quantidade + ' peça(s) x ' + metrosPorPeca + 'm' + (obs ? ' | ' + obs : '');
+    const tipoPlural = quantidade > 1 ? tipoLabel + 's' : tipoLabel;
+    const medidaDisplay = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial');
+    const barrasDisplay = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
+    const especDesc = quantidade + ' ' + tipoPlural + ' de ' + metrosPorPeca + 'm — ' + medidaDisplay + ' — ' + barrasDisplay + (obs ? ' | ' + obs : '');
     onAdicionarItens([{
       nome,
       quantidade: metrosTotal,
@@ -63,6 +80,25 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
           </div>
 
           <div className="space-y-5">
+            {/* Tipo do elemento */}
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Tipo do elemento</label>
+              <div className="grid grid-cols-5 gap-1">
+                {(Object.entries(TIPO_LABELS) as [TipoElemento, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setTipo(key)}
+                    className={"p-2 rounded-lg border-2 text-xs font-medium transition-colors " +
+                      (tipo === key
+                        ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]'
+                        : 'border-gray-200 text-gray-600 hover:border-gray-300')}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
             {/* Medida */}
             <div>
               <label className="block text-sm font-semibold text-gray-700 mb-2">Medida do estribo</label>
@@ -98,6 +134,15 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                   <div className="text-xs opacity-75">R$25/m</div>
                 </button>
               </div>
+              {medida === 'especial' && (
+                <input
+                  type="text"
+                  value={medidaEspecial}
+                  onChange={e => setMedidaEspecial(e.target.value)}
+                  placeholder="Ex: 9×25, 10×30..."
+                  className="mt-2 w-full border border-orange-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                />
+              )}
             </div>
 
             {/* Barras */}
@@ -189,6 +234,12 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                   {metrosTotal > 0
                     ? quantidade + ' peça(s) × ' + metrosPorPeca + 'm = ' + metrosTotal + 'm'
                     : 'Informe as medidas'}
+                </span>
+              </div>
+              <div className="flex justify-between items-center text-sm text-gray-600 mb-1">
+                <span>Item</span>
+                <span className="font-semibold text-right text-xs max-w-[200px]">
+                  {TIPO_LABELS[tipo]} {medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial')} — {barras} barras
                 </span>
               </div>
               <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg border-t border-orange-200 pt-2 mt-1">
