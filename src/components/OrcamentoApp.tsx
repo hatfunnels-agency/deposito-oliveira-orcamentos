@@ -335,6 +335,9 @@ export default function OrcamentoApp() {  // Auth state
   const [entregasEmRota, setEntregasEmRota] = useState<EntregaRota[]>([]);
   const [entregasCompletas, setEntregasCompletas] = useState<EntregaRota[]>([]);
   const [loadingCompleto, setLoadingCompleto] = useState<string | null>(null);
+  const [retiradas, setRetiradas] = useState<OrcamentoSalvo[]>([]);
+  const [loadingRetiradas, setLoadingRetiradas] = useState(false);
+  const [marcandoRetirado, setMarcandoRetirado] = useState<string | null>(null);
   const [expandedEmRota, setExpandedEmRota] = useState<string[]>([]);
   const [expandedCompleto, setExpandedCompleto] = useState<string[]>([]);
 
@@ -568,6 +571,8 @@ export default function OrcamentoApp() {  // Auth state
         .then(data => setLevas(data.levas || []))
         .catch(() => {})
         .finally(() => setCarregandoLevas(false));
+      // Load retiradas pendentes
+      carregarRetiradas();
     }
   }, [abaAtiva]);
 
@@ -1087,6 +1092,16 @@ export default function OrcamentoApp() {  // Auth state
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao carregar entregas do dia', e); }
     setLoadingDia(false);
+  };
+
+  const carregarRetiradas = async () => {
+    setLoadingRetiradas(true);
+    try {
+      const res = await fetch('/api/orcamentos?status=retirada_pendente&limite=100', { cache: 'no-store' });
+      const data = await res.json();
+      setRetiradas(data.orcamentos || []);
+    } catch (e) { console.error('Erro ao carregar retiradas', e); }
+    setLoadingRetiradas(false);
   };
 
   const gerarRota = async () => {
@@ -1930,6 +1945,63 @@ export default function OrcamentoApp() {  // Auth state
         {/* ===== ENTREGAS TAB ===== */}
         {abaAtiva === 'entregas' && (
           <div className="pb-8 space-y-6">
+
+            {/* === SECTION 0: RETIRADAS PENDENTES === */}
+            <div className="bg-white rounded-xl shadow-sm border border-purple-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-purple-700">🏪 Retiradas Pendentes {!loadingRetiradas && retiradas.length > 0 && <span className="ml-1 text-sm font-normal text-purple-500">({retiradas.length})</span>}</h2>
+                <button onClick={carregarRetiradas} disabled={loadingRetiradas} className="text-xs text-purple-600 hover:text-purple-800 px-2 py-1 rounded hover:bg-purple-50 border border-purple-200">
+                  {loadingRetiradas ? 'Carregando...' : '↻ Atualizar'}
+                </button>
+              </div>
+              {loadingRetiradas && <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-purple-500"></div></div>}
+              {!loadingRetiradas && retiradas.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">Nenhuma retirada pendente</p>
+              )}
+              {!loadingRetiradas && retiradas.length > 0 && (
+                <div className="space-y-3">
+                  {retiradas.map(r => (
+                    <div key={r.id} className="border border-purple-100 rounded-lg bg-purple-50 p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-800 text-sm">{r.clientes?.nome || 'Cliente'} {r.clientes?.telefone && <span className="text-gray-500 font-normal text-xs">— {r.clientes.telefone}</span>}</p>
+                          <p className="text-xs text-purple-600 font-mono">{r.codigo}</p>
+                        </div>
+                        <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(r.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
+                      </div>
+                      {r.resumo_itens && <p className="text-xs text-gray-600 mb-1">📦 {r.resumo_itens}</p>}
+                      {(r as any).data_retirada && <p className="text-xs text-gray-500 mb-1">📅 Retirada: {new Date((r as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                      {(r.forma_pagamento || r.status_pagamento) && (
+                        <p className="text-xs text-gray-500 mb-2">
+                          {r.forma_pagamento && <span>💳 {r.forma_pagamento.charAt(0).toUpperCase() + r.forma_pagamento.slice(1).replace('_', ' ')}</span>}
+                          {r.status_pagamento === 'completo' && <span className="ml-1 text-green-600 font-medium">— ✅ Pago</span>}
+                          {r.status_pagamento === 'parcial' && <span className="ml-1 text-orange-600 font-medium">— ⚠️ Parcial</span>}
+                        </p>
+                      )}
+                      <button
+                        onClick={async () => {
+                          setMarcandoRetirado(r.id);
+                          try {
+                            await fetch(`/api/orcamentos/${r.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ status: 'completo', _previous_status: 'retirada_pendente' }),
+                              cache: 'no-store',
+                            });
+                            await carregarRetiradas();
+                          } catch (e) { console.error('Erro ao marcar retirado', e); }
+                          setMarcandoRetirado(null);
+                        }}
+                        disabled={marcandoRetirado === r.id}
+                        className="w-full bg-purple-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-purple-700 transition disabled:opacity-50"
+                      >
+                        {marcandoRetirado === r.id ? 'Marcando...' : '✅ Marcar Retirado'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* === SECTION 1: PENDENTES === */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
