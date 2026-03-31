@@ -455,12 +455,10 @@ export default function OrcamentoApp() {  // Auth state
       .catch(() => {});
   }, []);
 
-  const paginaHistoricoRef = useRef(1);
-  const carregarHistorico = useCallback(async (pagina?: number) => {
+  const carregarHistorico = useCallback(async () => {
     setLoadingHistorico(true);
-    const p = pagina ?? paginaHistoricoRef.current;
     try {
-      const params = new URLSearchParams({ limite: '20', pagina: String(p) });
+      const params = new URLSearchParams({ limite: '20', pagina: String(paginaHistorico) });
       if (buscaHistorico) params.set('busca', buscaHistorico);
       if (filtroStatus) params.set('status', filtroStatus);
       const res = await fetch(`/api/orcamentos?${params}`);
@@ -469,7 +467,8 @@ export default function OrcamentoApp() {  // Auth state
       setTotalOrcamentos(data.total || 0);
     } catch (e) { console.error('Erro ao carregar historico', e); }
     setLoadingHistorico(false);
-  }, [buscaHistorico, filtroStatus]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [buscaHistorico, filtroStatus, paginaHistorico]);
 
   useEffect(() => {
     if (abaAtiva === 'historico') carregarHistorico();
@@ -478,7 +477,6 @@ export default function OrcamentoApp() {  // Auth state
   // Reset page to 1 when search/filter changes
   useEffect(() => {
     setPaginaHistorico(1);
-    paginaHistoricoRef.current = 1;
   }, [buscaHistorico, filtroStatus]);
 
   const categorias = ['Todas', ...Array.from(new Set(produtos.map(p => p.categoria)))];
@@ -2008,31 +2006,30 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                   ))}
                 </div>
+                {/* Paginacao */}
+                {totalOrcamentos > 20 && (
+                  <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
+                    <button
+                      onClick={() => setPaginaHistorico(p => Math.max(1, p - 1))}
+                      disabled={paginaHistorico <= 1 || loadingHistorico}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                    >
+                      ← Anterior
+                    </button>
+                    <span className="text-sm text-gray-500">
+                      Página {paginaHistorico} de {Math.ceil(totalOrcamentos / 20)}
+                    </span>
+                    <button
+                      onClick={() => setPaginaHistorico(p => p + 1)}
+                      disabled={paginaHistorico >= Math.ceil(totalOrcamentos / 20) || loadingHistorico}
+                      className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
+                    >
+                      Próxima →
+                    </button>
+                  </div>
+                )}
               </div>
             )}
-
-              {/* Paginacao */}
-              {totalOrcamentos > 20 && (
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-gray-100">
-                  <button
-                    onClick={() => { const p = paginaHistorico - 1; setPaginaHistorico(p); paginaHistoricoRef.current = p; carregarHistorico(p); }}
-                    disabled={paginaHistorico <= 1 || loadingHistorico}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                  >
-                    ← Anterior
-                  </button>
-                  <span className="text-sm text-gray-500">
-                    Página {paginaHistorico} de {Math.ceil(totalOrcamentos / 20)}
-                  </span>
-                  <button
-                    onClick={() => { const p = paginaHistorico + 1; setPaginaHistorico(p); paginaHistoricoRef.current = p; carregarHistorico(p); }}
-                    disabled={paginaHistorico >= Math.ceil(totalOrcamentos / 20) || loadingHistorico}
-                    className="px-3 py-1.5 text-sm border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed font-medium"
-                  >
-                    Próxima →
-                  </button>
-                </div>
-              )}
           </div>
         )}
 
