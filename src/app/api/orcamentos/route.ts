@@ -21,6 +21,7 @@ export async function POST(request: NextRequest) {
                   fonte,
                   data_entrega,
                   itens,
+                  status_pagamento,
           } = body;
 
       if (!cliente_nome || !cliente_telefone || !subtotal || !itens || itens.length === 0) {
@@ -78,6 +79,7 @@ export async function POST(request: NextRequest) {
               observacoes: observacoes || null,
               fonte: fonte || 'interface',
       };
+      if (status_pagamento) insertData.status_pagamento = status_pagamento;
           if (data_entrega) { insertData.data_entrega = data_entrega; }
           if (data_retirada) { insertData.data_retirada = data_retirada; }
 
@@ -170,6 +172,7 @@ export async function GET(request: NextRequest) {
                 data_retirada,
                 fonte,
                 forma_pagamento,
+                status_pagamento,
                 motorista_id,
                 reagendamentos,
                 bling_pedido_id,
