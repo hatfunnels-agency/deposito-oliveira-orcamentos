@@ -138,7 +138,7 @@ ${ultimosOrc}`.trim();
         'anthropic-version': '2023-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
+        model: 'claude-sonnet-4-20250514',
         max_tokens: 2000,
         system: 'Voce e o consultor de inteligencia de negocios do Deposito Oliveira, um deposito de materiais de construcao em Carapicuiba/SP. Responda sempre em portugues brasileiro, de forma direta e pratica. Use os dados reais fornecidos. Formate com emojis, negrito (**texto**) e listas quando apropriado. Seja um consultor estrategico — nao so reporte numeros, de insights e recomendacoes acionaveis.',
         messages: [{ role: 'user', content: `${contexto}\n\n---\n\nPERGUNTA DO GESTOR:\n${promptUsuario}` }],
