@@ -1418,7 +1418,8 @@ export default function OrcamentoApp() {  // Auth state
         body: JSON.stringify({ pergunta: msgUsuario, tipo }),
       });
       const json = await res.json();
-      setMensagensIA(prev => [...prev, { role: 'assistant', content: json.resposta || 'Sem resposta.' }]);
+      const conteudo = json.resposta || (json.error ? 'Erro: ' + json.error : 'Sem resposta.');
+      setMensagensIA(prev => [...prev, { role: 'assistant', content: conteudo }]);
     } catch {
       setMensagensIA(prev => [...prev, { role: 'assistant', content: 'Erro ao conectar com a IA.' }]);
     } finally {
