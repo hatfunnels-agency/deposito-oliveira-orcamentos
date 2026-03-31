@@ -2314,6 +2314,65 @@ export default function OrcamentoApp() {  // Auth state
                   {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
+                {/* Gestão do Pedido */}
+                <div className="px-6 pt-4 pb-2">
+                  <div className="border border-[#F7941D] rounded-xl bg-[#FFF8F0] p-4">
+                    <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
+                    <div className="space-y-3">
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
+                        <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
+                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
+                          {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Status do pagamento</label>
+                        <select
+                          value={orcamentoDetalhe.status_pagamento || 'pendente'}
+                          onChange={e => {
+                            const val = e.target.value;
+                            fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ status_pagamento: val }),
+                              cache: 'no-store',
+                            }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, status_pagamento: val }));
+                          }}
+                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
+                        >
+                          <option value="pendente">⏳ Pendente</option>
+                          <option value="parcial">⚠️ Parcial</option>
+                          <option value="completo">✅ Completo</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
+                        <select
+                          value={orcamentoDetalhe.forma_pagamento || ''}
+                          onChange={e => {
+                            const val = e.target.value || null;
+                            fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ forma_pagamento: val }),
+                              cache: 'no-store',
+                            }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, forma_pagamento: val }));
+                          }}
+                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
+                        >
+                          <option value="">Forma de pagamento...</option>
+                          <option value="dinheiro">Dinheiro</option>
+                          <option value="pix">PIX</option>
+                          <option value="debito">Débito</option>
+                          <option value="credito">Crédito</option>
+                          <option value="boleto">Boleto</option>
+                          <option value="pagamento_na_entrega">Pagamento na Entrega</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
                 <div className="p-6 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-3">Produtos</h3>
                   <div className="space-y-2">
@@ -2374,60 +2433,6 @@ export default function OrcamentoApp() {  // Auth state
                       {excluindoId === orcamentoDetalhe.id ? 'Excluindo...' : '🗑️ Excluir Orçamento'}
                     </button>
                   )}
-                  
-                  <div className="flex items-center gap-2 pt-2">
-                    <span className="text-sm text-gray-600">Status:</span>
-                    <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
-                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                      {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </div>
-                  {/* Forma de Pagamento */}
-                  <div className="flex items-center gap-3 mt-3">
-                    <span className="text-sm text-gray-600">Pagamento:</span>
-                    <select
-                      value={orcamentoDetalhe.forma_pagamento || ''}
-                      onChange={e => {
-                        const val = e.target.value || null;
-                        fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ forma_pagamento: val }),
-                          cache: 'no-store',
-                        }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, forma_pagamento: val }));
-                      }}
-                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
-                    >
-                      <option value="">Forma de pagamento...</option>
-                      <option value="dinheiro">Dinheiro</option>
-                      <option value="pix">PIX</option>
-                      <option value="debito">Débito</option>
-                      <option value="credito">Crédito</option>
-                      <option value="boleto">Boleto</option>
-                      <option value="pagamento_na_entrega">Pagamento na Entrega</option>
-                    </select>
-                  </div>
-                  {/* Status de Pagamento */}
-                  <div className="flex items-center gap-3 mt-3">
-                    <span className="text-sm text-gray-600">Pgto status:</span>
-                    <select
-                      value={orcamentoDetalhe.status_pagamento || 'pendente'}
-                      onChange={e => {
-                        const val = e.target.value;
-                        fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
-                          method: 'PATCH',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ status_pagamento: val }),
-                          cache: 'no-store',
-                        }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, status_pagamento: val }));
-                      }}
-                      className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
-                    >
-                      <option value="pendente">⏳ Pendente</option>
-                      <option value="parcial">⚠️ Parcial</option>
-                      <option value="completo">✅ Completo</option>
-                    </select>
-                  </div>
                 </div>
               </div>
             ) : (
