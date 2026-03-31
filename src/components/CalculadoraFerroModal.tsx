@@ -15,19 +15,19 @@ interface Props {
 }
 
 // Tabela de precos (nao acumulativo):
-// 4 barras: padrao=R$20/m | especial=R$25/m
+// 4 barras: 9x15=R$20/m | 9x20=R$20/m | especial=R$25/m
 // 6 barras: R$36/m (independente de medida)
 // 8 barras: R$42/m (independente de medida)
 
-function calcPreco(medida: 'padrao' | 'especial', barras: 4 | 6 | 8): number {
+function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): number {
   if (barras === 6) return 36;
   if (barras === 8) return 42;
   // 4 barras: depende da medida
-  return medida === 'padrao' ? 20 : 25;
+  return medida === 'especial' ? 25 : 20;
 }
 
 export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Props) {
-  const [medida, setMedida] = useState<'padrao' | 'especial'>('padrao');
+  const [medida, setMedida] = useState<'9x15' | '9x20' | 'especial'>('9x15');
   const [barras, setBarras] = useState<4 | 6 | 8>(4);
   const [quantidade, setQuantidade] = useState<number>(1);
   const [metrosPorPeca, setMetrosPorPeca] = useState<number>(0);
@@ -39,7 +39,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
 
   const handleAdicionar = () => {
     if (metrosTotal <= 0) return;
-    const nomeMedida = medida === 'padrao' ? '9x15/9x20' : 'Medida Especial';
+    const nomeMedida = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : 'Especial';
     const nomeBase = 'Ferro ' + nomeMedida + ' - ' + barras + ' barras';
     const nome = obs ? nomeBase + ' | ' + obs : nomeBase;
     const especDesc = quantidade + ' peça(s) x ' + metrosPorPeca + 'm' + (obs ? ' | ' + obs : '');
@@ -65,17 +65,27 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
           <div className="space-y-5">
             {/* Medida */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">Medida</label>
-              <div className="grid grid-cols-2 gap-2">
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Medida do estribo</label>
+              <div className="grid grid-cols-3 gap-2">
                 <button
-                  onClick={() => setMedida('padrao')}
+                  onClick={() => setMedida('9x15')}
                   className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " +
-                    (medida === 'padrao'
+                    (medida === '9x15'
                       ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]'
                       : 'border-gray-200 text-gray-600 hover:border-gray-300')}
                 >
-                  <div className="font-bold">Padrão</div>
-                  <div className="text-xs opacity-75">9x15 ou 9x20</div>
+                  <div className="font-bold">9×15</div>
+                  <div className="text-xs opacity-75">R$20/m</div>
+                </button>
+                <button
+                  onClick={() => setMedida('9x20')}
+                  className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " +
+                    (medida === '9x20'
+                      ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]'
+                      : 'border-gray-200 text-gray-600 hover:border-gray-300')}
+                >
+                  <div className="font-bold">9×20</div>
+                  <div className="text-xs opacity-75">R$20/m</div>
                 </button>
                 <button
                   onClick={() => setMedida('especial')}
@@ -84,8 +94,8 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                       ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]'
                       : 'border-gray-200 text-gray-600 hover:border-gray-300')}
                 >
-                  <div className="font-bold">Outra Medida</div>
-                  <div className="text-xs opacity-75">Especial</div>
+                  <div className="font-bold">Especial</div>
+                  <div className="text-xs opacity-75">R$25/m</div>
                 </button>
               </div>
             </div>
@@ -102,7 +112,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                       : 'border-gray-200 text-gray-600 hover:border-gray-300')}
                 >
                   <div className="font-bold">4 Barras</div>
-                  <div className="text-xs opacity-75">{medida === 'padrao' ? 'R$20/m' : 'R$25/m'}</div>
+                  <div className="text-xs opacity-75">{medida === 'especial' ? 'R$25/m' : 'R$20/m'}</div>
                 </button>
                 <button
                   onClick={() => setBarras(6)}
