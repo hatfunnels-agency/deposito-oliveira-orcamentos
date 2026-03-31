@@ -259,8 +259,8 @@ export default function OrcamentoApp() {  // Auth state
   const abasVisiveis = papelUsuario === 'motorista'
     ? ['entregas']
     : papelUsuario === 'atendente'
-    ? ['produtos', 'orcamento', 'historico', 'entregas']
-    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque'];
+    ? ['produtos', 'orcamento', 'historico', 'entregas', 'ferragens']
+    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'ferragens'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -270,7 +270,7 @@ export default function OrcamentoApp() {  // Auth state
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'ferragens'>('produtos');
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
@@ -337,6 +337,13 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingCompleto, setLoadingCompleto] = useState<string | null>(null);
   const [retiradas, setRetiradas] = useState<OrcamentoSalvo[]>([]);
   const [loadingRetiradas, setLoadingRetiradas] = useState(false);
+  // === FERRAGENS STATES ===
+  const [ferragens, setFerragens] = useState<Record<string, unknown>[]>([]);
+  const [loadingFerragens, setLoadingFerragens] = useState(false);
+  const [ferragensProducao, setFerragensProducao] = useState<Record<string, unknown>[]>([]);
+  const [loadingFerragensProducao, setLoadingFerragensProducao] = useState(false);
+  const [passandoAoFerreiro, setPassandoAoFerreiro] = useState<string | null>(null);
+  const [voltandoFerragemPendente, setVoltandoFerragemPendente] = useState<string | null>(null);
   const [marcandoRetirado, setMarcandoRetirado] = useState<string | null>(null);
   const [expandedEmRota, setExpandedEmRota] = useState<string[]>([]);
   const [expandedCompleto, setExpandedCompleto] = useState<string[]>([]);
@@ -573,6 +580,10 @@ export default function OrcamentoApp() {  // Auth state
         .finally(() => setCarregandoLevas(false));
       // Load retiradas pendentes
       carregarRetiradas();
+    }
+    if (abaAtiva === 'ferragens') {
+      carregarFerragens();
+      carregarFerragensProducao();
     }
   }, [abaAtiva]);
 
@@ -1135,6 +1146,26 @@ export default function OrcamentoApp() {  // Auth state
     setLoadingRetiradas(false);
   };
 
+  const carregarFerragens = async () => {
+    setLoadingFerragens(true);
+    try {
+      const res = await fetch('/api/orcamentos?ferragem_status=pendente&limite=200', { cache: 'no-store' });
+      const data = await res.json();
+      setFerragens(data.orcamentos || []);
+    } catch (e) { console.error('Erro ao carregar ferragens', e); }
+    setLoadingFerragens(false);
+  };
+
+  const carregarFerragensProducao = async () => {
+    setLoadingFerragensProducao(true);
+    try {
+      const res = await fetch('/api/orcamentos?ferragem_status=em_producao&limite=200', { cache: 'no-store' });
+      const data = await res.json();
+      setFerragensProducao(data.orcamentos || []);
+    } catch (e) { console.error('Erro ao carregar ferragens em produção', e); }
+    setLoadingFerragensProducao(false);
+  };
+
   const gerarRota = async () => {
     if (selecionadas.length === 0) return;
     setLoadingRota(true);
@@ -1547,10 +1578,10 @@ export default function OrcamentoApp() {  // Auth state
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque'>).map(aba => (
+          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ferragens'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : '📦 Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'ferragens' ? '🔧 Ferragens' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -2813,6 +2844,135 @@ export default function OrcamentoApp() {  // Auth state
               </div>
             )}
             <button onClick={() => setMostrarHistoricoProduto(false)} className="w-full mt-4 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ===== FERRAGENS TAB ===== */}
+      {abaAtiva === 'ferragens' && (
+        <div className="pb-8 space-y-6">
+          {/* === SECAO PENDENTES === */}
+          <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-orange-700">🔧 Ferragem Pendente {!loadingFerragens && ferragens.length > 0 && <span className="ml-1 text-sm font-normal text-orange-500">({ferragens.length})</span>}</h2>
+              <button onClick={carregarFerragens} disabled={loadingFerragens} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1 rounded hover:bg-orange-50 border border-orange-200">
+                {loadingFerragens ? 'Carregando...' : '↻ Atualizar'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Orçamentos com ferragem que ainda não foram passados ao ferreiro.</p>
+            {loadingFerragens && <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500"></div></div>}
+            {!loadingFerragens && ferragens.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-4">Nenhuma ferragem pendente</p>
+            )}
+            {!loadingFerragens && ferragens.length > 0 && (
+              <div className="space-y-3">
+                {ferragens.map((f: Record<string, unknown>) => {
+                  const obs = (f.observacoes as string) || '';
+                  const ferragemIdx = obs.indexOf('FERRAGEM:');
+                  const ferragemBlock = ferragemIdx >= 0 ? obs.slice(ferragemIdx) : '';
+                  const ferragemLinhas = ferragemBlock ? ferragemBlock.split('\n').filter((l: string) => l.trim()) : [];
+                  return (
+                    <div key={f.id as string} className="border border-orange-100 rounded-lg bg-orange-50 p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-800 text-sm">{(f.clientes as Record<string, unknown>)?.nome as string || 'Cliente'} <span className="text-gray-500 font-normal text-xs">— {(f.clientes as Record<string, unknown>)?.telefone as string}</span></p>
+                          <p className="text-xs text-orange-600 font-mono">{f.codigo as string}</p>
+                        </div>
+                        <p className="text-xs text-gray-500 shrink-0">{f.status as string}</p>
+                      </div>
+                      {ferragemLinhas.length > 0 && (
+                        <div className="mb-2">
+                          {ferragemLinhas.map((linha: string, i: number) => (
+                            <p key={i} className="text-xs text-gray-700 font-mono">{linha}</p>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        onClick={async () => {
+                          setPassandoAoFerreiro(f.id as string);
+                          try {
+                            await fetch('/api/orcamentos/' + (f.id as string), {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ ferragem_status: 'em_producao' }),
+                              cache: 'no-store',
+                            });
+                            await Promise.all([carregarFerragens(), carregarFerragensProducao()]);
+                          } catch (e) { console.error('Erro ao passar ao ferreiro', e); }
+                          setPassandoAoFerreiro(null);
+                        }}
+                        disabled={passandoAoFerreiro === (f.id as string)}
+                        className="w-full mt-1 px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg text-sm font-semibold"
+                      >
+                        {passandoAoFerreiro === (f.id as string) ? 'Passando...' : '📤 Passar ao Ferreiro'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* === SECAO EM PRODUCAO === */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-gray-700">🔨 Em Produção {!loadingFerragensProducao && ferragensProducao.length > 0 && <span className="ml-1 text-sm font-normal text-gray-500">({ferragensProducao.length})</span>}</h2>
+              <button onClick={carregarFerragensProducao} disabled={loadingFerragensProducao} className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 border border-gray-200">
+                {loadingFerragensProducao ? 'Carregando...' : '↻ Atualizar'}
+              </button>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Orçamentos já passados ao ferreiro.</p>
+            {loadingFerragensProducao && <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div></div>}
+            {!loadingFerragensProducao && ferragensProducao.length === 0 && (
+              <p className="text-sm text-gray-400 text-center py-4">Nenhuma ferragem em produção</p>
+            )}
+            {!loadingFerragensProducao && ferragensProducao.length > 0 && (
+              <div className="space-y-3">
+                {ferragensProducao.map((f: Record<string, unknown>) => {
+                  const obs = (f.observacoes as string) || '';
+                  const ferragemIdx = obs.indexOf('FERRAGEM:');
+                  const ferragemBlock = ferragemIdx >= 0 ? obs.slice(ferragemIdx) : '';
+                  const ferragemLinhas = ferragemBlock ? ferragemBlock.split('\n').filter((l: string) => l.trim()) : [];
+                  return (
+                    <div key={f.id as string} className="border border-gray-200 rounded-lg bg-gray-50 p-3">
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-800 text-sm">{(f.clientes as Record<string, unknown>)?.nome as string || 'Cliente'} <span className="text-gray-500 font-normal text-xs">— {(f.clientes as Record<string, unknown>)?.telefone as string}</span></p>
+                          <p className="text-xs text-gray-600 font-mono">{f.codigo as string}</p>
+                        </div>
+                        <p className="text-xs text-gray-500 shrink-0">{f.status as string}</p>
+                      </div>
+                      {ferragemLinhas.length > 0 && (
+                        <div className="mb-2">
+                          {ferragemLinhas.map((linha: string, i: number) => (
+                            <p key={i} className="text-xs text-gray-700 font-mono">{linha}</p>
+                          ))}
+                        </div>
+                      )}
+                      <button
+                        onClick={async () => {
+                          setVoltandoFerragemPendente(f.id as string);
+                          try {
+                            await fetch('/api/orcamentos/' + (f.id as string), {
+                              method: 'PATCH',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ ferragem_status: null }),
+                              cache: 'no-store',
+                            });
+                            await Promise.all([carregarFerragens(), carregarFerragensProducao()]);
+                          } catch (e) { console.error('Erro ao voltar ferragem para pendente', e); }
+                          setVoltandoFerragemPendente(null);
+                        }}
+                        disabled={voltandoFerragemPendente === (f.id as string)}
+                        className="w-full mt-1 px-3 py-2 bg-gray-200 hover:bg-gray-300 disabled:opacity-50 text-gray-700 rounded-lg text-sm font-medium"
+                      >
+                        {voltandoFerragemPendente === (f.id as string) ? 'Voltando...' : '↩ Voltar para Pendente'}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       )}
