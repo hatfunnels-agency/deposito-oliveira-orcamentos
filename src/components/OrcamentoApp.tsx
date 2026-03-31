@@ -216,11 +216,13 @@ const STATUS_PAGAMENTO_LABELS: Record<string, string> = {
   pendente: '⏳ Pgto Pendente',
   parcial: '⚠️ Pgto Parcial',
   completo: '✅ Pago',
+  pagamento_na_entrega: '🚚 Pgto na Entrega',
 };
 const STATUS_PAGAMENTO_COLORS: Record<string, string> = {
   pendente: 'bg-yellow-100 text-yellow-800',
   parcial: 'bg-orange-100 text-orange-800',
   completo: 'bg-green-100 text-green-800',
+  pagamento_na_entrega: 'bg-blue-100 text-blue-800',
 };
 const ACRESCIMO_CARTAO = 0.08;
 const MAX_PARCELAS = 6;
@@ -1968,9 +1970,14 @@ export default function OrcamentoApp() {  // Auth state
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[orc.status] || 'bg-gray-100 text-gray-600'}`}>
                               {STATUS_LABELS[orc.status] || orc.status}
                             </span>
-                            {orc.status_pagamento && orc.status_pagamento !== 'pendente' && (
+                            {orc.status_pagamento && (
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_PAGAMENTO_COLORS[orc.status_pagamento] || 'bg-gray-100 text-gray-600'}`}>
                                 {STATUS_PAGAMENTO_LABELS[orc.status_pagamento] || orc.status_pagamento}
+                              </span>
+                            )}
+                            {orc.forma_pagamento && (
+                              <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-gray-100 text-gray-600">
+                                {orc.forma_pagamento === 'cartao' ? '💳 Cartão' : orc.forma_pagamento === 'pix' ? '📱 Pix' : orc.forma_pagamento === 'dinheiro' ? '💵 Dinheiro' : orc.forma_pagamento}
                               </span>
                             )}
                             
@@ -2507,6 +2514,7 @@ export default function OrcamentoApp() {  // Auth state
                           <option value="pendente">⏳ Pendente</option>
                           <option value="parcial">⚠️ Parcial</option>
                           <option value="completo">✅ Completo</option>
+                          <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
                         </select>
                       </div>
                       <div>
