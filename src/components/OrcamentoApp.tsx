@@ -466,9 +466,12 @@ export default function OrcamentoApp() {  // Auth state
 
   const PRECO_MEIO_M3 = 120;
   const PRODUTOS_MEIO_M3 = ['areia', 'pedrisco', 'po de pedra', 'pó de pedra', 'pedra brita', 'brita'];
-  const isMeioM3Produto = (produto: Produto) =>
-    produto.unidade === 'm³' &&
-    PRODUTOS_MEIO_M3.some(n => produto.nome.toLowerCase().includes(n));
+  const isMeioM3Produto = (produto: Produto) => {
+    const nome = produto.nome.toLowerCase();
+    return produto.unidade === 'm³' &&
+      PRODUTOS_MEIO_M3.some(n => nome.includes(n)) &&
+      !nome.includes('ensacada');
+  };
 
   const adicionarMeioMetro = (produto: Produto) => {
     const idMeio = produto.id + '-meio';
