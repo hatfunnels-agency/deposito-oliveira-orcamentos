@@ -172,6 +172,7 @@ export async function GET(request: NextRequest) {
                 data_retirada,
                 fonte,
                 forma_pagamento,
+                status_pagamento,
                 motorista_id,
                 reagendamentos,
                 bling_pedido_id,
