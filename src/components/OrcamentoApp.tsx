@@ -1815,8 +1815,9 @@ export default function OrcamentoApp() {  // Auth state
                             try {
                               const res = await fetch(`/api/endereco?type=autocomplete&q=${encodeURIComponent(val)}`, { cache: 'no-store' });
                               const data = await res.json();
-                              setSugestoesEndereco(data.suggestions || []);
-                              setMostrandoSugestoes((data.suggestions || []).length > 0);
+                              const mapped = (data.suggestions || []).map((s: {place_id: string; descricao: string}) => ({ place_id: s.place_id, description: s.descricao }));
+                              setSugestoesEndereco(mapped);
+                              setMostrandoSugestoes(mapped.length > 0);
                             } catch {}
                           }, 300);
                         } else {
@@ -1836,14 +1837,19 @@ export default function OrcamentoApp() {  // Auth state
                               try {
                                 const res = await fetch(`/api/endereco?type=details&place_id=${s.place_id}`, { cache: 'no-store' });
                                 const data = await res.json();
-                                if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : ''));
-                                if (data.cep) { setCepDestino(data.cep); setBuscaEndereco(data.cep); }
-                                if (data.localidade) setBuscaEndereco(s.description);
+                                if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : '') + (data.cidade ? ', ' + data.cidade + '-' + data.estado : ''));
+                                if (data.cep) setCepDestino(data.cep);
+                                setBuscaEndereco(s.description);
+                                if (data.cep) {
+                                  setCalculandoFrete(true);
+                                  fetch('/api/frete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cep: data.cep }), cache: 'no-store' })
+                                    .then(r => r.json()).then(fd => { if (!fd.error && fd.dentro_area) { setDadosFrete(fd); if (fd.endereco_completo) setEnderecoViaCEP(fd.endereco_completo); } }).catch(() => {}).finally(() => setCalculandoFrete(false));
+                                }
                               } catch {}
                               setMostrandoSugestoes(false);
                               setSugestoesEndereco([]);
                             }}
-                          >{s.description}</li>
+                          >📍 {s.description}</li>
                         ))}
                       </ul>
                     )}
