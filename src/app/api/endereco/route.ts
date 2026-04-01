@@ -27,7 +27,7 @@ export async function GET(request: NextRequest) {
 
       // Tarefa 1: Autocomplete de enderecos por nome de rua
       if (type === 'autocomplete' && query && query.trim().length >= 3) {
-              const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=address&components=country:br&location=-23.5376,-46.8375&radius=50000&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
+              const url = `https://maps.googleapis.com/maps/api/place/autocomplete/json?input=${encodeURIComponent(query)}&types=address&components=country:br&location=-23.5376,-46.8375&radius=30000&strictbounds=true&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
               const res = await fetch(url, { cache: 'no-store' });
               const data = await res.json();
 
@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
                       texto_secundario: p.structured_formatting?.secondary_text || '',
             }));
 
-            return NextResponse.json({ sugestoes });
+            return NextResponse.json({ suggestions: sugestoes, sugestoes });
       }
 
       // Tarefa 1: Detalhes de um lugar (apos selecionar sugestao)
