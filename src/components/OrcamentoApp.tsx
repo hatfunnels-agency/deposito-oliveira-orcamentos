@@ -1686,7 +1686,7 @@ export default function OrcamentoApp() {  // Auth state
                 />
               </div>
               <button
-                onClick={() => {
+                onClick={async () => {
                   if (!clienteNomeNovo.trim() || !clienteTelefoneNovo.trim()) {
                     alert('Nome e telefone são obrigatórios');
                     return;
@@ -1694,6 +1694,46 @@ export default function OrcamentoApp() {  // Auth state
                   setNomeCliente(clienteNomeNovo);
                   setWhatsappCliente(clienteTelefoneNovo);
                   if (clienteNotasNovo.trim()) setObservacoes(clienteNotasNovo);
+                  // Preencher endereço do cliente encontrado
+                  if (clienteEncontrado) {
+                    if (clienteEncontrado.endereco) {
+                      const endCompleto = [
+                        clienteEncontrado.endereco,
+                        clienteEncontrado.bairro,
+                        clienteEncontrado.cidade,
+                        clienteEncontrado.estado
+                      ].filter(Boolean).join(', ');
+                      setBuscaEndereco(endCompleto);
+                      setTipoEntrega('entrega');
+                    }
+                    if (clienteEncontrado.numero) setNumeroEndereco(clienteEncontrado.numero);
+                    if (clienteEncontrado.complemento) setComplementoEndereco(clienteEncontrado.complemento);
+                    if (clienteEncontrado.recebedor) setRecebedor(clienteEncontrado.recebedor);
+                    if (clienteEncontrado.cep) {
+                      const cepLimpo = clienteEncontrado.cep.replace(/D/g,'');
+                      setCepDestino(cepLimpo);
+                      setTipoEntrega('entrega');
+                      // Calcular frete automaticamente
+                      setCalculandoFrete(true);
+                      setErroFrete('');
+                      setDadosFrete(null);
+                      try {
+                        const freteRes = await fetch('/api/frete', {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({ cep: cepLimpo }),
+                        });
+                        const freteData = await freteRes.json();
+                        if (!freteData.error && freteData.dentro_area) {
+                          setDadosFrete(freteData);
+                          if (freteData.endereco_completo) setEnderecoViaCEP(freteData.endereco_completo);
+                        } else if (freteData.error) {
+                          setErroFrete(freteData.error);
+                        }
+                      } catch {}
+                      setCalculandoFrete(false);
+                    }
+                  }
                   setModalClienteAberto(false);
                 }}
                 disabled={!clienteNomeNovo.trim() || !clienteTelefoneNovo.trim()}
