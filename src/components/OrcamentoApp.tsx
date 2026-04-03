@@ -262,7 +262,7 @@ export default function OrcamentoApp() {  // Auth state
   const abasVisiveis = papelUsuario === 'motorista'
     ? ['entregas']
     : papelUsuario === 'atendente'
-    ? ['produtos', 'orcamento', 'historico', 'entregas', 'ferragens']
+    ? ['produtos', 'orcamento', 'historico', 'entregas', 'ferragens', 'dashboard']
     : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'ferragens', 'dashboard'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
