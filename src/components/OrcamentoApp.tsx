@@ -1593,7 +1593,7 @@ export default function OrcamentoApp() {  // Auth state
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ferragens'>).map(aba => (
+          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ferragens' | 'dashboard'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
               {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'ferragens' ? '🔧 Ferragens' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
