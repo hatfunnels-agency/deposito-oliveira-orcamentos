@@ -3,12 +3,15 @@ import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
 
+// Status que contam como vendas reais (excluindo orcamento, cancelado, ocorrencias)
+const VENDAS_STATUS = ['confirmado', 'em_entrega', 'aguardando_retirada', 'entregue'];
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const dataInicio = searchParams.get('data_inicio');
     const dataFim = searchParams.get('data_fim');
-    const produto = searchParams.get('produto'); // filter by product name
+    const produto = searchParams.get('produto');
 
     if (!dataInicio || !dataFim) {
       return NextResponse.json({ error: 'data_inicio e data_fim sao obrigatorios' }, { status: 400 });
@@ -17,8 +20,7 @@ export async function GET(request: NextRequest) {
     const inicio = dataInicio + 'T00:00:00';
     const fim = dataFim + 'T23:59:59';
 
-    // Buscar orcamentos no periodo (excluindo cancelados para metricas principais)
-    let query = supabaseAdmin
+    const { data: orcamentosRaw, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
         id, codigo, status, subtotal, total, valor_frete,
@@ -30,20 +32,19 @@ export async function GET(request: NextRequest) {
       .lte('criado_em', fim)
       .order('criado_em', { ascending: false });
 
-    const { data: orcamentosRaw, error } = await query;
-
     if (error) {
-      console.error('[Dashboard] Erro ao buscar orcamentos:', error);
+      console.error('[Dashboard] Erro:', error);
       return NextResponse.json({ error: 'Erro ao buscar dados' }, { status: 500 });
     }
 
     const todos = orcamentosRaw || [];
-    const naoCancelados = todos.filter((o: Record<string, unknown>) => o.status !== 'cancelado');
-    const confirmados = todos.filter((o: Record<string, unknown>) =>
-      o.status === 'confirmado' || o.status === 'entregue' || o.status === 'em_entrega'
-    );
 
-    // Buscar custos dos produtos para CMV
+    // Vendas = status confirmado, em_entrega, aguardando_retirada, entregue
+    const vendas = todos.filter((o: Record<string, unknown>) => VENDAS_STATUS.includes(o.status as string));
+    // Orcamentos = status 'orcamento'
+    const soOrcamentos = todos.filter((o: Record<string, unknown>) => o.status === 'orcamento');
+
+    // Buscar custos dos produtos
     const { data: produtosDB } = await supabaseAdmin
       .from('produtos')
       .select('nome, preco_custo, preco_venda');
@@ -53,19 +54,20 @@ export async function GET(request: NextRequest) {
       custoPorProduto[p.nome as string] = Number(p.preco_custo) || 0;
     });
 
-    // ---- METRICAS GERAIS ----
-    const totalFaturado = naoCancelados.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.total) || 0), 0);
-    const totalSubtotal = naoCancelados.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.subtotal) || 0), 0);
-    const totalFrete = naoCancelados.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.valor_frete) || 0), 0);
-    const qtdPedidos = naoCancelados.length;
-    const ticketMedio = qtdPedidos > 0 ? totalFaturado / qtdPedidos : 0;
+    // ---- METRICAS baseadas apenas em VENDAS ----
+    const totalFaturado = vendas.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.total) || 0), 0);
+    const totalSubtotal = vendas.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.subtotal) || 0), 0);
+    const totalFrete = vendas.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.valor_frete) || 0), 0);
+    const qtdVendas = vendas.length;
+    const qtdOrcamentos = soOrcamentos.length;
     const qtdCancelados = todos.filter((o: Record<string, unknown>) => o.status === 'cancelado').length;
+    const ticketMedio = qtdVendas > 0 ? totalFaturado / qtdVendas : 0;
 
-    // ---- CMV ----
+    // ---- CMV sobre vendas ----
     let cmvTotal = 0;
     const produtoStats: Record<string, { qtd: number; receita: number; custo: number; margem_valor: number }> = {};
 
-    naoCancelados.forEach((o: Record<string, unknown>) => {
+    vendas.forEach((o: Record<string, unknown>) => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ((o.orcamento_itens as any[]) || []).forEach((item: Record<string, unknown>) => {
         const nome = item.produto_nome as string || 'Desconhecido';
@@ -73,7 +75,6 @@ export async function GET(request: NextRequest) {
         const sub = Number(item.subtotal) || 0;
         const custo = (custoPorProduto[nome] || 0) * qtd;
         cmvTotal += custo;
-
         if (!produtoStats[nome]) produtoStats[nome] = { qtd: 0, receita: 0, custo: 0, margem_valor: 0 };
         produtoStats[nome].qtd += qtd;
         produtoStats[nome].receita += sub;
@@ -97,46 +98,55 @@ export async function GET(request: NextRequest) {
       }))
       .sort((a, b) => b.receita - a.receita);
 
-    // Filtro por produto (se fornecido)
+    // Filtro por produto
     const pedidosFiltrados = produto
-      ? naoCancelados.filter((o: Record<string, unknown>) =>
+      ? vendas.filter((o: Record<string, unknown>) =>
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           ((o.orcamento_itens as any[]) || []).some((i: Record<string, unknown>) =>
             (i.produto_nome as string)?.toLowerCase().includes(produto.toLowerCase())
           )
         )
-      : naoCancelados;
+      : vendas;
 
     const totalFiltrado = pedidosFiltrados.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.total) || 0), 0);
 
-    // ---- STATUS BREAKDOWN ----
+    // ---- STATUS BREAKDOWN (apenas vendas) ----
     const statusBreakdown: Record<string, { qtd: number; total: number }> = {};
-    todos.forEach((o: Record<string, unknown>) => {
+    vendas.forEach((o: Record<string, unknown>) => {
       const s = o.status as string || 'desconhecido';
       if (!statusBreakdown[s]) statusBreakdown[s] = { qtd: 0, total: 0 };
       statusBreakdown[s].qtd += 1;
       statusBreakdown[s].total += Number(o.total) || 0;
     });
 
-    // ---- FORMA PAGAMENTO ----
+    // ---- PAGAMENTO (apenas vendas) ----
     const pagamentoBreakdown: Record<string, { qtd: number; total: number }> = {};
-    naoCancelados.forEach((o: Record<string, unknown>) => {
+    vendas.forEach((o: Record<string, unknown>) => {
       const p = (o.forma_pagamento as string) || 'nao_informado';
       if (!pagamentoBreakdown[p]) pagamentoBreakdown[p] = { qtd: 0, total: 0 };
       pagamentoBreakdown[p].qtd += 1;
       pagamentoBreakdown[p].total += Number(o.total) || 0;
     });
 
-    // ---- ENTREGA vs RETIRADA ----
+    // ---- ENTREGA vs RETIRADA (apenas vendas) ----
     const entregaBreakdown: Record<string, number> = {};
-    naoCancelados.forEach((o: Record<string, unknown>) => {
+    vendas.forEach((o: Record<string, unknown>) => {
       const t = (o.tipo_entrega as string) || 'desconhecido';
       entregaBreakdown[t] = (entregaBreakdown[t] || 0) + 1;
     });
 
-    // ---- EVOLUCAO POR DIA ----
+    // ---- CANAL (apenas vendas) ----
+    const canalBreakdown: Record<string, { qtd: number; total: number }> = {};
+    vendas.forEach((o: Record<string, unknown>) => {
+      const c = (o.fonte as string) || 'nao_informado';
+      if (!canalBreakdown[c]) canalBreakdown[c] = { qtd: 0, total: 0 };
+      canalBreakdown[c].qtd += 1;
+      canalBreakdown[c].total += Number(o.total) || 0;
+    });
+
+    // ---- EVOLUCAO POR DIA (apenas vendas) ----
     const porDia: Record<string, { faturado: number; pedidos: number; cmv: number }> = {};
-    naoCancelados.forEach((o: Record<string, unknown>) => {
+    vendas.forEach((o: Record<string, unknown>) => {
       const dia = (o.criado_em as string)?.split('T')[0] || '';
       if (!porDia[dia]) porDia[dia] = { faturado: 0, pedidos: 0, cmv: 0 };
       porDia[dia].faturado += Number(o.total) || 0;
@@ -153,22 +163,14 @@ export async function GET(request: NextRequest) {
       .map(([dia, d]) => ({ dia, ...d }))
       .sort((a, b) => a.dia.localeCompare(b.dia));
 
-    // ---- FONTE / CANAL ----
-    const canalBreakdown: Record<string, { qtd: number; total: number }> = {};
-    naoCancelados.forEach((o: Record<string, unknown>) => {
-      const c = (o.fonte as string) || 'nao_informado';
-      if (!canalBreakdown[c]) canalBreakdown[c] = { qtd: 0, total: 0 };
-      canalBreakdown[c].qtd += 1;
-      canalBreakdown[c].total += Number(o.total) || 0;
-    });
-
     return NextResponse.json({
       periodo: { inicio: dataInicio, fim: dataFim },
       resumo: {
         total_faturado: totalFaturado,
         total_subtotal: totalSubtotal,
         total_frete: totalFrete,
-        qtd_pedidos: qtdPedidos,
+        qtd_vendas: qtdVendas,
+        qtd_orcamentos: qtdOrcamentos,
         qtd_cancelados: qtdCancelados,
         ticket_medio: ticketMedio,
         cmv_total: cmvTotal,
