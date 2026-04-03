@@ -405,6 +405,9 @@ export default function OrcamentoApp() {  // Auth state
   const [clienteNomeNovo, setClienteNomeNovo] = useState('');
   const [clienteTelefoneNovo, setClienteTelefoneNovo] = useState('');
   const [clienteNotasNovo, setClienteNotasNovo] = useState('');
+  const [clienteNumeroNovo, setClienteNumeroNovo] = useState('');
+  const [clienteBuscandoNum, setClienteBuscandoNum] = useState(false);
+  const [clienteEncontrado, setClienteEncontrado] = useState<{id:string;nome:string;telefone:string;endereco:string|null;bairro:string|null;cidade:string|null;estado:string|null;cep:string|null;numero:string|null;complemento:string|null;recebedor:string|null}|null>(null);
   const [mostrarNotasColapsado, setMostrarNotasColapsado] = useState(false);
   // Feature 5 - Edit motorista
   const [editandoMotoristaId, setEditandoMotoristaId] = useState<string | null>(null);
@@ -1568,6 +1571,8 @@ export default function OrcamentoApp() {  // Auth state
             setClienteNomeNovo('');
             setClienteTelefoneNovo('');
             setClienteNotasNovo('');
+            setClienteNumeroNovo('');
+            setClienteEncontrado(null);
             setModalClienteAberto(true);
             setAbaAtiva('produtos');
           }}
@@ -1605,6 +1610,51 @@ export default function OrcamentoApp() {  // Auth state
             <h2 className="text-xl font-bold text-gray-800 mb-2">➕ Novo Orçamento</h2>
             <p className="text-sm text-gray-500 mb-6">Preencha os dados do cliente antes de selecionar os produtos</p>
             <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">📱 Número do cliente</label>
+                <div className="relative">
+                  <input
+                    type="tel"
+                    placeholder="Digite o número para buscar cadastro..."
+                    value={clienteNumeroNovo}
+                    onChange={e => {
+                      const v = e.target.value;
+                      setClienteNumeroNovo(v);
+                      const digits = v.replace(/D/g,'');
+                      if (digits.length >= 8) {
+                        setClienteBuscandoNum(true);
+                        setClienteEncontrado(null);
+                        clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
+                        (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
+                          try {
+                            const res = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}&limite=1`);
+                            const data = await res.json();
+                            if (data.clientes && data.clientes.length > 0) {
+                              const cli = data.clientes[0];
+                              setClienteEncontrado(cli);
+                              setClienteNomeNovo(cli.nome);
+                              setClienteTelefoneNovo(cli.telefone);
+                            } else {
+                              setClienteEncontrado(null);
+                            }
+                          } catch {}
+                          setClienteBuscandoNum(false);
+                        }, 400);
+                      } else {
+                        setClienteEncontrado(null);
+                      }
+                    }}
+                    className="w-full border border-gray-300 rounded-lg px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#F7941D] text-sm"
+                  />
+                  {clienteBuscandoNum && <span className="absolute right-3 top-2.5 text-xs text-gray-400">Buscando...</span>}
+                </div>
+                {clienteEncontrado && (
+                  <div className="mt-1 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                    ✅ Cliente encontrado: <strong>{clienteEncontrado.nome}</strong>
+                    {clienteEncontrado.endereco && <span> — {clienteEncontrado.endereco}{clienteEncontrado.numero ? `, ${clienteEncontrado.numero}` : ''}</span>}
+                  </div>
+                )}
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Nome do cliente *</label>
                 <input
@@ -1946,7 +1996,7 @@ export default function OrcamentoApp() {  // Auth state
         {abaAtiva === 'historico' && (
           <div className="pb-8">
             <div className="flex flex-col md:flex-row gap-3 mb-6">
-              <input type="text" placeholder="Buscar por código, nome ou telefone..." value={buscaHistorico}
+              <input type="text" placeholder="Buscar por código, nome, telefone ou número..." value={buscaHistorico}
                 onChange={e => setBuscaHistorico(e.target.value)} onKeyDown={e => e.key === 'Enter' && carregarHistorico()}
                 className="flex-1 border border-gray-300 rounded-lg px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
               <select value={filtroStatus} onChange={e => setFiltroStatus(e.target.value)}
