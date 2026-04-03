@@ -1,176 +1,324 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { supabaseAdmin } from '@/lib/supabase';
+'use client';
 
-export const dynamic = 'force-dynamic';
+import { useState, useEffect, useCallback } from 'react';
 
-// Status reais no banco que contam como vendas (excluindo orcamento e cancelado)
-const VENDAS_STATUS = ['entrega_pendente', 'em_entrega', 'retirada_pendente', 'completo'];
+interface ResumoData {
+  total_faturado: number;
+  total_subtotal: number;
+  total_frete: number;
+  qtd_vendas: number;
+  qtd_orcamentos: number;
+  qtd_cancelados: number;
+  ticket_medio: number;
+  cmv_total: number;
+  lucro_bruto: number;
+  margem_bruta_pct: number;
+  total_filtrado_produto: number;
+  qtd_filtrado_produto: number;
+}
+interface ProdutoStat { nome: string; qtd: number; receita: number; custo: number; margem_valor: number; margem_pct: number; }
+interface EvolucaoDia { dia: string; faturado: number; pedidos: number; cmv: number; }
+interface BreakdownItem { qtd: number; total: number; }
+interface DashboardData {
+  periodo: { inicio: string; fim: string };
+  resumo: ResumoData;
+  top_produtos: ProdutoStat[];
+  status_breakdown: Record<string, BreakdownItem>;
+  pagamento_breakdown: Record<string, BreakdownItem>;
+  entrega_breakdown: Record<string, number>;
+  canal_breakdown: Record<string, BreakdownItem>;
+  evolucao_diaria: EvolucaoDia[];
+}
 
-export async function GET(request: NextRequest) {
-  try {
-    const { searchParams } = new URL(request.url);
-    const dataInicio = searchParams.get('data_inicio');
-    const dataFim = searchParams.get('data_fim');
-    const produto = searchParams.get('produto');
+function fmt(v: number) { return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }); }
+function fmtPct(v: number) { return v.toFixed(1) + '%'; }
 
-    if (!dataInicio || !dataFim) {
-      return NextResponse.json({ error: 'data_inicio e data_fim sao obrigatorios' }, { status: 400 });
+const STATUS_LABEL: Record<string, string> = {
+  entrega_pendente: 'Entrega Pendente',
+  em_entrega: 'Em Rota',
+  retirada_pendente: 'Retirada Pendente',
+  completo: 'Completo',
+};
+const STATUS_COLOR: Record<string, string> = {
+  entrega_pendente: 'bg-blue-100 text-blue-800',
+  em_entrega: 'bg-purple-100 text-purple-800',
+  retirada_pendente: 'bg-yellow-100 text-yellow-800',
+  completo: 'bg-green-100 text-green-800',
+};
+const PAGAMENTO_LABEL: Record<string, string> = {
+  dinheiro: 'Dinheiro', pix: 'PIX', debito: 'Débito', credito: 'Crédito',
+  boleto: 'Boleto', pagamento_na_entrega: 'Na Entrega', nao_informado: 'Não Informado',
+};
+
+export default function DashboardTab() {
+  const hoje = new Date().toISOString().split('T')[0];
+  const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+  const [dataInicio, setDataInicio] = useState(trintaDiasAtras);
+  const [dataFim, setDataFim] = useState(hoje);
+  const [filtroProduto, setFiltroProduto] = useState('');
+  const [listaProdutos, setListaProdutos] = useState<string[]>([]);
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState('');
+
+  // Load product list for dropdown
+  useEffect(() => {
+    fetch('/api/produtos', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        const nomes = (d.produtos || []).map((p: { nome: string }) => p.nome).sort();
+        setListaProdutos(nomes);
+      })
+      .catch(() => {});
+  }, []);
+
+  const carregar = useCallback(async () => {
+    setLoading(true); setErro('');
+    try {
+      const params = new URLSearchParams({ data_inicio: dataInicio, data_fim: dataFim });
+      if (filtroProduto) params.set('produto', filtroProduto);
+      const res = await fetch('/api/dashboard?' + params.toString(), { cache: 'no-store' });
+      const json = await res.json();
+      if (json.error) { setErro(json.error); setData(null); } else setData(json);
+    } catch { setErro('Erro ao carregar dados.'); }
+    setLoading(false);
+  }, [dataInicio, dataFim, filtroProduto]);
+
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const setPreset = (preset: string) => {
+    const h = new Date().toISOString().split('T')[0];
+    const now = new Date();
+    if (preset === 'hoje') { setDataInicio(h); setDataFim(h); }
+    else if (preset === '7d') { setDataInicio(new Date(Date.now() - 6 * 86400000).toISOString().split('T')[0]); setDataFim(h); }
+    else if (preset === '30d') { setDataInicio(new Date(Date.now() - 29 * 86400000).toISOString().split('T')[0]); setDataFim(h); }
+    else if (preset === 'mes') { setDataInicio(new Date(now.getFullYear(), now.getMonth(), 1).toISOString().split('T')[0]); setDataFim(h); }
+    else if (preset === 'mes_ant') {
+      setDataInicio(new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString().split('T')[0]);
+      setDataFim(new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0]);
     }
+  };
 
-    const inicio = dataInicio + 'T00:00:00';
-    const fim = dataFim + 'T23:59:59';
+  const r = data?.resumo;
+  const statusVendas = data ? Object.fromEntries(Object.entries(data.status_breakdown)) : {};
 
-    const { data: orcamentosRaw, error } = await supabaseAdmin
-      .from('orcamentos')
-      .select(`
-        id, codigo, status, subtotal, total, valor_frete,
-        tipo_entrega, forma_pagamento, fonte, criado_em,
-        orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade )
-      `)
-      .gte('criado_em', inicio)
-      .lte('criado_em', fim)
-      .order('criado_em', { ascending: false });
+  return (
+    <div className="space-y-6 pb-10">
+      {/* FILTROS */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+        <h2 className="text-base font-bold text-gray-800 mb-4">&#128197; Filtros</h2>
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Data Inicial</label>
+            <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-gray-600 mb-1">Data Final</label>
+            <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+          </div>
+          <div className="min-w-[220px]">
+            <label className="block text-xs font-medium text-gray-600 mb-1">Filtrar por Produto</label>
+            <select value={filtroProduto} onChange={e => setFiltroProduto(e.target.value)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white">
+              <option value="">Todos os produtos</option>
+              {listaProdutos.map(nome => (
+                <option key={nome} value={nome}>{nome}</option>
+              ))}
+            </select>
+          </div>
+          <button onClick={carregar} disabled={loading}
+            className="bg-[#F7941D] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#E8850A] transition disabled:opacity-50">
+            {loading ? 'Carregando...' : '🔄 Atualizar'}
+          </button>
+        </div>
+        <div className="flex flex-wrap gap-2 mt-3">
+          {[['hoje','Hoje'],['7d','7 dias'],['mes','Este mês'],['mes_ant','Mês anterior'],['30d','30 dias']].map(([k,l]) => (
+            <button key={k} onClick={() => setPreset(k)}
+              className="text-xs px-3 py-1 rounded-full border border-gray-300 hover:bg-[#F7941D] hover:text-white hover:border-[#F7941D] transition text-gray-600">{l}</button>
+          ))}
+        </div>
+      </div>
 
-    if (error) {
-      console.error('[Dashboard] Erro:', error);
-      return NextResponse.json({ error: 'Erro ao buscar dados' }, { status: 500 });
-    }
+      {erro && <div className="bg-red-50 text-red-700 rounded-xl px-4 py-3 text-sm">{erro}</div>}
+      {loading && !data && <div className="text-center py-16 text-gray-400"><div className="text-4xl mb-3">⏳</div><p>Carregando...</p></div>}
 
-    const todos = orcamentosRaw || [];
-    const vendas = todos.filter((o: Record<string, unknown>) => VENDAS_STATUS.includes(o.status as string));
-    const soOrcamentos = todos.filter((o: Record<string, unknown>) => o.status === 'orcamento');
+      {data && r && (
+        <>
+          {/* KPI row 1 */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128176; Valor Faturado</p>
+              <p className="text-2xl font-bold text-gray-800">{fmt(r.total_faturado)}</p>
+              <p className="text-xs text-gray-400 mt-1">Subtotal: {fmt(r.total_subtotal)}</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128230; Vendas Confirmadas</p>
+              <p className="text-2xl font-bold text-gray-800">{r.qtd_vendas}</p>
+              <p className="text-xs text-gray-400 mt-1">Orçamentos gerados: {r.qtd_orcamentos}</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#127919; Ticket Médio</p>
+              <p className="text-2xl font-bold text-gray-800">{fmt(r.ticket_medio)}</p>
+              <p className="text-xs text-gray-400 mt-1">Frete médio: {fmt(r.qtd_vendas > 0 ? r.total_frete / r.qtd_vendas : 0)}</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128200; Margem Bruta</p>
+              <p className="text-2xl font-bold text-gray-800">{fmtPct(r.margem_bruta_pct)}</p>
+              <p className="text-xs text-gray-400 mt-1">Lucro: {fmt(r.lucro_bruto)}</p>
+            </div>
+          </div>
 
-    const { data: produtosDB } = await supabaseAdmin
-      .from('produtos')
-      .select('nome, preco_custo');
+          {/* KPI row 2 */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#127981; CMV (Custo Merc. Vendida)</p>
+              <p className="text-2xl font-bold text-red-600">{fmt(r.cmv_total)}</p>
+              <p className="text-xs text-gray-400 mt-1">{fmtPct(r.total_subtotal > 0 ? (r.cmv_total/r.total_subtotal)*100 : 0)} do faturamento</p>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128666; Frete Total</p>
+              <p className="text-2xl font-bold text-gray-800">{fmt(r.total_frete)}</p>
+              <p className="text-xs text-gray-400 mt-1">{fmtPct(r.total_faturado > 0 ? (r.total_frete/r.total_faturado)*100 : 0)} do faturado</p>
+            </div>
+            {filtroProduto && (
+              <div className="bg-orange-50 rounded-2xl border border-orange-200 shadow-sm p-5">
+                <p className="text-xs text-orange-600 mb-1">&#128269; {filtroProduto}</p>
+                <p className="text-2xl font-bold text-orange-700">{fmt(r.total_filtrado_produto)}</p>
+                <p className="text-xs text-orange-500 mt-1">{r.qtd_filtrado_produto} pedido(s)</p>
+              </div>
+            )}
+          </div>
 
-    const custoPorProduto: Record<string, number> = {};
-    (produtosDB || []).forEach((p: Record<string, unknown>) => {
-      custoPorProduto[p.nome as string] = Number(p.preco_custo) || 0;
-    });
+          {/* EVOLUCAO DIARIA */}
+          {data.evolucao_diaria.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-4">&#128201; Evolução Diária</h3>
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead><tr className="border-b border-gray-100">
+                    <th className="text-left py-2 pr-4 text-gray-500 font-medium">Data</th>
+                    <th className="text-right py-2 pr-4 text-gray-500 font-medium">Faturado</th>
+                    <th className="text-right py-2 pr-4 text-gray-500 font-medium">Vendas</th>
+                    <th className="text-right py-2 pr-4 text-gray-500 font-medium">CMV</th>
+                    <th className="text-right py-2 text-gray-500 font-medium">Margem</th>
+                  </tr></thead>
+                  <tbody>
+                    {data.evolucao_diaria.slice().reverse().map(d => {
+                      const m = d.faturado > 0 ? ((d.faturado - d.cmv) / d.faturado * 100) : 0;
+                      return (
+                        <tr key={d.dia} className="border-b border-gray-50 hover:bg-gray-50">
+                          <td className="py-2 pr-4 text-gray-700">{new Date(d.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}</td>
+                          <td className="py-2 pr-4 text-right font-semibold text-gray-800">{fmt(d.faturado)}</td>
+                          <td className="py-2 pr-4 text-right text-gray-600">{d.pedidos}</td>
+                          <td className="py-2 pr-4 text-right text-red-500">{fmt(d.cmv)}</td>
+                          <td className="py-2 text-right"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${m >= 30 ? 'bg-green-100 text-green-700' : m >= 15 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{fmtPct(m)}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot><tr className="bg-gray-50 font-bold">
+                    <td className="py-2 pr-4 text-gray-700">Total</td>
+                    <td className="py-2 pr-4 text-right text-gray-800">{fmt(r.total_faturado)}</td>
+                    <td className="py-2 pr-4 text-right text-gray-800">{r.qtd_vendas}</td>
+                    <td className="py-2 pr-4 text-right text-red-600">{fmt(r.cmv_total)}</td>
+                    <td className="py-2 text-right"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${r.margem_bruta_pct >= 30 ? 'bg-green-100 text-green-700' : r.margem_bruta_pct >= 15 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{fmtPct(r.margem_bruta_pct)}</span></td>
+                  </tr></tfoot>
+                </table>
+              </div>
+            </div>
+          )}
 
-    const totalFaturado = vendas.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.total) || 0), 0);
-    const totalSubtotal = vendas.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.subtotal) || 0), 0);
-    const totalFrete = vendas.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.valor_frete) || 0), 0);
-    const qtdVendas = vendas.length;
-    const qtdOrcamentos = soOrcamentos.length;
-    const qtdCancelados = todos.filter((o: Record<string, unknown>) => o.status === 'cancelado').length;
-    const ticketMedio = qtdVendas > 0 ? totalFaturado / qtdVendas : 0;
+          {/* TOP PRODUTOS */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h3 className="text-sm font-bold text-gray-800 mb-4">&#127942; Top Produtos por Receita</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead><tr className="border-b border-gray-100">
+                  <th className="text-left py-2 pr-3 text-gray-500 font-medium">#</th>
+                  <th className="text-left py-2 pr-3 text-gray-500 font-medium">Produto</th>
+                  <th className="text-right py-2 pr-3 text-gray-500 font-medium">Qtd</th>
+                  <th className="text-right py-2 pr-3 text-gray-500 font-medium">Receita</th>
+                  <th className="text-right py-2 pr-3 text-gray-500 font-medium">CMV</th>
+                  <th className="text-right py-2 pr-3 text-gray-500 font-medium">Lucro</th>
+                  <th className="text-right py-2 text-gray-500 font-medium">Margem</th>
+                </tr></thead>
+                <tbody>
+                  {data.top_produtos.slice(0, 20).map((p, i) => (
+                    <tr key={p.nome} className={`border-b border-gray-50 hover:bg-gray-50 ${filtroProduto === p.nome ? 'bg-orange-50' : ''}`}>
+                      <td className="py-2 pr-3 text-gray-400">{i + 1}</td>
+                      <td className="py-2 pr-3 text-gray-700 font-medium max-w-[200px] truncate">{p.nome}</td>
+                      <td className="py-2 pr-3 text-right text-gray-600">{p.qtd % 1 === 0 ? p.qtd : p.qtd.toFixed(2)}</td>
+                      <td className="py-2 pr-3 text-right font-semibold text-gray-800">{fmt(p.receita)}</td>
+                      <td className="py-2 pr-3 text-right text-red-500">{fmt(p.custo)}</td>
+                      <td className="py-2 pr-3 text-right text-green-600">{fmt(p.margem_valor)}</td>
+                      <td className="py-2 text-right"><span className={`px-2 py-0.5 rounded-full text-xs font-medium ${p.margem_pct >= 30 ? 'bg-green-100 text-green-700' : p.margem_pct >= 15 ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>{fmtPct(p.margem_pct)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
-    let cmvTotal = 0;
-    const produtoStats: Record<string, { qtd: number; receita: number; custo: number; margem_valor: number }> = {};
-
-    vendas.forEach((o: Record<string, unknown>) => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((o.orcamento_itens as any[]) || []).forEach((item: Record<string, unknown>) => {
-        const nome = item.produto_nome as string || 'Desconhecido';
-        const qtd = Number(item.quantidade) || 0;
-        const sub = Number(item.subtotal) || 0;
-        const custo = (custoPorProduto[nome] || 0) * qtd;
-        cmvTotal += custo;
-        if (!produtoStats[nome]) produtoStats[nome] = { qtd: 0, receita: 0, custo: 0, margem_valor: 0 };
-        produtoStats[nome].qtd += qtd;
-        produtoStats[nome].receita += sub;
-        produtoStats[nome].custo += custo;
-        produtoStats[nome].margem_valor += (sub - custo);
-      });
-    });
-
-    const lucroBruto = totalSubtotal - cmvTotal;
-    const margemBruta = totalSubtotal > 0 ? (lucroBruto / totalSubtotal) * 100 : 0;
-
-    const topProdutos = Object.entries(produtoStats)
-      .map(([nome, d]) => ({
-        nome, qtd: d.qtd, receita: d.receita, custo: d.custo,
-        margem_valor: d.margem_valor,
-        margem_pct: d.receita > 0 ? (d.margem_valor / d.receita) * 100 : 0,
-      }))
-      .sort((a, b) => b.receita - a.receita);
-
-    const pedidosFiltrados = produto
-      ? vendas.filter((o: Record<string, unknown>) =>
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          ((o.orcamento_itens as any[]) || []).some((i: Record<string, unknown>) =>
-            (i.produto_nome as string)?.toLowerCase().includes(produto.toLowerCase())
-          )
-        )
-      : vendas;
-
-    const totalFiltrado = pedidosFiltrados.reduce((s: number, o: Record<string, unknown>) => s + (Number(o.total) || 0), 0);
-
-    const statusBreakdown: Record<string, { qtd: number; total: number }> = {};
-    vendas.forEach((o: Record<string, unknown>) => {
-      const s = o.status as string;
-      if (!statusBreakdown[s]) statusBreakdown[s] = { qtd: 0, total: 0 };
-      statusBreakdown[s].qtd += 1;
-      statusBreakdown[s].total += Number(o.total) || 0;
-    });
-
-    const pagamentoBreakdown: Record<string, { qtd: number; total: number }> = {};
-    vendas.forEach((o: Record<string, unknown>) => {
-      const p = (o.forma_pagamento as string) || 'nao_informado';
-      if (!pagamentoBreakdown[p]) pagamentoBreakdown[p] = { qtd: 0, total: 0 };
-      pagamentoBreakdown[p].qtd += 1;
-      pagamentoBreakdown[p].total += Number(o.total) || 0;
-    });
-
-    const entregaBreakdown: Record<string, number> = {};
-    vendas.forEach((o: Record<string, unknown>) => {
-      const t = (o.tipo_entrega as string) || 'desconhecido';
-      entregaBreakdown[t] = (entregaBreakdown[t] || 0) + 1;
-    });
-
-    const canalBreakdown: Record<string, { qtd: number; total: number }> = {};
-    vendas.forEach((o: Record<string, unknown>) => {
-      const c = (o.fonte as string) || 'nao_informado';
-      if (!canalBreakdown[c]) canalBreakdown[c] = { qtd: 0, total: 0 };
-      canalBreakdown[c].qtd += 1;
-      canalBreakdown[c].total += Number(o.total) || 0;
-    });
-
-    const porDia: Record<string, { faturado: number; pedidos: number; cmv: number }> = {};
-    vendas.forEach((o: Record<string, unknown>) => {
-      const dia = (o.criado_em as string)?.split('T')[0] || '';
-      if (!porDia[dia]) porDia[dia] = { faturado: 0, pedidos: 0, cmv: 0 };
-      porDia[dia].faturado += Number(o.total) || 0;
-      porDia[dia].pedidos += 1;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ((o.orcamento_itens as any[]) || []).forEach((item: Record<string, unknown>) => {
-        const nome = item.produto_nome as string || '';
-        porDia[dia].cmv += (custoPorProduto[nome] || 0) * (Number(item.quantidade) || 0);
-      });
-    });
-
-    const evolucaoDiaria = Object.entries(porDia)
-      .map(([dia, d]) => ({ dia, ...d }))
-      .sort((a, b) => a.dia.localeCompare(b.dia));
-
-    return NextResponse.json({
-      periodo: { inicio: dataInicio, fim: dataFim },
-      resumo: {
-        total_faturado: totalFaturado,
-        total_subtotal: totalSubtotal,
-        total_frete: totalFrete,
-        qtd_vendas: qtdVendas,
-        qtd_orcamentos: qtdOrcamentos,
-        qtd_cancelados: qtdCancelados,
-        ticket_medio: ticketMedio,
-        cmv_total: cmvTotal,
-        lucro_bruto: lucroBruto,
-        margem_bruta_pct: margemBruta,
-        total_filtrado_produto: totalFiltrado,
-        qtd_filtrado_produto: pedidosFiltrados.length,
-      },
-      top_produtos: topProdutos,
-      status_breakdown: statusBreakdown,
-      pagamento_breakdown: pagamentoBreakdown,
-      entrega_breakdown: entregaBreakdown,
-      canal_breakdown: canalBreakdown,
-      evolucao_diaria: evolucaoDiaria,
-    });
-
-  } catch (error) {
-    console.error('[Dashboard] Error:', error);
-    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
-  }
+          {/* BREAKDOWNS */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">&#128202; Status das Vendas</h3>
+              {Object.keys(statusVendas).length === 0 && <p className="text-xs text-gray-400">Nenhuma venda no período.</p>}
+              <div className="space-y-2">
+                {Object.entries(statusVendas).sort((a,b) => b[1].qtd - a[1].qtd).map(([s,v]) => (
+                  <div key={s} className="flex items-center justify-between">
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLOR[s] || 'bg-gray-100 text-gray-700'}`}>{STATUS_LABEL[s] || s}</span>
+                    <div className="text-right"><span className="text-xs font-semibold text-gray-800">{v.qtd} pedido(s)</span><span className="text-xs text-gray-400 ml-2">{fmt(v.total)}</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">&#128179; Formas de Pagamento</h3>
+              <div className="space-y-2">
+                {Object.entries(data.pagamento_breakdown).sort((a,b) => b[1].total - a[1].total).map(([p,v]) => (
+                  <div key={p} className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-700">{PAGAMENTO_LABEL[p] || p}</span>
+                    <div className="text-right"><span className="text-xs font-semibold text-gray-800">{fmt(v.total)}</span><span className="text-xs text-gray-400 ml-2">({v.qtd}x)</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">&#128225; Canal de Venda</h3>
+              <div className="space-y-2">
+                {Object.entries(data.canal_breakdown).sort((a,b) => b[1].total - a[1].total).map(([c,v]) => (
+                  <div key={c} className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-gray-700 capitalize">{c.replace(/_/g,' ')}</span>
+                    <div className="text-right"><span className="text-xs font-semibold text-gray-800">{fmt(v.total)}</span><span className="text-xs text-gray-400 ml-2">({v.qtd}x)</span></div>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-3">&#128666; Entrega vs Retirada</h3>
+              <div className="space-y-3">
+                {Object.entries(data.entrega_breakdown).sort((a,b) => b[1] - a[1]).map(([t,v]) => {
+                  const total = Object.values(data.entrega_breakdown).reduce((s,n) => s + n, 0);
+                  const pct = total > 0 ? (v / total) * 100 : 0;
+                  return (
+                    <div key={t}>
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="font-medium text-gray-700">{t === 'entrega' ? '🚚 Entrega no Endereço' : '🏠 Retirada na Loja'}</span>
+                        <span className="text-gray-600">{v} ({fmtPct(pct)})</span>
+                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-2"><div className="bg-[#F7941D] h-2 rounded-full" style={{ width: fmtPct(pct) }}></div></div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
 }
