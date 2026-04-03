@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
+import DashboardTab from './DashboardTab';
 
 interface Produto {
   id: string;
@@ -262,7 +263,7 @@ export default function OrcamentoApp() {  // Auth state
     ? ['entregas']
     : papelUsuario === 'atendente'
     ? ['produtos', 'orcamento', 'historico', 'entregas', 'ferragens']
-    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'ferragens'];
+    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'ferragens', 'dashboard'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -272,7 +273,7 @@ export default function OrcamentoApp() {  // Auth state
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'ferragens'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'ferragens' | 'dashboard'>('produtos');
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
@@ -1595,7 +1596,7 @@ export default function OrcamentoApp() {  // Auth state
           {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ferragens'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'ferragens' ? '🔧 Ferragens' : '📦 Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'ferragens' ? '🔧 Ferragens' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -2465,7 +2466,10 @@ export default function OrcamentoApp() {  // Auth state
       </div>
 
 
-            {/* ===== ESTOQUE TAB ===== */}
+            {/* ===== DASHBOARD TAB ===== */}
+        {abaAtiva === 'dashboard' && <DashboardTab />}
+
+        {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
           {produtosAbaixoMinimo.length > 0 && (
