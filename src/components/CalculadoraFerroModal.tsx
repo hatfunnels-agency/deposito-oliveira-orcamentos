@@ -52,19 +52,17 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
   const handleAdicionar = () => {
     if (metrosTotal <= 0) return;
     const nomeMedida = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial');
-    const tipoLabel = TIPO_LABELS[tipo];
-    const barrasSuffix = medida === 'especial' ? ' — ' + barras + ' barras (especial)' : ' — ' + barras + ' barras';
-    const nomeBase = tipoLabel + ' ' + nomeMedida + barrasSuffix;
-    const nome = obs ? nomeBase + ' | ' + obs : nomeBase;
-    const tipoPlural = quantidade > 1 ? tipoLabel + 's' : tipoLabel;
-    const medidaDisplay = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial');
-    const barrasDisplay = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
-    const especDesc = quantidade + ' ' + tipoPlural + ' de ' + metrosPorPeca + 'm — ' + medidaDisplay + ' — ' + barrasDisplay + (obs ? ' | ' + obs : '');
+    const tipoPlural = quantidade > 1 ? TIPO_LABELS[tipo] + 's' : TIPO_LABELS[tipo];
+    const barrasLabel = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
+    // Formato simplificado: "3 Vigas 5m 9×20 4 barras"
+    const nome = `${quantidade} ${tipoPlural} ${metrosPorPeca}m ${nomeMedida} ${barrasLabel}`;
+    // Observação com metragem total: "3 Vigas 5m 9×20 4 barras | 15m"
+    const especificacoes = `${nome} | ${metrosTotal}m`;
     onAdicionarItens([{
       nome,
       quantidade: metrosTotal,
       preco: precoPorMetro,
-      especificacoes: especDesc,
+      especificacoes,
     }]);
     onClose();
   };
