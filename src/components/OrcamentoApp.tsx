@@ -1564,27 +1564,7 @@ export default function OrcamentoApp() {  // Auth state
             <button onClick={() => setAbaAtiva('entregas')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">🚚 Entregas</button>
             <button onClick={() => setAbaAtiva('historico')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">Histórico</button>
             <button onClick={() => setAbaAtiva('ia')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">🤖 IA</button>
-            <button onClick={() => setAbaAtiva('orcamento')} className="relative bg-white text-[#F7941D] font-bold px-4 py-2 rounded-lg hover:bg-[#FFF3E0] transition">
-              Orçamento
-              {itens.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">{itens.reduce((a, i) => a + i.quantidade, 0)}</span>}
-            </button>
-          <button onClick={() => {
-            if (itens.length > 0) {
-              if (!confirm('Você tem um orçamento em andamento. Descartar e começar novo?')) return;
-              setItens([]);
-            }
-            setClienteNomeNovo('');
-            setClienteTelefoneNovo('');
-            setClienteNotasNovo('');
-            setClienteNumeroNovo('');
-            setClienteEncontrado(null);
-            setModalClienteAberto(true);
-            setAbaAtiva('produtos');
-          }}
-            className="bg-green-500 text-white text-sm px-3 py-2 rounded-lg font-semibold hover:bg-green-600 transition whitespace-nowrap"
-          >
-            ➕ Novo Orçamento
-          </button>
+
           </div>
           <div className="flex items-center gap-2 ml-4 pl-4 border-l border-white/30">
             {papelUsuario && <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full capitalize">{papelUsuario}</span>}
@@ -1845,6 +1825,69 @@ export default function OrcamentoApp() {  // Auth state
                       className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-0">
+                  <h2 className="font-bold text-gray-700 mb-3">📋 Dados do Cliente</h2>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">📱 Número do cliente</label>
+                      <div className="relative">
+                        <input
+                          type="tel"
+                          placeholder="Digite o número para buscar cadastro..."
+                          value={clienteNumeroNovo}
+                          onChange={e => {
+                            const v = e.target.value;
+                            setClienteNumeroNovo(v);
+                            const digits = v.replace(/\D/g, '');
+                            if (digits.length >= 8) {
+                              setClienteBuscandoNum(true);
+                              setClienteEncontrado(null);
+                              clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
+                              (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
+                                try {
+                                  const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(digits)}`);
+                                  const data = await r.json();
+                                  if (data.clientes && data.clientes.length > 0) {
+                                    const cli = data.clientes[0];
+                                    setClienteEncontrado(cli);
+                                    setClienteNomeNovo(cli.nome);
+                                    setClienteTelefoneNovo(cli.telefone);
+                                    setNomeCliente(cli.nome);
+                                    setWhatsappCliente(cli.telefone);
+                                  } else {
+                                    setClienteEncontrado(null);
+                                  }
+                                } catch {}
+                                setClienteBuscandoNum(false);
+                              }, 400);
+                            } else {
+                              setClienteEncontrado(null);
+                            }
+                          }}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                        />
+                        {clienteBuscandoNum && <span className="absolute right-3 top-2.5 text-xs text-gray-400">🔍</span>}
+                      </div>
+                      {clienteEncontrado && (
+                        <div className="mt-1 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
+                          ✅ Cliente encontrado: <strong>{clienteEncontrado.nome}</strong>
+                          {clienteEncontrado.endereco && <span> — {clienteEncontrado.endereco}{clienteEncontrado.numero ? `, ${clienteEncontrado.numero}` : ''}</span>}
+                        </div>
+                      )}
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Nome do cliente *</label>
+                      <input type="text" placeholder="Nome completo" value={nomeCliente} onChange={e => { setNomeCliente(e.target.value); setClienteNomeNovo(e.target.value); }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-500 mb-1">Telefone *</label>
+                      <input type="tel" placeholder="(11) 99999-9999" value={whatsappCliente} onChange={e => { setWhatsappCliente(e.target.value); setClienteTelefoneNovo(e.target.value); }}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
                   <div className="p-4 border-b border-gray-100 bg-gray-50"><h2 className="font-bold text-gray-700">Itens do Orçamento</h2></div>
                   {itens.map(item => {
@@ -1868,16 +1911,17 @@ export default function OrcamentoApp() {  // Auth state
                   })}
                 </div>
 
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                  <h2 className="font-bold text-gray-700 mb-3">Dados do Cliente</h2>
-                  <div className="space-y-3">
-                    <input type="text" placeholder="Nome do cliente" value={nomeCliente} onChange={e => setNomeCliente(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                    <input type="tel" placeholder="WhatsApp (ex: 11999998888)" value={whatsappCliente} onChange={e => setWhatsappCliente(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                  </div>
-                </div>
 
+                <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                  <h2 className="font-bold text-gray-700 mb-3">📝 Notas / Especificações</h2>
+                  <textarea
+                    placeholder="Anote os detalhes do pedido (ex: 2 sapatas 20x20, 3 vigas de 4m, ferro 3/8 para coluna...)"
+                    value={observacoes}
+                    onChange={e => setObservacoes(e.target.value)}
+                    rows={4}
+                    className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] resize-none"
+                  />
+                </div>
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                   <h2 className="font-bold text-gray-700 mb-3">Forma de Entrega</h2>
                   <div className="flex gap-3 mb-4">
@@ -2014,14 +2058,6 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 );
               })()}
-                {/* Observações field */}
-              <textarea
-                placeholder="Observações (ex: ligar antes de entregar, horário preferido...)"
-                value={observacoes}
-                onChange={e => setObservacoes(e.target.value)}
-                rows={3}
-                className="w-full border border-gray-300 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] resize-none"
-              />
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
