@@ -292,6 +292,8 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingHistorico, setLoadingHistorico] = useState(false);
   const [buscaHistorico, setBuscaHistorico] = useState('');
   const [filtroStatus, setFiltroStatus] = useState('');
+  const [filtroDataDe, setFiltroDataDe] = useState<string>('');
+  const [filtroDataAte, setFiltroDataAte] = useState<string>('');
   const [paginaHistorico, setPaginaHistorico] = useState(1);
   const [totalOrcamentos, setTotalOrcamentos] = useState(0);
   const [dataEntrega, setDataEntrega] = useState('');
@@ -467,6 +469,8 @@ export default function OrcamentoApp() {  // Auth state
       const params = new URLSearchParams({ limite: '20', pagina: String(paginaHistorico) });
       if (buscaHistorico) params.set('busca', buscaHistorico);
       if (filtroStatus) params.set('status', filtroStatus);
+      if (filtroDataDe) params.set('dataDe', filtroDataDe);
+      if (filtroDataAte) params.set('dataAte', filtroDataAte);
       const res = await fetch(`/api/orcamentos?${params}`);
       const data = await res.json();
       setOrcamentos(data.orcamentos || []);
@@ -474,7 +478,7 @@ export default function OrcamentoApp() {  // Auth state
     } catch (e) { console.error('Erro ao carregar historico', e); }
     setLoadingHistorico(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [buscaHistorico, filtroStatus, paginaHistorico]);
+  }, [buscaHistorico, filtroStatus, filtroDataDe, filtroDataAte, paginaHistorico]);
 
   useEffect(() => {
     if (abaAtiva === 'historico') carregarHistorico();
@@ -483,7 +487,7 @@ export default function OrcamentoApp() {  // Auth state
   // Reset page to 1 when search/filter changes
   useEffect(() => {
     setPaginaHistorico(1);
-  }, [buscaHistorico, filtroStatus]);
+  }, [buscaHistorico, filtroStatus, filtroDataDe, filtroDataAte]);
 
   const categorias = ['Todas', ...Array.from(new Set(produtos.map(p => p.categoria)))];
 
@@ -2046,6 +2050,14 @@ export default function OrcamentoApp() {  // Auth state
                 {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
               </select>
               <button onClick={carregarHistorico} className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#E8850A] transition">Buscar</button>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-gray-500 whitespace-nowrap">De:</label>
+                <input type="date" value={filtroDataDe} onChange={e => setFiltroDataDe(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                <label className="text-sm text-gray-500 whitespace-nowrap">Até:</label>
+                <input type="date" value={filtroDataAte} onChange={e => setFiltroDataAte(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+              </div>
             </div>
             {loadingHistorico ? (
               <div className="flex justify-center py-12"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]"></div></div>
