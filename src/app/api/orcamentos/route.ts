@@ -152,6 +152,8 @@ export async function GET(request: NextRequest) {
           const { searchParams } = new URL(request.url);
           const status = searchParams.get('status');
           const busca = searchParams.get('busca');
+          const dataDe = searchParams.get('dataDe') || '';
+          const dataAte = searchParams.get('dataAte') || '';
           const pagina = parseInt(searchParams.get('pagina') || '1');
           const limite = parseInt(searchParams.get('limite') || '20');
           const offset = (pagina - 1) * limite;
@@ -223,6 +225,13 @@ export async function GET(request: NextRequest) {
               } else {
                         query = query.or(`codigo.ilike.%${busca}%`);
               }
+      }
+
+      if (dataDe) {
+        query = query.gte('criado_em', dataDe + 'T00:00:00.000Z');
+      }
+      if (dataAte) {
+        query = query.lte('criado_em', dataAte + 'T23:59:59.999Z');
       }
 
       const { data, error, count } = await query;
