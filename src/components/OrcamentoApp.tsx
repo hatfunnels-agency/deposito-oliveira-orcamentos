@@ -852,17 +852,8 @@ export default function OrcamentoApp() {  // Auth state
         (detalhe as any).status_pagamento === 'completo' ? '*✅ Pagamento: Pago*' : (detalhe as any).status_pagamento === 'parcial' ? '*⚠️ Pagamento: Parcial*' : '',
         ...(() => {
           const rawObs = detalhe.observacoes || '';
-          const ferrIdx = rawObs.indexOf('FERRAGEM:');
-          const obsTexto = ferrIdx >= 0 ? rawObs.substring(0, ferrIdx).trim() : rawObs.trim();
-          const ferrTexto = ferrIdx >= 0 ? rawObs.substring(ferrIdx).trim() : '';
-          const linhas: string[] = [];
-          if (obsTexto) linhas.push(`_Obs: ${obsTexto}_`);
-          if (ferrTexto) {
-            linhas.push('');
-            linhas.push('*🔩 FERRAGEM:*');
-            ferrTexto.replace('FERRAGEM:', '').trim().split('\n').filter(Boolean).forEach(l => linhas.push(l));
-          }
-          return linhas;
+          const cleanObs = rawObs.replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim();
+          return cleanObs ? [`_Obs: ${cleanObs}_`] : [];
         })(),
         '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
@@ -933,7 +924,8 @@ export default function OrcamentoApp() {  // Auth state
     const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
     const ferroItensImp = !d ? itens.filter(i => i.avulso) : [];
-    const obsImp = d ? d.observacoes : (observacoes || null);
+    const obsRaw = d ? d.observacoes : (observacoes || null);
+    const obsImp = obsRaw ? obsRaw.replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim() || null : null;
     const formaPagImp = d ? (d as any).forma_pagamento as string | null : null;
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
@@ -2297,7 +2289,13 @@ export default function OrcamentoApp() {  // Auth state
                         >
                           🖨️ Imprimir
                         </button>
-                      </div>
+                      
+                        <button
+                          onClick={() => abrirDetalhe(r.id)}
+                          className="flex-1 bg-blue-600 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition"
+                        >
+                          📋 Ver Pedido
+                        </button></div>
 </div>
                   ))}
                 </div>
@@ -2401,7 +2399,13 @@ export default function OrcamentoApp() {  // Auth state
                       >
                         🖨️ Imprimir
                       </button>
-                    </div>
+                    
+                        <button
+                          onClick={() => abrirDetalhe(e.id)}
+                          className="flex-1 bg-blue-600 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition"
+                        >
+                          📋 Ver Pedido
+                        </button></div>
 </div>
                   ))}
                 </div>
@@ -2814,12 +2818,15 @@ export default function OrcamentoApp() {  // Auth state
                   );
                 })()}
                 {orcamentoDetalhe.observacoes && (() => {
-                  {orcamentoDetalhe.observacoes && (
+                  {(() => {
+                    const obsClean = (orcamentoDetalhe.observacoes || '').replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim();
+                    return obsClean ? (
                     <div className="px-4 py-2 border-b border-gray-100">
                       <h3 className="font-bold text-gray-700 mb-1 text-sm">Observações</h3>
-                      <p className="text-sm text-gray-600 whitespace-pre-line">{orcamentoDetalhe.observacoes}</p>
+                      <p className="text-sm text-gray-600 whitespace-pre-line">{obsClean}</p>
                     </div>
-                  )}}
+                    ) : null;
+                  })()}
                 <div className="px-4 py-3 space-y-1.5">
                   <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
                   <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
