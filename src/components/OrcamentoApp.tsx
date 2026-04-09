@@ -1802,13 +1802,14 @@ export default function OrcamentoApp() {  // Auth state
         {/* ===== ORCAMENTO TAB ===== */}
         {abaAtiva === 'orcamento' && (
           <div className="max-w-2xl mx-auto pb-8">
-            {itens.length === 0 ? (
+            {itens.length === 0 && (
               <div className="text-center py-16 text-gray-400">
                 <p className="text-5xl mb-4">🛒</p>
                 <p className="text-lg">Seu orçamento está vazio</p>
                 <button onClick={() => setAbaAtiva('produtos')} className="mt-4 bg-[#F7941D] text-white px-6 py-2 rounded-lg hover:bg-[#E8850A] transition">Ver Produtos</button>
               </div>
-            ) : (
+           
+          )}
               <div className="space-y-4">
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
@@ -1837,7 +1838,7 @@ export default function OrcamentoApp() {  // Auth state
                               clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
                               (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
                                 try {
-                                  const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digit&limite=1s)}`);
+                                  const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}&limite=1`);
                                   const data = await r.json();
                                   if (data.clientes && data.clientes.length > 0) {
                                     const cli = data.clientes[0];
@@ -2105,7 +2106,6 @@ export default function OrcamentoApp() {  // Auth state
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
                 </button>
               </div>
-            )}
           </div>
         )}
 
