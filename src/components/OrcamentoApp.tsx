@@ -2276,7 +2276,29 @@ export default function OrcamentoApp() {  // Auth state
                       >
                         {marcandoRetirado === r.id ? 'Marcando...' : '✅ Marcar Retirado'}
                       </button>
-                    </div>
+                                          <div className="flex gap-2 mt-2">
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/api/orcamentos/${r.id}`, { cache: 'no-store' });
+                            const det = await res.json();
+                            if (det && !det.error) editarOrcamento(det);
+                          }}
+                          className="flex-1 bg-yellow-500 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition"
+                        >
+                          ✏️ Abrir Pedido
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const res = await fetch(`/api/orcamentos/${r.id}`, { cache: 'no-store' });
+                            const det = await res.json();
+                            if (det && !det.error) imprimirOrcamento(det);
+                          }}
+                          className="flex-1 bg-[#F7941D] text-white py-1.5 rounded-lg text-xs font-bold hover:bg-[#E8830C] transition"
+                        >
+                          🖨️ Imprimir
+                        </button>
+                      </div>
+</div>
                   ))}
                 </div>
               )}
@@ -2358,7 +2380,29 @@ export default function OrcamentoApp() {  // Auth state
                           {e.observacoes && <p className="text-gray-500 italic mt-1">Obs: {e.observacoes}</p>}
                         </div>
                       )}
+                                        <div className="flex gap-2 mt-2">
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/orcamentos/${e.id}`, { cache: 'no-store' });
+                          const det = await res.json();
+                          if (det && !det.error) editarOrcamento(det);
+                        }}
+                        className="flex-1 bg-yellow-500 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition"
+                      >
+                        ✏️ Abrir Pedido
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const res = await fetch(`/api/orcamentos/${e.id}`, { cache: 'no-store' });
+                          const det = await res.json();
+                          if (det && !det.error) imprimirOrcamento(det);
+                        }}
+                        className="flex-1 bg-[#F7941D] text-white py-1.5 rounded-lg text-xs font-bold hover:bg-[#E8830C] transition"
+                      >
+                        🖨️ Imprimir
+                      </button>
                     </div>
+</div>
                   ))}
                 </div>
               )}
