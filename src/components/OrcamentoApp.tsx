@@ -742,8 +742,8 @@ export default function OrcamentoApp() {  // Auth state
     setOrcamentoSalvo(null);
     try {
       const payload: Record<string, unknown> = {
-        cliente_nome: nomeCliente || 'Cliente',
-        cliente_telefone: whatsappCliente || '00000000000',
+        cliente_nome: clienteNomeNovo || nomeCliente || 'Cliente',
+        cliente_telefone: clienteTelefoneNovo || whatsappCliente || '00000000000',
         cliente_cep: cepDestino || null,
         cliente_endereco: enderecoViaCEP || null,
         cliente_numero: numeroEndereco || null,
@@ -1837,7 +1837,7 @@ export default function OrcamentoApp() {  // Auth state
                               clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
                               (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
                                 try {
-                                  const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(digits)}`);
+                                  const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digit&limite=1s)}`);
                                   const data = await r.json();
                                   if (data.clientes && data.clientes.length > 0) {
                                     const cli = data.clientes[0];
