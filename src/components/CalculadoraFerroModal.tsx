@@ -54,16 +54,13 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
     const nomeMedida = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial');
     const tipoPlural = quantidade > 1 ? TIPO_LABELS[tipo] + 's' : TIPO_LABELS[tipo];
     const barrasLabel = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
-    // Formato simplificado: "3 Vigas 5m 9×20 4 barras"
-    const nome = `${quantidade} ${tipoPlural} ${metrosPorPeca}m ${nomeMedida} ${barrasLabel}`;
-    // Observação com metragem total: "3 Vigas 5m 9×20 4 barras | 15m"
-    const especificacoes = `${nome} | ${metrosTotal}m`;
+    // Formato: "3 Vigas 5m 9×20 4 barras | 15m"
+    const nome = `${quantidade} ${tipoPlural} ${metrosPorPeca}m ${nomeMedida} ${barrasLabel} | ${metrosTotal}m`;
     onAdicionarItens([{
       nome,
       quantidade: metrosTotal,
       preco: precoPorMetro,
-      especificacoes,
-    }]);
+    }])
     onClose();
   };
 
