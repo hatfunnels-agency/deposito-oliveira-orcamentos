@@ -762,6 +762,8 @@ export default function OrcamentoApp() {  // Auth state
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
         criado_por: user?.id ?? null,
+        status_pagamento: editandoStatusPag || 'pendente',
+        forma_pagamento: editandoFormaPag || null,
         itens: itens.map(i => ({
           produto_id: i.avulso ? null : i.produto.id,
           produto_nome: i.produto.nome,
@@ -2048,7 +2050,6 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 );
               })()}
-              {editandoId && (
                 <div className="bg-white rounded-xl shadow-sm border border-[#F7941D] p-4">
                   <h2 className="font-bold text-[#F7941D] mb-3 text-sm">⚙️ Gestão do Pedido</h2>
                   <div className="space-y-2">
@@ -2057,7 +2058,7 @@ export default function OrcamentoApp() {  // Auth state
                       <select value={editandoStatus} onChange={e => {
                         const val = e.target.value;
                         setEditandoStatus(val);
-                        atualizarStatusOrcamento(editandoId, val, editandoStatus);
+                        if (editandoId) atualizarStatusOrcamento(editandoId, val, editandoStatus);
                       }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
                         {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                       </select>
@@ -2067,7 +2068,7 @@ export default function OrcamentoApp() {  // Auth state
                       <select value={editandoStatusPag} onChange={e => {
                         const val = e.target.value;
                         setEditandoStatusPag(val);
-                        fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_pagamento: val }), cache: 'no-store' });
+                        if (editandoId) fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_pagamento: val }), cache: 'no-store' });
                       }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
                         <option value="pendente">⏳ Pendente</option>
                         <option value="parcial">⚠️ Parcial</option>
@@ -2080,7 +2081,7 @@ export default function OrcamentoApp() {  // Auth state
                       <select value={editandoFormaPag} onChange={e => {
                         const val = e.target.value;
                         setEditandoFormaPag(val);
-                        fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forma_pagamento: val }), cache: 'no-store' });
+                        if (editandoId) fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forma_pagamento: val }), cache: 'no-store' });
                       }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
                         <option value="">Forma de pagamento...</option>
                         <option value="dinheiro">Dinheiro</option>
@@ -2093,7 +2094,6 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                   </div>
                 </div>
-              )}
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
