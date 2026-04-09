@@ -303,6 +303,9 @@ export default function OrcamentoApp() {  // Auth state
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
+  const [editandoStatus, setEditandoStatus] = useState<string>('orcamento');
+  const [editandoStatusPag, setEditandoStatusPag] = useState<string>('pendente');
+  const [editandoFormaPag, setEditandoFormaPag] = useState<string>('');
   // Feature 8 - Address detail fields
   const [numeroEndereco, setNumeroEndereco] = useState('');
   const [complementoEndereco, setComplementoEndereco] = useState('');
@@ -988,6 +991,9 @@ export default function OrcamentoApp() {  // Auth state
     setComplementoEndereco(detalhe.clientes?.complemento || '');
     setRecebedor(detalhe.clientes?.recebedor || '');
     setObservacoes(detalhe.observacoes || '');
+    setEditandoStatus((detalhe as any).status || 'orcamento');
+    setEditandoStatusPag((detalhe as any).status_pagamento || 'pendente');
+    setEditandoFormaPag((detalhe as any).forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
       // Itens avulsos (ferro) têm produto_id null — restaurar como avulso
       if (oi.produto_id === null) {
@@ -2042,6 +2048,52 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 );
               })()}
+              {editandoId && (
+                <div className="bg-white rounded-xl shadow-sm border border-[#F7941D] p-4">
+                  <h2 className="font-bold text-[#F7941D] mb-3 text-sm">⚙️ Gestão do Pedido</h2>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
+                      <select value={editandoStatus} onChange={e => {
+                        const val = e.target.value;
+                        setEditandoStatus(val);
+                        atualizarStatusOrcamento(editandoId, val, editandoStatus);
+                      }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
+                        {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Status do pagamento</label>
+                      <select value={editandoStatusPag} onChange={e => {
+                        const val = e.target.value;
+                        setEditandoStatusPag(val);
+                        fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_pagamento: val }), cache: 'no-store' });
+                      }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
+                        <option value="pendente">⏳ Pendente</option>
+                        <option value="parcial">⚠️ Parcial</option>
+                        <option value="completo">✅ Completo</option>
+                        <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
+                      <select value={editandoFormaPag} onChange={e => {
+                        const val = e.target.value;
+                        setEditandoFormaPag(val);
+                        fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forma_pagamento: val }), cache: 'no-store' });
+                      }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
+                        <option value="">Forma de pagamento...</option>
+                        <option value="dinheiro">Dinheiro</option>
+                        <option value="pix">PIX</option>
+                        <option value="debito">Débito</option>
+                        <option value="credito">Crédito</option>
+                        <option value="boleto">Boleto</option>
+                        <option value="pagamento_na_entrega">Pagamento na Entrega</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
+              )}
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
