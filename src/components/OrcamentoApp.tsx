@@ -2815,6 +2815,7 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                   );
                 })()}
+                {orcamentoDetalhe && (
                   {(() => {
                     const obsClean = (orcamentoDetalhe.observacoes || '').replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim();
                     return obsClean ? (
