@@ -2296,7 +2296,6 @@ export default function OrcamentoApp() {  // Auth state
                         >
                           📋 Ver Pedido
                         </button></div>
-</div>
                   ))}
                 </div>
               )}
@@ -2406,7 +2405,6 @@ export default function OrcamentoApp() {  // Auth state
                         >
                           📋 Ver Pedido
                         </button></div>
-</div>
                   ))}
                 </div>
               )}
