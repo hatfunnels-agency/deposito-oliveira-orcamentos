@@ -2592,6 +2592,7 @@ export default function OrcamentoApp() {  // Auth state
             </div>
 
           </div>
+          </div>
         )}
       </div>
 
@@ -3310,6 +3311,7 @@ export default function OrcamentoApp() {  // Auth state
           onClose={() => setShowCalculadoraFerro(false)}
         />
       )}
+      </div>
     </div>
   );
 }
