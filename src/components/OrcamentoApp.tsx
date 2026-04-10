@@ -597,12 +597,7 @@ export default function OrcamentoApp() {  // Auth state
         .finally(() => setCarregandoLevas(false));
       // Load retiradas pendentes
       carregarRetiradas();
-    }
-    if (abaAtiva === 'ferragens') {
-      carregarFerragens();
-      carregarFerragensProducao();
-    }
-  }, [abaAtiva]);
+    }  }, [abaAtiva]);
 
   // Feature 7 - Search address by street name
   const buscarEnderecoPorRua = async () => {
