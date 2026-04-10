@@ -263,7 +263,7 @@ export default function OrcamentoApp() {  // Auth state
     ? ['entregas']
     : papelUsuario === 'atendente'
     ? ['produtos', 'orcamento', 'historico', 'entregas', 'dashboard']
-    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'dashboard'];
+    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'ferragens', 'dashboard'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -273,7 +273,7 @@ export default function OrcamentoApp() {  // Auth state
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'dashboard'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'ferragens' | 'dashboard'>('produtos');
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
@@ -303,9 +303,6 @@ export default function OrcamentoApp() {  // Auth state
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
-  const [editandoStatus, setEditandoStatus] = useState<string>('orcamento');
-  const [editandoStatusPag, setEditandoStatusPag] = useState<string>('pendente');
-  const [editandoFormaPag, setEditandoFormaPag] = useState<string>('');
   // Feature 8 - Address detail fields
   const [numeroEndereco, setNumeroEndereco] = useState('');
   const [complementoEndereco, setComplementoEndereco] = useState('');
@@ -742,17 +739,14 @@ export default function OrcamentoApp() {  // Auth state
     setOrcamentoSalvo(null);
     try {
       const payload: Record<string, unknown> = {
-        cliente_nome: clienteNomeNovo || nomeCliente || 'Cliente',
-        cliente_telefone: clienteTelefoneNovo || whatsappCliente || '00000000000',
+        cliente_nome: nomeCliente || 'Cliente',
+        cliente_telefone: whatsappCliente || '00000000000',
         cliente_cep: cepDestino || null,
         cliente_endereco: enderecoViaCEP || null,
         cliente_numero: numeroEndereco || null,
         cliente_complemento: complementoEndereco || null,
         cliente_recebedor: recebedor || null,
-        observacoes: (() => {
-          const ferroItens = itens.filter(i => i.avulso);
-          return observacoes || null;
-        })(),
+        observacoes: observacoes || null,
         tipo_entrega: tipoEntrega,
         valor_frete: totalFrete,
         subtotal,
@@ -762,8 +756,6 @@ export default function OrcamentoApp() {  // Auth state
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
         criado_por: user?.id ?? null,
-        status_pagamento: editandoStatusPag || 'pendente',
-        forma_pagamento: editandoFormaPag || null,
         itens: itens.map(i => ({
           produto_id: i.avulso ? null : i.produto.id,
           produto_nome: i.produto.nome,
@@ -850,11 +842,7 @@ export default function OrcamentoApp() {  // Auth state
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         '',
         (detalhe as any).status_pagamento === 'completo' ? '*✅ Pagamento: Pago*' : (detalhe as any).status_pagamento === 'parcial' ? '*⚠️ Pagamento: Parcial*' : '',
-        ...(() => {
-          const rawObs = detalhe.observacoes || '';
-          const cleanObs = rawObs.replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim();
-          return cleanObs ? [`_Obs: ${cleanObs}_`] : [];
-        })(),
+        ...(detalhe.observacoes ? [`_Obs: ${detalhe.observacoes}_`] : []),
         '_Orçamento válido por 7 dias_',
         '_Sujeito a disponibilidade de estoque_',
       ].filter((l): l is string => typeof l === 'string' && l.length > 0);
@@ -923,14 +911,12 @@ export default function OrcamentoApp() {  // Auth state
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
     const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    const ferroItensImp = !d ? itens.filter(i => i.avulso) : [];
-    const obsRaw = d ? d.observacoes : (observacoes || null);
-    const obsImp = obsRaw ? obsRaw.replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim() || null : null;
+    const obsImp = d ? d.observacoes : (observacoes || null);
     const formaPagImp = d ? (d as any).forma_pagamento as string | null : null;
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${obsImp ? '<div class="ir full"><b>Obs:</b> '+obsImp.replace(/\n/g,'<br>')+'</div>' : ''}}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; if (ferrLinhas.length > 0) html += '<div class="ir full"><b>🔩 Ferragem:</b><br>'+ferrLinhas.join('<br>')+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -985,9 +971,6 @@ export default function OrcamentoApp() {  // Auth state
     setComplementoEndereco(detalhe.clientes?.complemento || '');
     setRecebedor(detalhe.clientes?.recebedor || '');
     setObservacoes(detalhe.observacoes || '');
-    setEditandoStatus((detalhe as any).status || 'orcamento');
-    setEditandoStatusPag((detalhe as any).status_pagamento || 'pendente');
-    setEditandoFormaPag((detalhe as any).forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
       // Itens avulsos (ferro) têm produto_id null — restaurar como avulso
       if (oi.produto_id === null) {
@@ -1561,7 +1544,7 @@ export default function OrcamentoApp() {  // Auth state
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
+          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ferragens' | 'dashboard'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
               {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'ferragens' ? '🔧 Ferragens' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
@@ -1794,14 +1777,13 @@ export default function OrcamentoApp() {  // Auth state
         {/* ===== ORCAMENTO TAB ===== */}
         {abaAtiva === 'orcamento' && (
           <div className="max-w-2xl mx-auto pb-8">
-            {itens.length === 0 && (
+            {itens.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <p className="text-5xl mb-4">🛒</p>
                 <p className="text-lg">Seu orçamento está vazio</p>
                 <button onClick={() => setAbaAtiva('produtos')} className="mt-4 bg-[#F7941D] text-white px-6 py-2 rounded-lg hover:bg-[#E8850A] transition">Ver Produtos</button>
               </div>
-           
-          )}
+            ) : (
               <div className="space-y-4">
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
@@ -1830,7 +1812,7 @@ export default function OrcamentoApp() {  // Auth state
                               clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
                               (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
                                 try {
-                                  const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}&limite=1`);
+                                  const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(digits)}`);
                                   const data = await r.json();
                                   if (data.clientes && data.clientes.length > 0) {
                                     const cli = data.clientes[0];
@@ -2043,50 +2025,6 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 );
               })()}
-                <div className="bg-white rounded-xl shadow-sm border border-[#F7941D] p-4">
-                  <h2 className="font-bold text-[#F7941D] mb-3 text-sm">⚙️ Gestão do Pedido</h2>
-                  <div className="space-y-2">
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
-                      <select value={editandoStatus} onChange={e => {
-                        const val = e.target.value;
-                        setEditandoStatus(val);
-                        if (editandoId) atualizarStatusOrcamento(editandoId, val, editandoStatus);
-                      }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                        {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Status do pagamento</label>
-                      <select value={editandoStatusPag} onChange={e => {
-                        const val = e.target.value;
-                        setEditandoStatusPag(val);
-                        if (editandoId) fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status_pagamento: val }), cache: 'no-store' });
-                      }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                        <option value="pendente">⏳ Pendente</option>
-                        <option value="parcial">⚠️ Parcial</option>
-                        <option value="completo">✅ Completo</option>
-                        <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
-                      <select value={editandoFormaPag} onChange={e => {
-                        const val = e.target.value;
-                        setEditandoFormaPag(val);
-                        if (editandoId) fetch(`/api/orcamentos/${editandoId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ forma_pagamento: val }), cache: 'no-store' });
-                      }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                        <option value="">Forma de pagamento...</option>
-                        <option value="dinheiro">Dinheiro</option>
-                        <option value="pix">PIX</option>
-                        <option value="debito">Débito</option>
-                        <option value="credito">Crédito</option>
-                        <option value="boleto">Boleto</option>
-                        <option value="pagamento_na_entrega">Pagamento na Entrega</option>
-                      </select>
-                    </div>
-                  </div>
-                </div>
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
@@ -2098,6 +2036,7 @@ export default function OrcamentoApp() {  // Auth state
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
                 </button>
               </div>
+            )}
           </div>
         )}
 
@@ -2268,34 +2207,7 @@ export default function OrcamentoApp() {  // Auth state
                       >
                         {marcandoRetirado === r.id ? 'Marcando...' : '✅ Marcar Retirado'}
                       </button>
-                                          <div className="flex gap-2 mt-2">
-                        <button
-                          onClick={async () => {
-                            const res = await fetch(`/api/orcamentos/${r.id}`, { cache: 'no-store' });
-                            const det = await res.json();
-                            if (det && !det.error) editarOrcamento(det);
-                          }}
-                          className="flex-1 bg-yellow-500 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition"
-                        >
-                          ✏️ Abrir Pedido
-                        </button>
-                        <button
-                          onClick={async () => {
-                            const res = await fetch(`/api/orcamentos/${r.id}`, { cache: 'no-store' });
-                            const det = await res.json();
-                            if (det && !det.error) imprimirOrcamento(det);
-                          }}
-                          className="flex-1 bg-[#F7941D] text-white py-1.5 rounded-lg text-xs font-bold hover:bg-[#E8830C] transition"
-                        >
-                          🖨️ Imprimir
-                        </button>
-                      
-                        <button
-                          onClick={() => abrirDetalhe(r.id)}
-                          className="flex-1 bg-blue-600 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition"
-                        >
-                          📋 Ver Pedido
-                        </button></div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -2359,6 +2271,7 @@ export default function OrcamentoApp() {  // Auth state
                         >
                           {expandedDia.includes(e.id) ? '▲ Fechar' : '📦 Ver pedido'}
                         </button>
+                          <button onClick={() => abrirDetalhe(e.id)} className="shrink-0 text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 whitespace-nowrap">📋 Ver Pedido</button>
                       </div>
                       {expandedDia.includes(e.id) && (
                         <div className="border-t border-gray-100 bg-orange-50 px-4 py-3 text-xs space-y-1">
@@ -2377,34 +2290,7 @@ export default function OrcamentoApp() {  // Auth state
                           {e.observacoes && <p className="text-gray-500 italic mt-1">Obs: {e.observacoes}</p>}
                         </div>
                       )}
-                                        <div className="flex gap-2 mt-2">
-                      <button
-                        onClick={async () => {
-                          const res = await fetch(`/api/orcamentos/${e.id}`, { cache: 'no-store' });
-                          const det = await res.json();
-                          if (det && !det.error) editarOrcamento(det);
-                        }}
-                        className="flex-1 bg-yellow-500 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-yellow-600 transition"
-                      >
-                        ✏️ Abrir Pedido
-                      </button>
-                      <button
-                        onClick={async () => {
-                          const res = await fetch(`/api/orcamentos/${e.id}`, { cache: 'no-store' });
-                          const det = await res.json();
-                          if (det && !det.error) imprimirOrcamento(det);
-                        }}
-                        className="flex-1 bg-[#F7941D] text-white py-1.5 rounded-lg text-xs font-bold hover:bg-[#E8830C] transition"
-                      >
-                        🖨️ Imprimir
-                      </button>
-                    
-                        <button
-                          onClick={() => abrirDetalhe(e.id)}
-                          className="flex-1 bg-blue-600 text-white py-1.5 rounded-lg text-xs font-bold hover:bg-blue-700 transition"
-                        >
-                          📋 Ver Pedido
-                        </button></div>
+                    </div>
                   ))}
                 </div>
               )}
@@ -2591,7 +2477,6 @@ export default function OrcamentoApp() {  // Auth state
               )}
             </div>
 
-          </div>
           </div>
         )}
       </div>
@@ -2816,16 +2701,12 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                   );
                 })()}
-                {orcamentoDetalhe && (
-                  {(() => {
-                    const obsClean = (orcamentoDetalhe.observacoes || '').replace(/FERRAGEM:[\s\S]*/g, '').replace(/\[FERRO:[\s\S]*?\]/g, '').trim();
-                    return obsClean ? (
-                    <div className="px-4 py-2 border-b border-gray-100">
-                      <h3 className="font-bold text-gray-700 mb-1 text-sm">Observações</h3>
-                      <p className="text-sm text-gray-600 whitespace-pre-line">{obsClean}</p>
-                    </div>
-                    ) : null;
-                  })()}
+              {orcamentoDetalhe.observacoes && (
+            <div className="mt-3 p-3 bg-gray-50 rounded-lg">
+              <p className="text-xs text-gray-500 font-medium mb-1">Observações</p>
+              <p className="text-sm text-gray-700 whitespace-pre-wrap">{orcamentoDetalhe.observacoes}</p>
+            </div>
+          )}
                 <div className="px-4 py-3 space-y-1.5">
                   <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
                   <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
@@ -2851,7 +2732,6 @@ export default function OrcamentoApp() {  // Auth state
             )}
           </div>
         </div>
-      )}
       )}
 
       {/* Feature 9 - Reschedule Modal */}
@@ -3312,7 +3192,6 @@ export default function OrcamentoApp() {  // Auth state
           onClose={() => setShowCalculadoraFerro(false)}
         />
       )}
-    </div>
     </div>
   );
 }
