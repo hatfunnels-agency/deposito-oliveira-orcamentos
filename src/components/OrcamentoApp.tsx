@@ -263,7 +263,7 @@ export default function OrcamentoApp() {  // Auth state
     ? ['entregas']
     : papelUsuario === 'atendente'
     ? ['produtos', 'orcamento', 'historico', 'entregas', 'dashboard']
-    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'ferragens', 'dashboard'];
+    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'dashboard'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -273,7 +273,7 @@ export default function OrcamentoApp() {  // Auth state
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'ferragens' | 'dashboard'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ia' | 'dashboard'>('produtos');
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
@@ -916,7 +916,7 @@ export default function OrcamentoApp() {  // Auth state
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; if (ferrLinhas.length > 0) html += '<div class="ir full"><b>🔩 Ferragem:</b><br>'+ferrLinhas.join('<br>')+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1544,10 +1544,10 @@ export default function OrcamentoApp() {  // Auth state
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'ferragens' | 'dashboard'>).map(aba => (
+          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'ferragens' ? '🔧 Ferragens' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -2985,134 +2985,6 @@ export default function OrcamentoApp() {  // Auth state
         </div>
       )}
 
-      {/* ===== FERRAGENS TAB ===== */}
-      {abaAtiva === 'ferragens' && (
-        <div className="pb-8 space-y-6">
-          {/* === SECAO PENDENTES === */}
-          <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-orange-700">🔧 Ferragem Pendente {!loadingFerragens && ferragens.length > 0 && <span className="ml-1 text-sm font-normal text-orange-500">({ferragens.length})</span>}</h2>
-              <button onClick={carregarFerragens} disabled={loadingFerragens} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1 rounded hover:bg-orange-50 border border-orange-200">
-                {loadingFerragens ? 'Carregando...' : '↻ Atualizar'}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mb-3">Orçamentos com ferragem que ainda não foram passados ao ferreiro.</p>
-            {loadingFerragens && <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-orange-500"></div></div>}
-            {!loadingFerragens && ferragens.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-4">Nenhuma ferragem pendente</p>
-            )}
-            {!loadingFerragens && ferragens.length > 0 && (
-              <div className="space-y-3">
-                {ferragens.map((f: Record<string, unknown>) => {
-                  const obs = (f.observacoes as string) || '';
-                  const ferragemIdx = obs.indexOf('FERRAGEM:');
-                  const ferragemBlock = ferragemIdx >= 0 ? obs.slice(ferragemIdx) : '';
-                  const ferragemLinhas = ferragemBlock ? ferragemBlock.split('\n').filter((l: string) => l.trim()) : [];
-                  return (
-                    <div key={f.id as string} className="border border-orange-100 rounded-lg bg-orange-50 p-3">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-800 text-sm">{(f.clientes as Record<string, unknown>)?.nome as string || 'Cliente'} <span className="text-gray-500 font-normal text-xs">— {(f.clientes as Record<string, unknown>)?.telefone as string}</span></p>
-                          <p className="text-xs text-orange-600 font-mono">{f.codigo as string}</p>
-                        </div>
-                        <p className="text-xs text-gray-500 shrink-0">{f.status as string}</p>
-                      </div>
-                      {ferragemLinhas.length > 0 && (
-                        <div className="mb-2">
-                          {ferragemLinhas.map((linha: string, i: number) => (
-                            <p key={i} className="text-xs text-gray-700 font-mono">{linha}</p>
-                          ))}
-                        </div>
-                      )}
-                      <button
-                        onClick={async () => {
-                          setPassandoAoFerreiro(f.id as string);
-                          try {
-                            await fetch('/api/orcamentos/' + (f.id as string), {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ ferragem_status: 'em_producao' }),
-                              cache: 'no-store',
-                            });
-                            await Promise.all([carregarFerragens(), carregarFerragensProducao()]);
-                          } catch (e) { console.error('Erro ao passar ao ferreiro', e); }
-                          setPassandoAoFerreiro(null);
-                        }}
-                        disabled={passandoAoFerreiro === (f.id as string)}
-                        className="w-full mt-1 px-3 py-2 bg-orange-500 hover:bg-orange-600 disabled:opacity-50 text-white rounded-lg text-sm font-semibold"
-                      >
-                        {passandoAoFerreiro === (f.id as string) ? 'Passando...' : '📤 Passar ao Ferreiro'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-
-          {/* === SECAO EM PRODUCAO === */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-bold text-gray-700">🔨 Em Produção {!loadingFerragensProducao && ferragensProducao.length > 0 && <span className="ml-1 text-sm font-normal text-gray-500">({ferragensProducao.length})</span>}</h2>
-              <button onClick={carregarFerragensProducao} disabled={loadingFerragensProducao} className="text-xs text-gray-600 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 border border-gray-200">
-                {loadingFerragensProducao ? 'Carregando...' : '↻ Atualizar'}
-              </button>
-            </div>
-            <p className="text-xs text-gray-500 mb-3">Orçamentos já passados ao ferreiro.</p>
-            {loadingFerragensProducao && <div className="flex justify-center py-4"><div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div></div>}
-            {!loadingFerragensProducao && ferragensProducao.length === 0 && (
-              <p className="text-sm text-gray-400 text-center py-4">Nenhuma ferragem em produção</p>
-            )}
-            {!loadingFerragensProducao && ferragensProducao.length > 0 && (
-              <div className="space-y-3">
-                {ferragensProducao.map((f: Record<string, unknown>) => {
-                  const obs = (f.observacoes as string) || '';
-                  const ferragemIdx = obs.indexOf('FERRAGEM:');
-                  const ferragemBlock = ferragemIdx >= 0 ? obs.slice(ferragemIdx) : '';
-                  const ferragemLinhas = ferragemBlock ? ferragemBlock.split('\n').filter((l: string) => l.trim()) : [];
-                  return (
-                    <div key={f.id as string} className="border border-gray-200 rounded-lg bg-gray-50 p-3">
-                      <div className="flex items-start justify-between gap-2 mb-2">
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-800 text-sm">{(f.clientes as Record<string, unknown>)?.nome as string || 'Cliente'} <span className="text-gray-500 font-normal text-xs">— {(f.clientes as Record<string, unknown>)?.telefone as string}</span></p>
-                          <p className="text-xs text-gray-600 font-mono">{f.codigo as string}</p>
-                        </div>
-                        <p className="text-xs text-gray-500 shrink-0">{f.status as string}</p>
-                      </div>
-                      {ferragemLinhas.length > 0 && (
-                        <div className="mb-2">
-                          {ferragemLinhas.map((linha: string, i: number) => (
-                            <p key={i} className="text-xs text-gray-700 font-mono">{linha}</p>
-                          ))}
-                        </div>
-                      )}
-                      <button
-                        onClick={async () => {
-                          setVoltandoFerragemPendente(f.id as string);
-                          try {
-                            await fetch('/api/orcamentos/' + (f.id as string), {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ ferragem_status: null }),
-                              cache: 'no-store',
-                            });
-                            await Promise.all([carregarFerragens(), carregarFerragensProducao()]);
-                          } catch (e) { console.error('Erro ao voltar ferragem para pendente', e); }
-                          setVoltandoFerragemPendente(null);
-                        }}
-                        disabled={voltandoFerragemPendente === (f.id as string)}
-                        className="w-full mt-1 px-3 py-2 bg-gray-200 hover:bg-gray-300 disabled:opacity-50 text-gray-700 rounded-lg text-sm font-medium"
-                      >
-                        {voltandoFerragemPendente === (f.id as string) ? 'Voltando...' : '↩ Voltar para Pendente'}
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* === ABA IA === */}
       {abaAtiva === 'ia' && (
