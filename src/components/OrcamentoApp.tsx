@@ -1005,7 +1005,7 @@ export default function OrcamentoApp() {  // Auth state
     });
     setItens(cartItems);
     setMostrarDetalhe(false);
-    setOrcamentoDetalhe(null);
+    setOrcamentoDetalhe(detalhe);
     setAbaAtiva('orcamento');
   };
 
@@ -1581,6 +1581,13 @@ export default function OrcamentoApp() {  // Auth state
                               setClienteEncontrado(cli);
                               setClienteNomeNovo(cli.nome);
                               setClienteTelefoneNovo(cli.telefone);
+                              setNomeCliente(cli.nome);
+                              setWhatsappCliente(cli.telefone);
+                              if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
+                              if (cli.endereco) setEnderecoViaCEP(cli.endereco);
+                              if (cli.numero) setNumeroEndereco(cli.numero);
+                              if (cli.complemento) setComplementoEndereco(cli.complemento);
+                              if (cli.recebedor) setRecebedor(cli.recebedor);
                             } else {
                               setClienteEncontrado(null);
                             }
@@ -1816,6 +1823,11 @@ export default function OrcamentoApp() {  // Auth state
                                     setClienteTelefoneNovo(cli.telefone);
                                     setNomeCliente(cli.nome);
                                     setWhatsappCliente(cli.telefone);
+                                    if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
+                                    if (cli.endereco) setEnderecoViaCEP(cli.endereco);
+                                    if (cli.numero) setNumeroEndereco(cli.numero);
+                                    if (cli.complemento) setComplementoEndereco(cli.complemento);
+                                    if (cli.recebedor) setRecebedor(cli.recebedor);
                                   } else {
                                     setClienteEncontrado(null);
                                   }
@@ -1844,7 +1856,35 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">Telefone *</label>
-                      <input type="tel" placeholder="(11) 99999-9999" value={whatsappCliente} onChange={e => { setWhatsappCliente(e.target.value); setClienteTelefoneNovo(e.target.value); }}
+                      <input type="tel" placeholder="(11) 99999-9999" value={whatsappCliente} onChange={e => {
+                        const v = e.target.value;
+                        setWhatsappCliente(v);
+                        setClienteTelefoneNovo(v);
+                        setClienteEncontrado(null);
+                        const digits = v.replace(/\D/g, '');
+                        if (digits.length >= 8) {
+                          clearTimeout((window as typeof window & {_wTimer?: ReturnType<typeof setTimeout>})._wTimer);
+                          (window as typeof window & {_wTimer?: ReturnType<typeof setTimeout>})._wTimer = setTimeout(async () => {
+                            try {
+                              setClienteBuscandoNum(true);
+                              const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}`, { cache: 'no-store' });
+                              const data = await r.json();
+                              if (data.clientes && data.clientes.length > 0) {
+                                const cli = data.clientes[0];
+                                setClienteEncontrado(cli);
+                                setClienteNomeNovo(cli.nome);
+                                setClienteTelefoneNovo(cli.telefone);
+                                setNomeCliente(cli.nome);
+                                if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
+                                if (cli.endereco) setEnderecoViaCEP(cli.endereco);
+                                if (cli.numero) setNumeroEndereco(cli.numero);
+                                if (cli.complemento) setComplementoEndereco(cli.complemento);
+                                if (cli.recebedor) setRecebedor(cli.recebedor);
+                              } else { setClienteEncontrado(null); }
+                            } catch {} finally { setClienteBuscandoNum(false); }
+                          }, 400);
+                        }
+                      }}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                     </div>
                   </div>
@@ -2024,6 +2064,44 @@ export default function OrcamentoApp() {  // Auth state
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
                   <button type="button" onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setObservacoes(''); }} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
+                </div>
+              )}
+              {editandoId && orcamentoDetalhe && (
+                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
+                  <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
+                  <div className="grid grid-cols-1 gap-3">
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
+                      <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(editandoId, e.target.value, orcamentoDetalhe.status)} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                        <option value="orcamento">📋 Orçamento</option>
+                        <option value="confirmado">✅ Confirmado</option>
+                        <option value="entrega_pendente">🚚 Entrega Pendente</option>
+                        <option value="entregue">📦 Entregue</option>
+                        <option value="cancelado">❌ Cancelado</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
+                      <select value={orcamentoDetalhe.status_pagamento || "pendente"} onChange={e => { const v = e.target.value; fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }), cache: "no-store" }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, status_pagamento: v })); }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                        <option value="pendente">⏳ Pendente</option>
+                        <option value="parcial">⚠️ Parcial</option>
+                        <option value="completo">✅ Completo</option>
+                        <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
+                      <select value={orcamentoDetalhe.forma_pagamento || ""} onChange={e => { const v = e.target.value; fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }), cache: "no-store" }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, forma_pagamento: v })); }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                        <option value="">-- Selecione --</option>
+                        <option value="dinheiro">💵 Dinheiro</option>
+                        <option value="pix">📱 PIX</option>
+                        <option value="cartao_credito">💳 Cartão Crédito</option>
+                        <option value="cartao_debito">💳 Cartão Débito</option>
+                        <option value="boleto">🏦 Boleto</option>
+                        <option value="fiado">📝 Fiado</option>
+                      </select>
+                    </div>
+                  </div>
                 </div>
               )}
               <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
