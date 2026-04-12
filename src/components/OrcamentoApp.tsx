@@ -299,6 +299,9 @@ export default function OrcamentoApp() {  // Auth state
   const [dataEntrega, setDataEntrega] = useState('');
   const [dataRetirada, setDataRetirada] = useState('');
   const [fonteVenda, setFonteVenda] = useState('');
+  const [statusPedidoForm, setStatusPedidoForm] = useState('orcamento');
+  const [statusPagamentoForm, setStatusPagamentoForm] = useState('pendente');
+  const [formaPagamentoForm, setFormaPagamentoForm] = useState('');
   const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<OrcamentoDetalhe | null>(null);
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
@@ -750,6 +753,9 @@ export default function OrcamentoApp() {  // Auth state
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
+        status: statusPedidoForm || 'orcamento',
+        status_pagamento: statusPagamentoForm || 'pendente',
+        forma_pagamento: formaPagamentoForm || null,
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
           produto_id: i.avulso ? null : i.produto.id,
@@ -966,6 +972,9 @@ export default function OrcamentoApp() {  // Auth state
     setComplementoEndereco(detalhe.clientes?.complemento || '');
     setRecebedor(detalhe.clientes?.recebedor || '');
     setObservacoes(detalhe.observacoes || '');
+    setStatusPedidoForm(detalhe.status || 'orcamento');
+    setStatusPagamentoForm(detalhe.status_pagamento || 'pendente');
+    setFormaPagamentoForm((detalhe as any).forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
       // Itens avulsos (ferro) têm produto_id null — restaurar como avulso
       if (oi.produto_id === null) {
@@ -1791,6 +1800,9 @@ export default function OrcamentoApp() {  // Auth state
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
                     <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
+          setStatusPedidoForm('orcamento');
+          setStatusPagamentoForm('pendente');
+          setFormaPagamentoForm('');
                       className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
@@ -2066,44 +2078,42 @@ export default function OrcamentoApp() {  // Auth state
                   <button type="button" onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setObservacoes(''); }} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
                 </div>
               )}
-              {editandoId && orcamentoDetalhe && (
-                <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
-                  <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
-                  <div className="grid grid-cols-1 gap-3">
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
-                      <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(editandoId, e.target.value, orcamentoDetalhe.status)} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                        <option value="orcamento">📋 Orçamento</option>
-                        <option value="confirmado">✅ Confirmado</option>
-                        <option value="entrega_pendente">🚚 Entrega Pendente</option>
-                        <option value="entregue">📦 Entregue</option>
-                        <option value="cancelado">❌ Cancelado</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
-                      <select value={orcamentoDetalhe.status_pagamento || "pendente"} onChange={e => { const v = e.target.value; fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }), cache: "no-store" }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, status_pagamento: v })); }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                        <option value="pendente">⏳ Pendente</option>
-                        <option value="parcial">⚠️ Parcial</option>
-                        <option value="completo">✅ Completo</option>
-                        <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
-                      <select value={orcamentoDetalhe.forma_pagamento || ""} onChange={e => { const v = e.target.value; fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }), cache: "no-store" }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, forma_pagamento: v })); }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                        <option value="">-- Selecione --</option>
-                        <option value="dinheiro">💵 Dinheiro</option>
-                        <option value="pix">📱 PIX</option>
-                        <option value="cartao_credito">💳 Cartão Crédito</option>
-                        <option value="cartao_debito">💳 Cartão Débito</option>
-                        <option value="boleto">🏦 Boleto</option>
-                        <option value="fiado">📝 Fiado</option>
-                      </select>
-                    </div>
+              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
+                <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
+                <div className="grid grid-cols-1 gap-3">
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
+                    <select value={statusPedidoForm} onChange={e => { const v = e.target.value; setStatusPedidoForm(v); if (editandoId) { atualizarStatusOrcamento(editandoId, v, statusPedidoForm); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                      <option value="orcamento">📋 Orçamento</option>
+                      <option value="confirmado">✅ Confirmado</option>
+                      <option value="entrega_pendente">🚚 Entrega Pendente</option>
+                      <option value="entregue">📦 Entregue</option>
+                      <option value="cancelado">❌ Cancelado</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
+                    <select value={statusPagamentoForm} onChange={e => { const v = e.target.value; setStatusPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }), cache: "no-store" }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                      <option value="pendente">⏳ Pendente</option>
+                      <option value="parcial">⚠️ Parcial</option>
+                      <option value="completo">✅ Completo</option>
+                      <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
+                    <select value={formaPagamentoForm} onChange={e => { const v = e.target.value; setFormaPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }), cache: "no-store" }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                      <option value="">-- Selecione --</option>
+                      <option value="dinheiro">💵 Dinheiro</option>
+                      <option value="pix">📱 PIX</option>
+                      <option value="cartao_credito">💳 Cartão Crédito</option>
+                      <option value="cartao_debito">💳 Cartão Débito</option>
+                      <option value="boleto">🏦 Boleto</option>
+                      <option value="fiado">📝 Fiado</option>
+                    </select>
                   </div>
                 </div>
-              )}
+              </div>
               <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
                   className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
