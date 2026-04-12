@@ -5,6 +5,7 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const busca = searchParams.get('busca');
+    const telefone = searchParams.get('telefone');
     const pagina = parseInt(searchParams.get('pagina') || '1');
     const limite = parseInt(searchParams.get('limite') || '20');
     const offset = (pagina - 1) * limite;
@@ -15,7 +16,10 @@ export async function GET(request: NextRequest) {
       .order('atualizado_em', { ascending: false })
       .range(offset, offset + limite - 1);
 
-    if (busca) {
+    if (telefone) {
+      const telefoneLimpo = telefone.replace(/\D/g, '');
+      query = query.ilike('telefone', `%${telefoneLimpo}%`);
+    } else if (busca) {
       query = query.or(
         `nome.ilike.%${busca}%,telefone.ilike.%${busca}%`
       );
@@ -51,7 +55,16 @@ export async function POST(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('clientes')
       .upsert(
-        { nome, telefone: telefoneLimpo, cep, endereco, bairro, cidade, estado, atualizado_em: new Date().toISOString() },
+        {
+          nome,
+          telefone: telefoneLimpo,
+          cep,
+          endereco,
+          bairro,
+          cidade,
+          estado,
+          atualizado_em: new Date().toISOString()
+        },
         { onConflict: 'telefone' }
       )
       .select('*')
