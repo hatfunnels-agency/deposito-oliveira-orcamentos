@@ -974,7 +974,7 @@ export default function OrcamentoApp() {  // Auth state
     setObservacoes(detalhe.observacoes || '');
     setStatusPedidoForm(detalhe.status || 'orcamento');
     setStatusPagamentoForm(detalhe.status_pagamento || 'pendente');
-    setFormaPagamentoForm((detalhe as any).forma_pagamento || '');
+    setFormaPagamentoForm(detalhe.forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
       // Itens avulsos (ferro) têm produto_id null — restaurar como avulso
       if (oi.produto_id === null) {
@@ -1799,10 +1799,7 @@ export default function OrcamentoApp() {  // Auth state
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
-                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
-          setStatusPedidoForm('orcamento');
-          setStatusPagamentoForm('pendente');
-          setFormaPagamentoForm('');
+                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); setStatusPedidoForm('orcamento'); setStatusPagamentoForm('pendente'); setFormaPagamentoForm(''); }}
                       className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
@@ -2082,7 +2079,7 @@ export default function OrcamentoApp() {  // Auth state
                 <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
                 <div className="grid grid-cols-1 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Status do Pedido</label>
                     <select value={statusPedidoForm} onChange={e => { const v = e.target.value; setStatusPedidoForm(v); if (editandoId) { atualizarStatusOrcamento(editandoId, v, statusPedidoForm); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
                       <option value="orcamento">📋 Orçamento</option>
                       <option value="confirmado">✅ Confirmado</option>
@@ -2092,24 +2089,25 @@ export default function OrcamentoApp() {  // Auth state
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
-                    <select value={statusPagamentoForm} onChange={e => { const v = e.target.value; setStatusPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }), cache: "no-store" }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Pagamento</label>
+                    <select value={statusPagamentoForm} onChange={e => { const v = e.target.value; setStatusPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
                       <option value="pendente">⏳ Pendente</option>
-                      <option value="parcial">⚠️ Parcial</option>
-                      <option value="completo">✅ Completo</option>
-                      <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
+                      <option value="pago">✅ Pago</option>
+                      <option value="parcial">💰 Parcial</option>
+                      <option value="cancelado">❌ Cancelado</option>
                     </select>
                   </div>
                   <div>
-                    <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
-                    <select value={formaPagamentoForm} onChange={e => { const v = e.target.value; setFormaPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }), cache: "no-store" }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Forma de Pagamento</label>
+                    <select value={formaPagamentoForm} onChange={e => { const v = e.target.value; setFormaPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
                       <option value="">-- Selecione --</option>
                       <option value="dinheiro">💵 Dinheiro</option>
                       <option value="pix">📱 PIX</option>
                       <option value="cartao_credito">💳 Cartão Crédito</option>
                       <option value="cartao_debito">💳 Cartão Débito</option>
-                      <option value="boleto">🏦 Boleto</option>
-                      <option value="fiado">📝 Fiado</option>
+                      <option value="boleto">📜 Boleto</option>
+                      <option value="transferencia">🏦 Transferência</option>
+                      <option value="cheque">📝 Cheque</option>
                     </select>
                   </div>
                 </div>
