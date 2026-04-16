@@ -2075,39 +2075,31 @@ export default function OrcamentoApp() {  // Auth state
                   <button type="button" onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setObservacoes(''); }} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
                 </div>
               )}
-              <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
+                            <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
                 <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
                 <div className="grid grid-cols-1 gap-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Status do Pedido</label>
                     <select value={statusPedidoForm} onChange={e => { const v = e.target.value; setStatusPedidoForm(v); if (editandoId) { atualizarStatusOrcamento(editandoId, v, statusPedidoForm); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                      <option value="orcamento">📋 Orçamento</option>
-                      <option value="confirmado">✅ Confirmado</option>
-                      <option value="entrega_pendente">🚚 Entrega Pendente</option>
-                      <option value="entregue">📦 Entregue</option>
-                      <option value="cancelado">❌ Cancelado</option>
+                      {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Pagamento</label>
                     <select value={statusPagamentoForm} onChange={e => { const v = e.target.value; setStatusPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                      <option value="pendente">⏳ Pendente</option>
-                      <option value="pago">✅ Pago</option>
-                      <option value="parcial">💰 Parcial</option>
-                      <option value="cancelado">❌ Cancelado</option>
+                      {Object.entries(STATUS_PAGAMENTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Forma de Pagamento</label>
                     <select value={formaPagamentoForm} onChange={e => { const v = e.target.value; setFormaPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                      <option value="">-- Selecione --</option>
-                      <option value="dinheiro">💵 Dinheiro</option>
-                      <option value="pix">📱 PIX</option>
-                      <option value="cartao_credito">💳 Cartão Crédito</option>
-                      <option value="cartao_debito">💳 Cartão Débito</option>
-                      <option value="boleto">📜 Boleto</option>
-                      <option value="transferencia">🏦 Transferência</option>
-                      <option value="cheque">📝 Cheque</option>
+                      <option value="">Forma de pagamento...</option>
+                      <option value="dinheiro">Dinheiro</option>
+                      <option value="pix">PIX</option>
+                      <option value="debito">Débito</option>
+                      <option value="credito">Crédito</option>
+                      <option value="boleto">Boleto</option>
+                      <option value="pagamento_na_entrega">Pagamento na Entrega</option>
                     </select>
                   </div>
                 </div>
