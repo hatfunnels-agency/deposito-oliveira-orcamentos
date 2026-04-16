@@ -22,6 +22,8 @@ export async function POST(request: NextRequest) {
                   data_entrega,
                   itens,
                   status_pagamento,
+    status,
+    forma_pagamento,
           } = body;
 
       if (!cliente_nome || !cliente_telefone || !subtotal || !itens || itens.length === 0) {
@@ -75,11 +77,12 @@ export async function POST(request: NextRequest) {
               valor_frete,
               subtotal,
               total,
-              status: 'orcamento',
+              status: status || 'orcamento',
               observacoes: observacoes || null,
               fonte: fonte || 'interface',
       };
       if (status_pagamento) insertData.status_pagamento = status_pagamento;
+    if (forma_pagamento) insertData.forma_pagamento = forma_pagamento;
           if (data_entrega) { insertData.data_entrega = data_entrega; }
           if (data_retirada) { insertData.data_retirada = data_retirada; }
 
