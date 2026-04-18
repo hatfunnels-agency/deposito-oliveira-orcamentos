@@ -69,7 +69,7 @@ function DeltaBadge({ atual, anterior, invertColor }: { atual: number; anterior:
   if (direction === 'same') return <span className="text-xs text-gray-400 ml-1">—</span>;
   const isGood = invertColor ? direction === 'down' : direction === 'up';
   const colorClass = isGood ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50';
-  const arrow = direction === 'up' ? '\u2191' : '\u2193';
+  const arrow = direction === 'up' ? '↑' : '↓';
   return (
     <span className={`inline-flex items-center text-xs font-semibold px-1.5 py-0.5 rounded-full ml-2 ${colorClass}`}>
       {arrow} {pct.toFixed(1)}%
@@ -107,11 +107,11 @@ const STATUS_COLOR: Record<string, string> = {
 const PAGAMENTO_LABEL: Record<string, string> = {
   dinheiro: 'Dinheiro',
   pix: 'PIX',
-  debito: 'D\u00e9bito',
-  credito: 'Cr\u00e9dito',
+  debito: 'Débito',
+  credito: 'Crédito',
   boleto: 'Boleto',
   pagamento_na_entrega: 'Na Entrega',
-  nao_informado: 'N\u00e3o Informado',
+  nao_informado: 'Não Informado',
 };
 
 export default function DashboardTab() {
@@ -219,11 +219,11 @@ export default function DashboardTab() {
             </select>
           </div>
           <button onClick={carregar} disabled={loading} className="bg-[#F7941D] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#E8850A] transition disabled:opacity-50">
-            {loading ? 'Carregando...' : '\ud83d\udd04 Atualizar'}
+            {loading ? 'Carregando...' : '🔄 Atualizar'}
           </button>
         </div>
         <div className="flex flex-wrap gap-2 mt-3 items-center">
-          {[['hoje','Hoje'],['7d','7 dias'],['mes','Este m\u00eas'],['mes_ant','M\u00eas anterior'],['30d','30 dias']].map(([k,l]) => (
+          {[['hoje','Hoje'],['7d','7 dias'],['mes','Este mês'],['mes_ant','Mês anterior'],['30d','30 dias']].map(([k,l]) => (
             <button key={k} onClick={() => setPreset(k)} className="text-xs px-3 py-1 rounded-full border border-gray-300 hover:bg-[#F7941D] hover:text-white hover:border-[#F7941D] transition text-gray-600">{l}</button>
           ))}
           <div className="ml-auto flex items-center gap-2">
@@ -235,21 +235,21 @@ export default function DashboardTab() {
                   : 'border border-gray-300 text-gray-600 hover:border-[#F7941D] hover:text-[#F7941D]'
               }`}
             >
-              <span>\u2194\ufe0f</span>
-              <span>Comparar per\u00edodo</span>
+              <span>↔️</span>
+              <span>Comparar período</span>
             </button>
           </div>
         </div>
         {compararPeriodo && prevPeriodo && (
           <div className="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
-            Comparando com: <span className="font-medium text-gray-700">{new Date(prevPeriodo.inicio + 'T12:00:00').toLocaleDateString('pt-BR')} \u2013 {new Date(prevPeriodo.fim + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
+            Comparando com: <span className="font-medium text-gray-700">{new Date(prevPeriodo.inicio + 'T12:00:00').toLocaleDateString('pt-BR')} – {new Date(prevPeriodo.fim + 'T12:00:00').toLocaleDateString('pt-BR')}</span>
           </div>
         )}
       </div>
 
       {erro && <div className="bg-red-50 text-red-700 rounded-xl px-4 py-3 text-sm">{erro}</div>}
 
-      {loading && !data && <div className="text-center py-16 text-gray-400"><div className="text-4xl mb-3">\u23f3</div><p>Carregando...</p></div>}
+      {loading && !data && <div className="text-center py-16 text-gray-400"><div className="text-4xl mb-3">⏳</div><p>Carregando...</p></div>}
 
       {data && r && (
         <>
@@ -270,16 +270,16 @@ export default function DashboardTab() {
                 <p className="text-2xl font-bold text-gray-800">{r.qtd_vendas}</p>
                 {rPrev && <DeltaBadge atual={r.qtd_vendas} anterior={rPrev.qtd_vendas} />}
               </div>
-              <p className="text-xs text-gray-400 mt-1">Or\u00e7amentos gerados: {r.qtd_orcamentos}</p>
+              <p className="text-xs text-gray-400 mt-1">Orçamentos gerados: {r.qtd_orcamentos}</p>
               {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {rPrev.qtd_vendas}</p>}
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-xs text-gray-500 mb-1">&#127919; Ticket M\u00e9dio</p>
+              <p className="text-xs text-gray-500 mb-1">&#127919; Ticket Médio</p>
               <div className="flex items-center">
                 <p className="text-2xl font-bold text-gray-800">{fmt(r.ticket_medio)}</p>
                 {rPrev && <DeltaBadge atual={r.ticket_medio} anterior={rPrev.ticket_medio} />}
               </div>
-              <p className="text-xs text-gray-400 mt-1">Frete m\u00e9dio: {fmt(r.qtd_vendas > 0 ? r.total_frete / r.qtd_vendas : 0)}</p>
+              <p className="text-xs text-gray-400 mt-1">Frete médio: {fmt(r.qtd_vendas > 0 ? r.total_frete / r.qtd_vendas : 0)}</p>
               {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.ticket_medio)}</p>}
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
@@ -329,7 +329,7 @@ export default function DashboardTab() {
           {/* EVOLUCAO DIARIA */}
           {data.evolucao_diaria.length > 0 && (
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <h3 className="text-sm font-bold text-gray-800 mb-4">&#128201; Evolu\u00e7\u00e3o Di\u00e1ria</h3>
+              <h3 className="text-sm font-bold text-gray-800 mb-4">&#128201; Evolução Diária</h3>
               <div className="overflow-x-auto">
                 <table className="w-full text-xs">
                   <thead><tr className="border-b border-gray-100">
@@ -400,7 +400,7 @@ export default function DashboardTab() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <h3 className="text-sm font-bold text-gray-800 mb-3">&#128202; Status das Vendas</h3>
-              {Object.keys(statusVendas).length === 0 && <p className="text-xs text-gray-400">Nenhuma venda no per\u00edodo.</p>}
+              {Object.keys(statusVendas).length === 0 && <p className="text-xs text-gray-400">Nenhuma venda no período.</p>}
               <div className="space-y-2">
                 {Object.entries(statusVendas).sort((a,b) => b[1].qtd - a[1].qtd).map(([s,v]) => (
                   <div key={s} className="flex items-center justify-between">
@@ -444,7 +444,7 @@ export default function DashboardTab() {
                   return (
                     <div key={t}>
                       <div className="flex justify-between text-xs mb-1">
-                        <span className="font-medium text-gray-700">{t === 'entrega' ? '\ud83d\ude9a Entrega no Endere\u00e7o' : '\ud83c\udfe0 Retirada na Loja'}</span>
+                        <span className="font-medium text-gray-700">{t === 'entrega' ? '🚚 Entrega no Endereço' : '🏠 Retirada na Loja'}</span>
                         <span className="text-gray-600">{v} ({fmtPct(pct)})</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-2"><div className="bg-[#F7941D] h-2 rounded-full" style={{ width: fmtPct(pct) }}></div></div>
