@@ -262,8 +262,8 @@ export default function OrcamentoApp() {  // Auth state
   const abasVisiveis = papelUsuario === 'motorista'
     ? ['entregas']
     : papelUsuario === 'atendente'
-    ? ['produtos', 'orcamento', 'historico', 'entregas', 'dashboard']
-    : ['produtos', 'orcamento', 'historico', 'entregas', 'estoque', 'dashboard'];
+    ? ['produtos', 'orcamento', 'historico', 'ferragens', 'entregas', 'dashboard']
+    : ['produtos', 'orcamento', 'historico', 'ferragens', 'entregas', 'estoque', 'dashboard'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -353,6 +353,10 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingFerragens, setLoadingFerragens] = useState(false);
   const [ferragensProducao, setFerragensProducao] = useState<Record<string, unknown>[]>([]);
   const [loadingFerragensProducao, setLoadingFerragensProducao] = useState(false);
+  const [ferragensProntas, setFerragensProntas] = useState<Record<string, unknown>[]>([]);
+  const [loadingFerragensProntas, setLoadingFerragensProntas] = useState(false);
+  const [marcandoPronta, setMarcandoPronta] = useState<string | null>(null);
+  const [voltandoProducao, setVoltandoProducao] = useState<string | null>(null);
   const [passandoAoFerreiro, setPassandoAoFerreiro] = useState<string | null>(null);
   const [voltandoFerragemPendente, setVoltandoFerragemPendente] = useState<string | null>(null);
   const [marcandoRetirado, setMarcandoRetirado] = useState<string | null>(null);
@@ -594,6 +598,11 @@ export default function OrcamentoApp() {  // Auth state
 
   // Fetch levas
   useEffect(() => {
+    if (abaAtiva === 'ferragens') {
+      carregarFerragens();
+      carregarFerragensProducao();
+      carregarFerragensProntas();
+    }
     if (abaAtiva === 'entregas') {
       setCarregandoLevas(true);
       fetch('/api/levas', { cache: 'no-store' })
@@ -1159,6 +1168,61 @@ export default function OrcamentoApp() {  // Auth state
     setLoadingFerragensProducao(false);
   };
 
+  const carregarFerragensProntas = async () => {
+    setLoadingFerragensProntas(true);
+    try {
+      const res = await fetch('/api/orcamentos?ferragem_status=pronta&limite=200', { cache: 'no-store' });
+      const data = await res.json();
+      setFerragensProntas(data.orcamentos || []);
+    } catch (e) { console.error('Erro ao carregar ferragens prontas', e); }
+    setLoadingFerragensProntas(false);
+  };
+
+  const passarAoFerreiro = async (id: string) => {
+    setPassandoAoFerreiro(id);
+    try {
+      await fetch('/api/orcamentos/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ferragem_status: 'em_producao' }),
+        cache: 'no-store',
+      });
+      await carregarFerragens();
+      await carregarFerragensProducao();
+    } catch (e) { console.error('Erro ao passar ao ferreiro', e); }
+    setPassandoAoFerreiro(null);
+  };
+
+  const marcarFerragemPronta = async (id: string) => {
+    setMarcandoPronta(id);
+    try {
+      await fetch('/api/orcamentos/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ferragem_status: 'pronta' }),
+        cache: 'no-store',
+      });
+      await carregarFerragensProducao();
+      await carregarFerragensProntas();
+    } catch (e) { console.error('Erro ao marcar ferragem pronta', e); }
+    setMarcandoPronta(null);
+  };
+
+  const voltarParaProducao = async (id: string) => {
+    setVoltandoProducao(id);
+    try {
+      await fetch('/api/orcamentos/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ferragem_status: 'em_producao' }),
+        cache: 'no-store',
+      });
+      await carregarFerragensProntas();
+      await carregarFerragensProducao();
+    } catch (e) { console.error('Erro ao voltar para producao', e); }
+    setVoltandoProducao(null);
+  };
+
   const gerarRota = async () => {
     if (selecionadas.length === 0) return;
     setLoadingRota(true);
@@ -1553,10 +1617,10 @@ export default function OrcamentoApp() {  // Auth state
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
+          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'ferragens' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'ferragens' ? '🔨 Ferragens' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
             </button>
           ))}
         </div>
