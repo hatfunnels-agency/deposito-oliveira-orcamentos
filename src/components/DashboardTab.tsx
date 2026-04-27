@@ -19,11 +19,25 @@ interface ResumoData {
 
 interface ProdutoStat {
   nome: string;
+  categoria?: string;
+  preco_venda?: number;
   qtd: number;
   receita: number;
   custo: number;
   margem_valor: number;
   margem_pct: number;
+}
+
+interface ClienteStat {
+  cliente_id: string;
+  nome: string;
+  telefone: string;
+  cidade: string;
+  qtd_pedidos: number;
+  valor_total: number;
+  ticket_medio: number;
+  ultimo_pedido: string;
+  produtos_comprados: string;
 }
 
 interface EvolucaoDia {
@@ -42,6 +56,7 @@ interface DashboardData {
   periodo: { inicio: string; fim: string };
   resumo: ResumoData;
   top_produtos: ProdutoStat[];
+  clientes_breakdown: ClienteStat[];
   status_breakdown: Record<string, BreakdownItem>;
   pagamento_breakdown: Record<string, BreakdownItem>;
   entrega_breakdown: Record<string, number>;
@@ -113,6 +128,39 @@ const PAGAMENTO_LABEL: Record<string, string> = {
   pagamento_na_entrega: 'Na Entrega',
   nao_informado: 'Não Informado',
 };
+
+function exportarCSV(linhas: (string | number)[][], nomeArquivo: string) {
+  const escapar = (v: string | number): string => {
+    const s = String(v ?? '')
+    if (s.includes(';') || s.includes('"') || s.includes('\n')) {
+      return '"' + s.replace(/"/g, '""') + '"'
+    }
+    return s
+  }
+  const csv = linhas.map(linha => linha.map(escapar).join(';')).join('\n')
+  const bom = '\uFEFF'
+  const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = nomeArquivo
+  document.body.appendChild(a)
+  a.click()
+  document.body.removeChild(a)
+  URL.revokeObjectURL(url)
+}
+
+function fmtNum(v: number): string {
+  if (!isFinite(v)) return '0'
+  return v.toFixed(2).replace('.', ',')
+}
+
+function fmtDate(iso: string): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return iso
+  return d.toLocaleDateString('pt-BR')
+}
 
 export default function DashboardTab() {
   const hoje = new Date().toISOString().split('T')[0];
@@ -253,6 +301,67 @@ export default function DashboardTab() {
 
       {data && r && (
         <>
+          {/* EXPORTAR DADOS */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-base font-bold text-gray-800">📊 Exportar Dados</h2>
+              <span className="text-xs text-gray-500">Período: {data.periodo.inicio} → {data.periodo.fim}</span>
+            </div>
+            <p className="text-xs text-gray-500 mb-3">Os arquivos CSV usam ponto-e-vírgula como separador e codificação UTF-8 com BOM, prontos para abrir no Excel BR.</p>
+            <div className="flex flex-wrap gap-3">
+              <button
+                onClick={() => {
+                  const cab = ['Produto', 'Categoria', 'Preço Venda', 'Preço Custo Médio', 'Margem %', 'Qtd Vendida', 'Faturamento Total', 'Custo Total', 'Lucro Bruto']
+                  const linhas: (string | number)[][] = [cab]
+                  data.top_produtos.forEach(p => {
+                    const custoMedio = p.qtd > 0 ? p.custo / p.qtd : 0
+                    linhas.push([
+                      p.nome,
+                      p.categoria || '',
+                      fmtNum(p.preco_venda || 0),
+                      fmtNum(custoMedio),
+                      fmtNum(p.margem_pct),
+                      fmtNum(p.qtd),
+                      fmtNum(p.receita),
+                      fmtNum(p.custo),
+                      fmtNum(p.margem_valor),
+                    ])
+                  })
+                  const nome = `vendas-por-produto_${data.periodo.inicio}_${data.periodo.fim}.csv`
+                  exportarCSV(linhas, nome)
+                }}
+                className="bg-[#F7941D] hover:bg-[#e8851a] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                📥 Exportar Vendas por Produto
+                <span className="text-xs opacity-80">({data.top_produtos.length})</span>
+              </button>
+              <button
+                onClick={() => {
+                  const cab = ['Cliente', 'Telefone', 'Cidade', 'Qtd Pedidos', 'Valor Total', 'Ticket Médio', 'Último Pedido', 'Produtos Comprados']
+                  const linhas: (string | number)[][] = [cab]
+                  ;(data.clientes_breakdown || []).forEach(c => {
+                    linhas.push([
+                      c.nome,
+                      c.telefone || '',
+                      c.cidade || '',
+                      c.qtd_pedidos,
+                      fmtNum(c.valor_total),
+                      fmtNum(c.ticket_medio),
+                      fmtDate(c.ultimo_pedido),
+                      c.produtos_comprados || '',
+                    ])
+                  })
+                  const nome = `vendas-por-cliente_${data.periodo.inicio}_${data.periodo.fim}.csv`
+                  exportarCSV(linhas, nome)
+                }}
+                className="bg-gray-800 hover:bg-gray-900 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+              >
+                📥 Exportar Vendas por Cliente
+                <span className="text-xs opacity-80">({(data.clientes_breakdown || []).length})</span>
+              </button>
+            </div>
+          </div>
+
           {/* KPI row 1 */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
