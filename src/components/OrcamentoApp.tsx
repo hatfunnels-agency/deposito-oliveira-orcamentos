@@ -1223,6 +1223,21 @@ export default function OrcamentoApp() {  // Auth state
     setVoltandoProducao(null);
   };
 
+  const voltarFerragemPendente = async (id: string) => {
+    setVoltandoFerragemPendente(id);
+    try {
+      await fetch('/api/orcamentos/' + id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ferragem_status: null }),
+        cache: 'no-store',
+      });
+      await carregarFerragens();
+      await carregarFerragensProducao();
+    } catch (e) { console.error('Erro ao voltar ferragem para pendente', e); }
+    setVoltandoFerragemPendente(null);
+  };
+
   const gerarRota = async () => {
     if (selecionadas.length === 0) return;
     setLoadingRota(true);
@@ -1620,7 +1635,7 @@ export default function OrcamentoApp() {  // Auth state
           {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'ferragens' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'ferragens' ? '🔨 Ferragens' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'ferragens' ? '🔩 Ferragens' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -2381,7 +2396,7 @@ export default function OrcamentoApp() {  // Auth state
                     const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
                     const itensFerro = itens.filter(it => {
                       const nome = ((it.produto_nome as string) || '').toLowerCase();
-                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra');
+                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra') || nome.includes('sapata') || nome.includes('baldrame');
                     });
                     const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
                     return (
@@ -2441,7 +2456,7 @@ export default function OrcamentoApp() {  // Auth state
                     const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
                     const itensFerro = itens.filter(it => {
                       const nome = ((it.produto_nome as string) || '').toLowerCase();
-                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra');
+                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra') || nome.includes('sapata') || nome.includes('baldrame');
                     });
                     const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
                     return (
@@ -2473,7 +2488,14 @@ export default function OrcamentoApp() {  // Auth state
                           disabled={marcandoPronta === f.id}
                           className="w-full bg-green-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
                         >
-                          {marcandoPronta === f.id ? 'Marcando...' : 'Marcar como Pronta'}
+                          {marcandoPronta === f.id ? 'Marcando...' : '✅ Marcar como Pronta'}
+                        </button>
+                        <button
+                          onClick={() => voltarFerragemPendente(f.id as string)}
+                          disabled={voltandoFerragemPendente === f.id}
+                          className="w-full mt-1 bg-gray-200 text-gray-700 text-xs font-bold py-1.5 rounded-lg hover:bg-gray-300 transition disabled:opacity-50"
+                        >
+                          {voltandoFerragemPendente === f.id ? 'Voltando...' : '↩️ Voltar para Pendente'}
                         </button>
                       </div>
                     );
@@ -2501,7 +2523,7 @@ export default function OrcamentoApp() {  // Auth state
                     const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
                     const itensFerro = itens.filter(it => {
                       const nome = ((it.produto_nome as string) || '').toLowerCase();
-                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra');
+                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra') || nome.includes('sapata') || nome.includes('baldrame');
                     });
                     const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
                     return (
@@ -2533,7 +2555,13 @@ export default function OrcamentoApp() {  // Auth state
                           disabled={voltandoProducao === f.id}
                           className="w-full bg-yellow-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
                         >
-                          {voltandoProducao === f.id ? 'Voltando...' : 'Voltar para Produção'}
+                          {voltandoProducao === f.id ? 'Voltando...' : '↩️ Voltar para Produção'}
+                        </button>
+                        <button
+                          onClick={() => abrirDetalhe(f.id as string)}
+                          className="w-full mt-1 bg-white border border-gray-300 text-gray-700 text-xs font-bold py-1.5 rounded-lg hover:bg-gray-50 transition"
+                        >
+                          📋 Ver Pedido Completo
                         </button>
                       </div>
                     );
