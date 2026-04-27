@@ -19,6 +19,8 @@ export async function POST(request: NextRequest) {
                   observacoes,
                   data_retirada,
                   fonte,
+                  desconto_percentual,
+                  desconto_valor,
                   data_entrega,
                   itens,
                   status_pagamento,
@@ -80,6 +82,8 @@ export async function POST(request: NextRequest) {
               status: status || 'orcamento',
               observacoes: observacoes || null,
               fonte: fonte || 'interface',
+              desconto_percentual: typeof desconto_percentual === 'number' ? desconto_percentual : 0,
+              desconto_valor: typeof desconto_valor === 'number' ? desconto_valor : 0,
       };
       if (status_pagamento) insertData.status_pagamento = status_pagamento;
     if (forma_pagamento) insertData.forma_pagamento = forma_pagamento;
