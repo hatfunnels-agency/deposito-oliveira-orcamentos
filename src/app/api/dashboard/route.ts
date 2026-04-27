@@ -26,7 +26,7 @@ export async function GET(request: NextRequest) {
         id, codigo, status, subtotal, total, valor_frete,
         tipo_entrega, forma_pagamento, fonte, criado_em, cliente_id,
         clientes ( id, nome, telefone, cidade ),
-        orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade )
+        orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade, preco_custo )
       `)
       .gte('criado_em', inicio)
       .lte('criado_em', fim)
@@ -72,7 +72,9 @@ export async function GET(request: NextRequest) {
         const nome = (item.produto_nome as string) || 'Desconhecido'
         const qtd = Number(item.quantidade) || 0
         const sub = Number(item.subtotal) || 0
-        const custoUnit = custoPorProduto[nome] || 0
+        // Opcao B: priorizar preco_custo do snapshot no item; fallback para custo atual do produto
+        const custoSnapshot = Number(item.preco_custo) || 0
+        const custoUnit = custoSnapshot > 0 ? custoSnapshot : (custoPorProduto[nome] || 0)
         const custo = custoUnit * qtd
         cmvTotal += custo
         if (!produtoStats[nome]) produtoStats[nome] = { qtd: 0, receita: 0, custo: 0, margem_valor: 0 }
