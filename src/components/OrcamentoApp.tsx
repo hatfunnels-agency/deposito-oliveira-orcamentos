@@ -2358,6 +2358,193 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
+        {/* ===== FERRAGENS TAB ===== */}
+        {abaAtiva === 'ferragens' && (
+          <div className="pb-8 space-y-6">
+
+            {/* === SECTION 1: PEDIDOS COM FERRAGEM (PENDENTE) === */}
+            <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-orange-700">{'\ud83d\udce6'} Pedidos com Ferragem ({ferragens.length})</h2>
+                <button onClick={carregarFerragens} disabled={loadingFerragens} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1 rounded hover:bg-orange-50 border border-orange-200">
+                  {loadingFerragens ? 'Carregando...' : 'Atualizar'}
+                </button>
+              </div>
+              {loadingFerragens && <p className="text-sm text-gray-400 text-center py-4">Carregando...</p>}
+              {!loadingFerragens && ferragens.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">Nenhum pedido com ferragem pendente</p>
+              )}
+              {!loadingFerragens && ferragens.length > 0 && (
+                <div className="space-y-3">
+                  {ferragens.map(f => {
+                    const cliente = (f.clientes as Record<string, unknown>) || {};
+                    const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
+                    const itensFerro = itens.filter(it => {
+                      const nome = ((it.produto_nome as string) || '').toLowerCase();
+                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra');
+                    });
+                    const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
+                    return (
+                      <div key={f.id as string} className="border border-orange-100 rounded-lg bg-orange-50 p-3">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-800 truncate">{cliente.nome as string}</p>
+                            <p className="text-xs text-gray-500">{cliente.telefone as string}</p>
+                            <p className="text-xs text-orange-600 font-mono">{f.codigo as string}</p>
+                          </div>
+                          <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(Number(f.total) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
+                        </div>
+                        {(f.data_entrega || f.data_retirada) && (
+                          <p className="text-xs text-gray-600 mb-1">
+                            {f.tipo_entrega === 'retirada' ? 'Retirada: ' : 'Entrega: '}
+                            {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          </p>
+                        )}
+                        {itensExibir.length > 0 && (
+                          <div className="text-xs text-gray-600 mb-2 space-y-0.5">
+                            {itensExibir.slice(0, 5).map((it, i) => (
+                              <p key={i}>{Number(it.quantidade) || 0} {(it.unidade as string) || ''} {(it.produto_nome as string) || ''}</p>
+                            ))}
+                            {itensExibir.length > 5 && <p className="text-gray-400">+{itensExibir.length - 5} item(s)</p>}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => passarAoFerreiro(f.id as string)}
+                          disabled={passandoAoFerreiro === f.id}
+                          className="w-full bg-orange-500 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-orange-600 transition disabled:opacity-50"
+                        >
+                          {passandoAoFerreiro === f.id ? 'Passando...' : 'Passar ao Ferreiro'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* === SECTION 2: FERRAGEM EM PRODUCAO === */}
+            <div className="bg-white rounded-xl shadow-sm border border-yellow-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-yellow-700">{'\ud83d\udd28'} Ferragem em Produção ({ferragensProducao.length})</h2>
+                <button onClick={carregarFerragensProducao} disabled={loadingFerragensProducao} className="text-xs text-yellow-700 hover:text-yellow-900 px-2 py-1 rounded hover:bg-yellow-50 border border-yellow-200">
+                  {loadingFerragensProducao ? 'Carregando...' : 'Atualizar'}
+                </button>
+              </div>
+              {loadingFerragensProducao && <p className="text-sm text-gray-400 text-center py-4">Carregando...</p>}
+              {!loadingFerragensProducao && ferragensProducao.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">Nenhuma ferragem em produção</p>
+              )}
+              {!loadingFerragensProducao && ferragensProducao.length > 0 && (
+                <div className="space-y-3">
+                  {ferragensProducao.map(f => {
+                    const cliente = (f.clientes as Record<string, unknown>) || {};
+                    const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
+                    const itensFerro = itens.filter(it => {
+                      const nome = ((it.produto_nome as string) || '').toLowerCase();
+                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra');
+                    });
+                    const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
+                    return (
+                      <div key={f.id as string} className="border border-yellow-100 rounded-lg bg-yellow-50 p-3">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-800 truncate">{cliente.nome as string}</p>
+                            <p className="text-xs text-gray-500">{cliente.telefone as string}</p>
+                            <p className="text-xs text-yellow-700 font-mono">{f.codigo as string}</p>
+                          </div>
+                          <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(Number(f.total) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
+                        </div>
+                        {(f.data_entrega || f.data_retirada) && (
+                          <p className="text-xs text-gray-600 mb-1">
+                            {f.tipo_entrega === 'retirada' ? 'Retirada: ' : 'Entrega: '}
+                            {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          </p>
+                        )}
+                        {itensExibir.length > 0 && (
+                          <div className="text-xs text-gray-600 mb-2 space-y-0.5">
+                            {itensExibir.slice(0, 5).map((it, i) => (
+                              <p key={i}>{Number(it.quantidade) || 0} {(it.unidade as string) || ''} {(it.produto_nome as string) || ''}</p>
+                            ))}
+                            {itensExibir.length > 5 && <p className="text-gray-400">+{itensExibir.length - 5} item(s)</p>}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => marcarFerragemPronta(f.id as string)}
+                          disabled={marcandoPronta === f.id}
+                          className="w-full bg-green-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
+                        >
+                          {marcandoPronta === f.id ? 'Marcando...' : 'Marcar como Pronta'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* === SECTION 3: FERRAGENS PRONTAS === */}
+            <div className="bg-white rounded-xl shadow-sm border border-green-200 p-4">
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="font-bold text-green-700">{'\u2705'} Ferragens Prontas ({ferragensProntas.length})</h2>
+                <button onClick={carregarFerragensProntas} disabled={loadingFerragensProntas} className="text-xs text-green-600 hover:text-green-800 px-2 py-1 rounded hover:bg-green-50 border border-green-200">
+                  {loadingFerragensProntas ? 'Carregando...' : 'Atualizar'}
+                </button>
+              </div>
+              {loadingFerragensProntas && <p className="text-sm text-gray-400 text-center py-4">Carregando...</p>}
+              {!loadingFerragensProntas && ferragensProntas.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">Nenhuma ferragem pronta</p>
+              )}
+              {!loadingFerragensProntas && ferragensProntas.length > 0 && (
+                <div className="space-y-3">
+                  {ferragensProntas.map(f => {
+                    const cliente = (f.clientes as Record<string, unknown>) || {};
+                    const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
+                    const itensFerro = itens.filter(it => {
+                      const nome = ((it.produto_nome as string) || '').toLowerCase();
+                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra');
+                    });
+                    const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
+                    return (
+                      <div key={f.id as string} className="border border-green-100 rounded-lg bg-green-50 p-3">
+                        <div className="flex items-start justify-between gap-2 mb-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="font-semibold text-gray-800 truncate">{cliente.nome as string}</p>
+                            <p className="text-xs text-gray-500">{cliente.telefone as string}</p>
+                            <p className="text-xs text-green-700 font-mono">{f.codigo as string}</p>
+                          </div>
+                          <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(Number(f.total) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
+                        </div>
+                        {(f.data_entrega || f.data_retirada) && (
+                          <p className="text-xs text-gray-600 mb-1">
+                            {f.tipo_entrega === 'retirada' ? 'Retirada: ' : 'Entrega: '}
+                            {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
+                          </p>
+                        )}
+                        {itensExibir.length > 0 && (
+                          <div className="text-xs text-gray-600 mb-2 space-y-0.5">
+                            {itensExibir.slice(0, 5).map((it, i) => (
+                              <p key={i}>{Number(it.quantidade) || 0} {(it.unidade as string) || ''} {(it.produto_nome as string) || ''}</p>
+                            ))}
+                            {itensExibir.length > 5 && <p className="text-gray-400">+{itensExibir.length - 5} item(s)</p>}
+                          </div>
+                        )}
+                        <button
+                          onClick={() => voltarParaProducao(f.id as string)}
+                          disabled={voltandoProducao === f.id}
+                          className="w-full bg-yellow-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-yellow-700 transition disabled:opacity-50"
+                        >
+                          {voltandoProducao === f.id ? 'Voltando...' : 'Voltar para Produção'}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+          </div>
+        )}
+
         {/* ===== ENTREGAS TAB ===== */}
         {abaAtiva === 'entregas' && (
           <div className="pb-8 space-y-6">
