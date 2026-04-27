@@ -752,6 +752,8 @@ export default function OrcamentoApp() {  // Auth state
         valor_frete: totalFrete,
         subtotal,
         total: totalFinal,
+        desconto_percentual: descontoCustom > 0 ? descontoCustom : 0,
+        desconto_valor: descontoCustom > 0 ? (total - totalFinal) : 0,
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
@@ -2108,7 +2110,7 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
               </div>
               {/* === SIMULADOR DE DESCONTO === */}
-              {(papelUsuario === 'admin' || papelUsuario === 'gerente' || papelUsuario === 'atendente') && itens.length > 0 && (() => {
+              {(papelUsuario === 'admin' || papelUsuario === 'gerente') && itens.length > 0 && (() => {
                 const MARGEM_MINIMA = 0.20;
                 const custoTotal = itens.reduce((sum, item) => sum + ((item.produto.preco_custo || 0) * item.quantidade), 0);
                 const margemAtual = total > 0 ? (total - custoTotal) / total : 0;
