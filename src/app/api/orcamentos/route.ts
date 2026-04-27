@@ -261,9 +261,18 @@ export async function GET(request: NextRequest) {
 
       const ferragemStatus = searchParams.get('ferragem_status');
       if (ferragemStatus === 'pendente') {
-              query = query.ilike('observacoes', '%FERRAGEM:%').is('ferragem_status', null);
+              // Pedidos com FERRAGEM nas observacoes que ainda nao foram passados ao ferreiro
+              // Excluir pedidos ja completos
+              query = query
+                .ilike('observacoes', '%FERRAGEM:%')
+                .is('ferragem_status', null)
+                .neq('status', 'completo');
       } else if (ferragemStatus === 'em_producao') {
-              query = query.eq('ferragem_status', 'em_producao');
+              // Excluir pedidos ja completos
+              query = query.eq('ferragem_status', 'em_producao').neq('status', 'completo');
+      } else if (ferragemStatus === 'pronta') {
+              // Ferragens prontas que ainda nao foram entregues/retiradas
+              query = query.eq('ferragem_status', 'pronta').neq('status', 'completo');
       }
 
       if (busca) {
