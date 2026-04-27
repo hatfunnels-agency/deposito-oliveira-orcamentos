@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
 
     const { data: produtosDB } = await supabaseAdmin
       .from('produtos')
-      .select('nome, preco, preco_custo, categoria')
+      .select('nome, preco_venda, preco_custo, categoria')
 
     const custoPorProduto: Record<string, number> = {}
     const precoVendaPorProduto: Record<string, number> = {}
@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
     ;(produtosDB ?? []).forEach((p: Record<string, unknown>) => {
       const nome = p.nome as string
       custoPorProduto[nome] = Number(p.preco_custo) || 0
-      precoVendaPorProduto[nome] = Number(p.preco) || 0
+      precoVendaPorProduto[nome] = Number(p.preco_venda) || 0
       categoriaPorProduto[nome] = (p.categoria as string) || ''
     })
 
