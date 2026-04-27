@@ -189,12 +189,10 @@ export async function GET(request: NextRequest) {
       pagamentoBreakdown[p].total += Number(o.total) || 0
     })
 
-    const entregaBreakdown: Record<string, { qtd: number; total: number }> = {}
+    const entregaBreakdown: Record<string, number> = {}
     vendas.forEach((o: Record<string, unknown>) => {
-      const t = (o.tipo_entrega as string) || 'nao_informado'
-      if (!entregaBreakdown[t]) entregaBreakdown[t] = { qtd: 0, total: 0 }
-      entregaBreakdown[t].qtd += 1
-      entregaBreakdown[t].total += Number(o.total) || 0
+      const t = (o.tipo_entrega as string) || 'desconhecido'
+      entregaBreakdown[t] = (entregaBreakdown[t] || 0) + 1
     })
 
     const canalBreakdown: Record<string, { qtd: number; total: number }> = {}
