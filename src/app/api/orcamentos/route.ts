@@ -102,6 +102,40 @@ export async function POST(request: NextRequest) {
       }
 
       // Cria itens
+      // Snapshot do preco_custo no momento da venda (Opcao B):
+      // - Se item tem produto_id, faz lookup batch em produtos por id
+      // - Senao, fallback por nome
+      // - Senao, 0
+      const idsParaLookup = itens
+        .map((it: { produto_id?: string }) => it.produto_id)
+        .filter((v: string | undefined): v is string => !!v);
+      const nomesParaLookup = itens
+        .map((it: { produto_nome: string }) => it.produto_nome)
+        .filter((v: string | undefined): v is string => !!v);
+
+      const custoPorId: Record<string, number> = {};
+      const custoPorNome: Record<string, number> = {};
+
+      if (idsParaLookup.length > 0) {
+        const { data: prodsById } = await supabaseAdmin
+          .from('produtos')
+          .select('id, preco_custo')
+          .in('id', idsParaLookup);
+        ;(prodsById ?? []).forEach((p: { id: string; preco_custo: number | null }) => {
+          custoPorId[p.id] = Number(p.preco_custo) || 0;
+        });
+      }
+
+      if (nomesParaLookup.length > 0) {
+        const { data: prodsByName } = await supabaseAdmin
+          .from('produtos')
+          .select('nome, preco_custo')
+          .in('nome', nomesParaLookup);
+        ;(prodsByName ?? []).forEach((p: { nome: string; preco_custo: number | null }) => {
+          custoPorNome[p.nome] = Number(p.preco_custo) || 0;
+        });
+      }
+
       const itensToInsert = itens.map((item: {
               produto_id?: string;
               produto_bling_id?: string | number;
@@ -109,16 +143,27 @@ export async function POST(request: NextRequest) {
               quantidade: number;
               unidade?: string;
               preco_unitario: number;
-      }) => ({
-              orcamento_id: orcamento.id,
-              produto_id: item.produto_id || null,
-              produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
-              produto_nome: item.produto_nome,
-              quantidade: item.quantidade,
-              unidade: item.unidade || 'unidade',
-              preco_unitario: item.preco_unitario,
-              subtotal: item.quantidade * item.preco_unitario,
-      }));
+              preco_custo?: number;
+      }) => {
+              const snapshotCusto =
+                (typeof item.preco_custo === 'number' && item.preco_custo > 0
+                  ? item.preco_custo
+                  : 0) ||
+                (item.produto_id ? custoPorId[item.produto_id] : 0) ||
+                custoPorNome[item.produto_nome] ||
+                0;
+              return {
+                orcamento_id: orcamento.id,
+                produto_id: item.produto_id || null,
+                produto_bling_id: item.produto_bling_id ? Number(item.produto_bling_id) : null,
+                produto_nome: item.produto_nome,
+                quantidade: item.quantidade,
+                unidade: item.unidade || 'unidade',
+                preco_unitario: item.preco_unitario,
+                subtotal: item.quantidade * item.preco_unitario,
+                preco_custo: snapshotCusto,
+              };
+      });
 
       const { error: itensError } = await supabaseAdmin
             .from('orcamento_itens')
