@@ -260,19 +260,24 @@ export async function GET(request: NextRequest) {
       }
 
       const ferragemStatus = searchParams.get('ferragem_status');
+      const FERRAGEM_VALID_STATUSES = ['entrega_pendente', 'retirada_pendente'];
       if (ferragemStatus === 'pendente') {
-              // Pedidos com FERRAGEM nas observacoes que ainda nao foram passados ao ferreiro
-              // Excluir pedidos ja completos
-              query = query
-                .ilike('observacoes', '%FERRAGEM:%')
-                .is('ferragem_status', null)
-                .neq('status', 'completo');
+        // Pedidos com ferragem (itens de ferro OU FERRAGEM: em observacoes)
+        // que ainda nao foram passados ao ferreiro.
+        // Apenas pedidos com entrega/retirada pendente.
+        query = query
+          .is('ferragem_status', null)
+          .in('status', FERRAGEM_VALID_STATUSES);
       } else if (ferragemStatus === 'em_producao') {
-              // Excluir pedidos ja completos
-              query = query.eq('ferragem_status', 'em_producao').neq('status', 'completo');
+        // Apenas pedidos com entrega/retirada pendente
+        query = query
+          .eq('ferragem_status', 'em_producao')
+          .in('status', FERRAGEM_VALID_STATUSES);
       } else if (ferragemStatus === 'pronta') {
-              // Ferragens prontas que ainda nao foram entregues/retiradas
-              query = query.eq('ferragem_status', 'pronta').neq('status', 'completo');
+        // Ferragens prontas em pedidos com entrega/retirada ainda pendente
+        query = query
+          .eq('ferragem_status', 'pronta')
+          .in('status', FERRAGEM_VALID_STATUSES);
       }
 
       if (busca) {
@@ -302,8 +307,24 @@ export async function GET(request: NextRequest) {
               return NextResponse.json({ error: 'Erro ao buscar orcamentos' }, { status: 500 });
       }
 
+      // Filtragem server-side para Ferragens "pendente":
+      // Mantemos apenas pedidos com itens de ferragem (produto_nome contém palavras-chave de ferro)
+      // OU com marcador "FERRAGEM:" nas observacoes.
+      const FERRO_KEYWORDS = ['ferro', 'vergalh', 'viga', 'coluna', 'estribo', 'arame'];
+      const dataFiltrada = ferragemStatus === 'pendente'
+        ? (data || []).filter((orc: Record<string, unknown>) => {
+            const obs = ((orc.observacoes as string) || '').toLowerCase();
+            if (obs.includes('ferragem:')) return true;
+            const itens = (orc.orcamento_itens as Array<{ produto_nome: string }> | null) || [];
+            return itens.some(it => {
+              const nome = (it.produto_nome || '').toLowerCase();
+              return FERRO_KEYWORDS.some(k => nome.includes(k));
+            });
+          })
+        : (data || []);
+
       // Tarefa 1: Enriquecer com resumo_itens server-side
-      const orcamentosEnriquecidos = (data || []).map((orc: Record<string, unknown>) => {
+      const orcamentosEnriquecidos = dataFiltrada.map((orc: Record<string, unknown>) => {
         const itens = (orc.orcamento_itens as Array<{ produto_nome: string; quantidade: number; unidade: string }>) || [];
         const resumo = itens.slice(0, 3).map((it) => {
           const qtd = Number(it.quantidade);
@@ -314,7 +335,7 @@ export async function GET(request: NextRequest) {
       });
       return NextResponse.json({
               orcamentos: orcamentosEnriquecidos,
-              total: count || 0,
+              total: ferragemStatus === 'pendente' ? dataFiltrada.length : (count || 0),
               pagina,
               limite,
       });
