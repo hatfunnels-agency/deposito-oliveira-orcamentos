@@ -2220,14 +2220,28 @@ export default function OrcamentoApp() {  // Auth state
                           <span>Desconto máx (margem ≥ 20%): {descontoMaxPct.toFixed(1)}% = R$ {descontoMaxReais.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
                         </div>
                         <div className="grid grid-cols-4 gap-1">
-                          {simulacoes.map(s => (
-                            <div key={s.pct} className={`text-center p-2 rounded-lg border text-xs ${s.ok ? 'border-green-300 bg-green-50' : 'border-red-200 bg-red-50'}`}>
-                              <div className="font-bold">{s.pct}%</div>
-                              <div className="text-gray-600">R$ {s.novoTotal.toLocaleString('pt-BR', {minimumFractionDigits:0})}</div>
-                              <div className={getMargemColor(s.novaMargem)}>{(s.novaMargem * 100).toFixed(1)}%</div>
-                              <div>{getMargemIcon(s.novaMargem, s.ok)}</div>
-                            </div>
-                          ))}
+                          {simulacoes.map(s => {
+                            const isSelected = descontoCustom === s.pct;
+                            const baseClasses = 'text-center p-2 rounded-lg border text-xs transition-all';
+                            const colorClasses = s.ok
+                              ? (isSelected ? 'border-green-600 bg-green-100 ring-2 ring-green-500 shadow-md' : 'border-green-300 bg-green-50 hover:border-green-500 hover:bg-green-100 cursor-pointer')
+                              : 'border-red-200 bg-red-50 opacity-60 cursor-not-allowed';
+                            return (
+                              <button
+                                type="button"
+                                key={s.pct}
+                                disabled={!s.ok}
+                                onClick={() => { if (s.ok) setDescontoCustom(isSelected ? 0 : s.pct); }}
+                                className={`${baseClasses} ${colorClasses}`}
+                                title={s.ok ? (isSelected ? 'Clique para remover este desconto' : `Aplicar ${s.pct}% de desconto`) : 'Margem ficaria abaixo de 20%'}
+                              >
+                                <div className="font-bold">{s.pct}%</div>
+                                <div className="text-gray-600">R$ {s.novoTotal.toLocaleString('pt-BR', {minimumFractionDigits:0})}</div>
+                                <div className={getMargemColor(s.novaMargem)}>{(s.novaMargem * 100).toFixed(1)}%</div>
+                                <div>{getMargemIcon(s.novaMargem, s.ok)}</div>
+                              </button>
+                            );
+                          })}
                         </div>
                         <div className="flex items-center gap-2">
                           <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Desconto personalizado:</label>
