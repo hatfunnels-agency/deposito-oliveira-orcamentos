@@ -2411,7 +2411,7 @@ export default function OrcamentoApp() {  // Auth state
                         </div>
                         {(f.data_entrega || f.data_retirada) && (
                           <p className="text-xs text-gray-600 mb-1">
-                            {f.tipo_entrega === 'retirada' ? 'Retirada: ' : 'Entrega: '}
+                            {(f.tipo_entrega as string) === 'retirada' ? 'Retirada: ' : 'Entrega: '}
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
                           </p>
                         )}
@@ -2471,7 +2471,7 @@ export default function OrcamentoApp() {  // Auth state
                         </div>
                         {(f.data_entrega || f.data_retirada) && (
                           <p className="text-xs text-gray-600 mb-1">
-                            {f.tipo_entrega === 'retirada' ? 'Retirada: ' : 'Entrega: '}
+                            {(f.tipo_entrega as string) === 'retirada' ? 'Retirada: ' : 'Entrega: '}
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
                           </p>
                         )}
@@ -2538,7 +2538,7 @@ export default function OrcamentoApp() {  // Auth state
                         </div>
                         {(f.data_entrega || f.data_retirada) && (
                           <p className="text-xs text-gray-600 mb-1">
-                            {f.tipo_entrega === 'retirada' ? 'Retirada: ' : 'Entrega: '}
+                            {(f.tipo_entrega as string) === 'retirada' ? 'Retirada: ' : 'Entrega: '}
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
                           </p>
                         )}
