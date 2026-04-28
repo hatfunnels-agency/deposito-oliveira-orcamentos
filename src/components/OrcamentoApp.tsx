@@ -2189,7 +2189,7 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
               </div>
               {/* === SIMULADOR DE DESCONTO === */}
-              {(papelUsuario === 'admin' || papelUsuario === 'gerente') && itens.length > 0 && (() => {
+              {itens.length > 0 && (() => {
                 const MARGEM_MINIMA = 0.20;
                 const custoTotal = itens.reduce((sum, item) => sum + ((item.produto.preco_custo || 0) * item.quantidade), 0);
                 const margemAtual = total > 0 ? (total - custoTotal) / total : 0;
