@@ -2409,7 +2409,7 @@ export default function OrcamentoApp() {  // Auth state
                           </div>
                           <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(Number(f.total) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
                         </div>
-                        {(f.data_entrega || f.data_retirada) && (
+                        {Boolean(f.data_entrega || f.data_retirada) && (
                           <p className="text-xs text-gray-600 mb-1">
                             {(f.tipo_entrega as string) === 'retirada' ? 'Retirada: ' : 'Entrega: '}
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
@@ -2469,7 +2469,7 @@ export default function OrcamentoApp() {  // Auth state
                           </div>
                           <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(Number(f.total) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
                         </div>
-                        {(f.data_entrega || f.data_retirada) && (
+                        {Boolean(f.data_entrega || f.data_retirada) && (
                           <p className="text-xs text-gray-600 mb-1">
                             {(f.tipo_entrega as string) === 'retirada' ? 'Retirada: ' : 'Entrega: '}
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
@@ -2536,7 +2536,7 @@ export default function OrcamentoApp() {  // Auth state
                           </div>
                           <p className="font-bold text-gray-800 text-sm shrink-0">R$ {(Number(f.total) || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</p>
                         </div>
-                        {(f.data_entrega || f.data_retirada) && (
+                        {Boolean(f.data_entrega || f.data_retirada) && (
                           <p className="text-xs text-gray-600 mb-1">
                             {(f.tipo_entrega as string) === 'retirada' ? 'Retirada: ' : 'Entrega: '}
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
