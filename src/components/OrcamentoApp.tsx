@@ -858,9 +858,7 @@ export default function OrcamentoApp() {  // Auth state
         '',
         (detalhe as any).status_pagamento === 'completo' ? '*✅ Pagamento: Pago*' : (detalhe as any).status_pagamento === 'parcial' ? '*⚠️ Pagamento: Parcial*' : '',
         ...(detalhe.observacoes ? [`_Obs: ${detalhe.observacoes}_`] : []),
-        '_Orçamento válido por 7 dias_',
-        '_Sujeito a disponibilidade de estoque_',
-      ].filter((l): l is string => typeof l === 'string' && l.length > 0);
+                      ].filter((l): l is string => typeof l === 'string' && l.length > 0);
       return linhas.join('\n');
     }
     const codigo = orcamentoSalvo?.codigo;
