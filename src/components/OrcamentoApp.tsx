@@ -1,4 +1,4 @@
-'use client'; // v3 - auth + redesign
+çá'use client'; // v3 - auth + redesign
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
@@ -865,13 +865,13 @@ export default function OrcamentoApp() {  // Auth state
     const linhas = [
       '*ORÇAMENTO - Depósito Oliveira*',
       codigo ? `Código: ${codigo}` : '',
-      '',
       '-----------------------------',
       '',
       nomeCliente ? `*Cliente:* ${nomeCliente}` : '',
       whatsappCliente ? `*Telefone:* ${whatsappCliente}` : '',
       recebedor ? `*Recebedor:* ${recebedor}` : '',
-      '',
+      whatsappCliente ? `*Telefone:* ${whatsappCliente}\n` : '',
+                  detalhe.endereco ? `*Endereço:* ${detalhe.endereco}` : '',
       '*Produtos:*',
       ...itens.map(i => `· ${i.produto.nome} ${i.quantidade}${i.produto.unidade === 'm³' ? 'm³' : (i.produto.unidade ? ' ' + i.produto.unidade : '')} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
       '',
@@ -885,9 +885,7 @@ export default function OrcamentoApp() {  // Auth state
       observacoes ? `_Obs: ${observacoes}_` : '',
       '_Orçamento válido por 7 dias_',
       '_Sujeito a disponibilidade de estoque_',
-      '',
       '_Depósito Oliveira — (11) 4187-1801_',
-      '_Av. Inocêncio Seráfico, 4020 — Carapicuíba/SP_',
     ].filter((l): l is string => !!l);
     return linhas.join('\n');
   };
