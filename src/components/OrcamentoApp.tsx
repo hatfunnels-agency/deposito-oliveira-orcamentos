@@ -744,6 +744,32 @@ export default function OrcamentoApp() {  // Auth state
     setCalculandoFrete(false);
   };
 
+  const resetarFormulario = () => {
+    setItens([]);
+    setNomeCliente('');
+    setWhatsappCliente('');
+    setCepDestino('');
+    setDadosFrete(null);
+    setDataEntrega('');
+    setDataRetirada('');
+    setNumeroEndereco('');
+    setComplementoEndereco('');
+    setRecebedor('');
+    setObservacoes('');
+    setBuscaEndereco('');
+    setEnderecoViaCEP('');
+    setTipoEntrega('retirada');
+    setStatusPedidoForm('orcamento');
+    setStatusPagamentoForm('pendente');
+    setFormaPagamentoForm('');
+    setFonteVenda('');
+    setDescontoCustom(0);
+    setSugestoesEndereco([]);
+    setMostrandoSugestoes(false);
+    setErroFrete('');
+    setEditandoId(null);
+  };
+
   const salvarEGerarOrcamento = async () => {
     setSalvandoOrcamento(true);
     setOrcamentoSalvo(null);
@@ -787,8 +813,10 @@ export default function OrcamentoApp() {  // Auth state
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
-        setEditandoId(null);
+        if (data.codigo) {
+          setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
+          resetarFormulario();
+        }
       } else {
         const res = await fetch('/api/orcamentos', {
           method: 'POST',
@@ -796,7 +824,10 @@ export default function OrcamentoApp() {  // Auth state
           body: JSON.stringify(payload),
         });
         const data = await res.json();
-        if (data.codigo) setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
+        if (data.codigo) {
+          setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
+          resetarFormulario();
+        }
       }
     } catch (e) { console.error('Erro ao salvar orcamento', e); }
     setSalvandoOrcamento(false);
@@ -2994,7 +3025,7 @@ export default function OrcamentoApp() {  // Auth state
                 imprimirOrcamento();
               }} className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-[#F7941D] transition">🖨️ Imprimir</button>
               <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">📋 Copiar Texto</button>
-              <button onClick={() => { setMostrarModal(false); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setOrcamentoSalvo(null); setDataEntrega(''); setEditandoId(null); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); }}
+              <button onClick={() => { setMostrarModal(false); setOrcamentoSalvo(null); resetarFormulario(); }}
                 className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
             </div>
           </div>
