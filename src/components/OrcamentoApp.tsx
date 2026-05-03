@@ -229,6 +229,23 @@ const ACRESCIMO_CARTAO = 0.08;
 const MAX_PARCELAS = 6;
 const CAPACIDADE_CAMINHAO_M3 = 10;
 
+// Detecta itens de ferragem montados (que precisam ir para o ferreiro).
+// Madeira nunca conta, mesmo quando o nome inclui "viga"/"caibro".
+const FERRAGEM_EXCLUSOES = ['cambara', 'cambará', 'pinus', 'madeira', 'caibro', 'prancha', 'ripao', 'ripão', 'tabua', 'tábua', 'sarrafo', 'pontalete', 'madeirit'];
+function ehItemFerro(item: { produto_nome?: string | null; produto_id?: string | number | null }): boolean {
+  const nome = (item.produto_nome || '').toLowerCase();
+  if (!nome) return false;
+  if (FERRAGEM_EXCLUSOES.some(e => nome.includes(e))) return false;
+  // Sinal forte: peca montada pela calculadora sempre tem "barras" (4/6/8 barras)
+  if (nome.includes('barras')) return true;
+  // Sapata: tipico de ferragem (madeira ja foi filtrada acima)
+  if (nome.includes('sapata')) return true;
+  // Item avulso (produto_id null) com palavra-chave de ferro montado
+  const isAvulso = item.produto_id == null;
+  if (isAvulso && (nome.includes('ferro') || nome.includes('viga') || nome.includes('coluna') || nome.includes('estribo'))) return true;
+  return false;
+}
+
 
 export default function OrcamentoApp() {  // Auth state
   const [user, setUser] = useState<any>(null);
@@ -2396,10 +2413,10 @@ export default function OrcamentoApp() {  // Auth state
                   {ferragens.map(f => {
                     const cliente = (f.clientes as Record<string, unknown>) || {};
                     const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
-                    const itensFerro = itens.filter(it => {
-                      const nome = ((it.produto_nome as string) || '').toLowerCase();
-                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra') || nome.includes('sapata') || nome.includes('baldrame');
-                    });
+                    const itensFerro = itens.filter(it => ehItemFerro({
+                      produto_nome: it.produto_nome as string | null,
+                      produto_id: it.produto_id as string | number | null | undefined,
+                    }));
                     const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
                     return (
                       <div key={f.id as string} className="border border-orange-100 rounded-lg bg-orange-50 p-3">
@@ -2456,10 +2473,10 @@ export default function OrcamentoApp() {  // Auth state
                   {ferragensProducao.map(f => {
                     const cliente = (f.clientes as Record<string, unknown>) || {};
                     const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
-                    const itensFerro = itens.filter(it => {
-                      const nome = ((it.produto_nome as string) || '').toLowerCase();
-                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra') || nome.includes('sapata') || nome.includes('baldrame');
-                    });
+                    const itensFerro = itens.filter(it => ehItemFerro({
+                      produto_nome: it.produto_nome as string | null,
+                      produto_id: it.produto_id as string | number | null | undefined,
+                    }));
                     const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
                     return (
                       <div key={f.id as string} className="border border-yellow-100 rounded-lg bg-yellow-50 p-3">
@@ -2523,10 +2540,10 @@ export default function OrcamentoApp() {  // Auth state
                   {ferragensProntas.map(f => {
                     const cliente = (f.clientes as Record<string, unknown>) || {};
                     const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
-                    const itensFerro = itens.filter(it => {
-                      const nome = ((it.produto_nome as string) || '').toLowerCase();
-                      return nome.includes('ferro') || nome.includes('coluna') || nome.includes('viga') || nome.includes('estribo') || nome.includes('barra') || nome.includes('sapata') || nome.includes('baldrame');
-                    });
+                    const itensFerro = itens.filter(it => ehItemFerro({
+                      produto_nome: it.produto_nome as string | null,
+                      produto_id: it.produto_id as string | number | null | undefined,
+                    }));
                     const itensExibir = itensFerro.length > 0 ? itensFerro : itens;
                     return (
                       <div key={f.id as string} className="border border-green-100 rounded-lg bg-green-50 p-3">

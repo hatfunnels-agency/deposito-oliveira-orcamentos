@@ -247,6 +247,7 @@ export async function GET(request: NextRequest) {
                 ),
                 orcamento_itens (
                   id,
+                  produto_id,
                   produto_nome,
                   quantidade,
                   unidade
@@ -308,18 +309,25 @@ export async function GET(request: NextRequest) {
       }
 
       // Filtragem server-side para Ferragens "pendente":
-      // Mantemos apenas pedidos com itens de ferragem (produto_nome contém palavras-chave de ferro)
-      // OU com marcador "FERRAGEM:" nas observacoes.
-      const FERRO_KEYWORDS = ['ferro', 'vergalh', 'viga', 'coluna', 'estribo', 'arame'];
+      // Mantemos apenas pedidos com pelo menos um item que seja ferragem montada (peca da
+      // calculadora) OU com marcador "FERRAGEM:" nas observacoes. Madeira nunca conta.
+      const FERRAGEM_EXCLUSOES = ['cambara', 'cambará', 'pinus', 'madeira', 'caibro', 'prancha', 'ripao', 'ripão', 'tabua', 'tábua', 'sarrafo', 'pontalete', 'madeirit'];
+      const ehItemFerro = (it: { produto_nome?: string | null; produto_id?: string | number | null }): boolean => {
+        const nome = (it.produto_nome || '').toLowerCase();
+        if (!nome) return false;
+        if (FERRAGEM_EXCLUSOES.some(e => nome.includes(e))) return false;
+        if (nome.includes('barras')) return true;
+        if (nome.includes('sapata')) return true;
+        const isAvulso = it.produto_id == null;
+        if (isAvulso && (nome.includes('ferro') || nome.includes('viga') || nome.includes('coluna') || nome.includes('estribo'))) return true;
+        return false;
+      };
       const dataFiltrada = ferragemStatus === 'pendente'
         ? (data || []).filter((orc: Record<string, unknown>) => {
             const obs = ((orc.observacoes as string) || '').toLowerCase();
             if (obs.includes('ferragem:')) return true;
-            const itens = (orc.orcamento_itens as Array<{ produto_nome: string }> | null) || [];
-            return itens.some(it => {
-              const nome = (it.produto_nome || '').toLowerCase();
-              return FERRO_KEYWORDS.some(k => nome.includes(k));
-            });
+            const itens = (orc.orcamento_itens as Array<{ produto_nome: string; produto_id: string | number | null }> | null) || [];
+            return itens.some(ehItemFerro);
           })
         : (data || []);
 
