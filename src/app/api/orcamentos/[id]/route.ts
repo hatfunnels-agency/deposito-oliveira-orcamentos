@@ -78,6 +78,9 @@ export async function PATCH(
           if (leva_id !== undefined) updateData.leva_id = leva_id;
           if (forma_pagamento !== undefined) updateData.forma_pagamento = forma_pagamento;
           if (status_pagamento !== undefined) updateData.status_pagamento = status_pagamento;
+          // Pedido completo => pagamento sempre completo (mesmo "pagamento na entrega").
+          // Coloca apos a atribuicao explicita para o auto vencer caso o body trouxer divergente.
+          if (status === 'completo') updateData.status_pagamento = 'completo';
           if (ferragem_status !== undefined) updateData.ferragem_status = ferragem_status;
 
       // Reschedule logic
