@@ -768,6 +768,9 @@ export default function OrcamentoApp() {  // Auth state
     setMostrandoSugestoes(false);
     setErroFrete('');
     setEditandoId(null);
+    setClienteEncontrado(null);
+    setMostrarSimulador(false);
+    setEtapaOrcamento('catalogo');
   };
 
   const salvarEGerarOrcamento = async () => {
@@ -1911,7 +1914,7 @@ export default function OrcamentoApp() {  // Auth state
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
-                    <button onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setCepDestino(''); setDadosFrete(null); setDataEntrega(''); setNumeroEndereco(''); setComplementoEndereco(''); setRecebedor(''); setObservacoes(''); setBuscaEndereco(''); setStatusPedidoForm('orcamento'); setStatusPagamentoForm('pendente'); setFormaPagamentoForm(''); }}
+                    <button onClick={resetarFormulario}
                       className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
@@ -2184,7 +2187,7 @@ export default function OrcamentoApp() {  // Auth state
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
-                  <button type="button" onClick={() => { setEditandoId(null); setItens([]); setNomeCliente(''); setWhatsappCliente(''); setObservacoes(''); }} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
+                  <button type="button" onClick={resetarFormulario} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
                 </div>
               )}
                             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
