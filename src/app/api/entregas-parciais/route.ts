@@ -117,7 +117,7 @@ export async function POST(request: NextRequest) {
 
     // 6) Verifica se todos os itens foram totalmente entregues e ajusta status do orcamento
     let tudoEntregue = true;
-    for (const ref of itensMap.values()) {
+    for (const ref of Array.from(itensMap.values())) {
       if (ref.quantidade_entregue + 1e-9 < ref.quantidade) {
         tudoEntregue = false;
         break;
