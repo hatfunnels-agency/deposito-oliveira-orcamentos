@@ -244,6 +244,7 @@ export async function PATCH(
                       quantidade: number;
                       unidade?: string;
                       preco_unitario: number;
+                      preco_custo?: number;
             }) => ({
                       orcamento_id: params.id,
                       produto_id: item.produto_id || null,
@@ -252,6 +253,7 @@ export async function PATCH(
                       unidade: item.unidade || 'unidade',
                       preco_unitario: item.preco_unitario,
                       subtotal: item.quantidade * item.preco_unitario,
+                      preco_custo: typeof item.preco_custo === 'number' ? item.preco_custo : 0,
             }));
 
             await supabaseAdmin.from('orcamento_itens').insert(itensToInsert);

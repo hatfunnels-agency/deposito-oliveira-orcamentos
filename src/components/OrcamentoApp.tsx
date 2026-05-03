@@ -803,6 +803,7 @@ export default function OrcamentoApp() {  // Auth state
           quantidade: i.quantidade,
           unidade: i.produto.unidade,
           preco_unitario: i.preco_custom ?? i.produto.preco,
+          preco_custo: i.produto.preco_custo || 0,
         })),
       };
 
