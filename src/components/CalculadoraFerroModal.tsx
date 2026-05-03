@@ -27,8 +27,8 @@ function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): num
 
 // Constantes de custo do fornecedor (CMV)
 const FERRO_CUSTO = {
-  barra_10mm_por_metro: 2.875,    // R$34,50 / 12m
-  estribo_4mm_por_metro: 0.742,   // R$8,90 / 12m
+  barra_10mm_por_metro: 2.942,    // R$35,30 / 12m
+  estribo_4mm_por_metro: 0.748,   // R$8,98 / 12m
   espacamento_estribo: 0.30,      // 30cm entre estribos
   comprimento_estribo: {
     '9x15': 0.58,   // 2*(0.09+0.15)+0.10
