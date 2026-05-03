@@ -35,9 +35,24 @@ interface OrcamentoItem {
   produto_id: number | null;
   produto_nome: string;
   quantidade: number;
+  quantidade_entregue?: number;
   unidade: string;
   preco_unitario: number;
   subtotal: number;
+}
+
+interface EntregaParcial {
+  id: string;
+  numero_entrega: number;
+  data_entrega: string | null;
+  observacoes: string | null;
+  criado_em: string;
+  entregas_parciais_itens: Array<{
+    id: string;
+    orcamento_item_id: string;
+    quantidade: number;
+    orcamento_itens?: { produto_nome: string; unidade: string } | null;
+  }>;
 }
 
 interface OrcamentoDetalhe {
@@ -114,6 +129,7 @@ interface EntregaRota {
   status: string;
   total: number;
   itens_resumo: string;
+  falta_resumo?: string;
   data_entrega: string | null;
   observacoes: string;
   motorista_id?: string | null;
@@ -400,6 +416,14 @@ export default function OrcamentoApp() {  // Auth state
   const [editandoMotoristaNome, setEditandoMotoristaNome] = useState('');
   const [editandoMotoristaVeiculo, setEditandoMotoristaVeiculo] = useState('');
   const [editandoMotoristaTelefone, setEditandoMotoristaTelefone] = useState('');
+
+  // Entregas parciais
+  const [entregasParciais, setEntregasParciais] = useState<EntregaParcial[]>([]);
+  const [mostrarRegistrarParcial, setMostrarRegistrarParcial] = useState(false);
+  const [parcialQtds, setParcialQtds] = useState<Record<string, string>>({});
+  const [parcialObs, setParcialObs] = useState('');
+  const [salvandoParcial, setSalvandoParcial] = useState(false);
+  const [marcandoTudoEntregue, setMarcandoTudoEntregue] = useState(false);
 
   const carregarProdutos = useCallback(() => {
     fetch('/api/produtos')
@@ -845,7 +869,20 @@ export default function OrcamentoApp() {  // Auth state
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const itensComEntrega = d ? d.orcamento_itens.filter(i => Number(i.quantidade_entregue) > 0) : [];
+    const progressoHtml = itensComEntrega.length > 0
+      ? '<table style="width:100%;border-collapse:collapse;margin:10px 0;font-size:13px"><thead><tr><th style="background:#6366f1;color:white;padding:6px 8px;text-align:left">Produto</th><th style="background:#6366f1;color:white;padding:6px 8px;text-align:right">Total</th><th style="background:#6366f1;color:white;padding:6px 8px;text-align:right">Entregue</th><th style="background:#6366f1;color:white;padding:6px 8px;text-align:right">Restante</th></tr></thead><tbody>'
+        + (d ? d.orcamento_itens.map(i => {
+            const total = Number(i.quantidade);
+            const entregue = Number(i.quantidade_entregue) || 0;
+            const restante = Math.max(0, total - entregue);
+            const u = i.unidade || '';
+            const completo = restante <= 1e-9;
+            return `<tr><td style="padding:5px 8px;border-bottom:1px solid #eee">${i.produto_nome}</td><td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${total} ${u}</td><td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${entregue} ${u}</td><td style="padding:5px 8px;border-bottom:1px solid #eee;text-align:right">${completo ? '0 ✅' : restante + ' ' + u}</td></tr>`;
+          }).join('') : '')
+        + '</tbody></table>'
+      : '';
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table>${progressoHtml ? '<h3 style="margin:14px 0 6px;font-size:14px;color:#4338ca">📦 Progresso de Entrega</h3>' + progressoHtml : ''}<div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -866,9 +903,21 @@ export default function OrcamentoApp() {  // Auth state
     } catch (e) { console.error('Erro ao atualizar status', e); }
   };
 
+  const carregarEntregasParciais = async (orcamentoId: string) => {
+    try {
+      const res = await fetch(`/api/entregas-parciais?orcamento_id=${orcamentoId}`, { cache: 'no-store' });
+      const data = await res.json();
+      setEntregasParciais(data.entregas || []);
+    } catch (e) {
+      console.error('Erro ao carregar entregas parciais', e);
+      setEntregasParciais([]);
+    }
+  };
+
   const abrirDetalhe = async (id: string) => {
     setLoadingDetalhe(true);
     setMostrarDetalhe(true);
+    setEntregasParciais([]);
     try {
       const res = await fetch(`/api/orcamentos/${id}`, { cache: 'no-store' });
       const data = await res.json();
@@ -880,9 +929,127 @@ export default function OrcamentoApp() {  // Auth state
           observacoes: data.observacoes || null,
           clientes: data.clientes || null,
         });
+        carregarEntregasParciais(id);
       }
     } catch (e) { console.error('Erro ao carregar detalhe', e); }
     setLoadingDetalhe(false);
+  };
+
+  const abrirRegistrarParcial = () => {
+    if (!orcamentoDetalhe) return;
+    const init: Record<string, string> = {};
+    for (const it of orcamentoDetalhe.orcamento_itens) {
+      const restante = Number(it.quantidade) - (Number(it.quantidade_entregue) || 0);
+      if (restante > 1e-9) init[it.id] = '';
+    }
+    setParcialQtds(init);
+    setParcialObs('');
+    setMostrarRegistrarParcial(true);
+  };
+
+  const confirmarEntregaParcial = async () => {
+    if (!orcamentoDetalhe) return;
+    const itensPayload: Array<{ orcamento_item_id: string; quantidade: number }> = [];
+    for (const [itemId, valor] of Object.entries(parcialQtds)) {
+      const q = parseFloat((valor || '').replace(',', '.'));
+      if (!isNaN(q) && q > 0) itensPayload.push({ orcamento_item_id: itemId, quantidade: q });
+    }
+    if (itensPayload.length === 0) {
+      alert('Informe pelo menos uma quantidade.');
+      return;
+    }
+    setSalvandoParcial(true);
+    try {
+      const res = await fetch('/api/entregas-parciais', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orcamento_id: orcamentoDetalhe.id,
+          itens: itensPayload,
+          observacoes: parcialObs || null,
+        }),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Erro ao registrar entrega parcial');
+      } else {
+        setMostrarRegistrarParcial(false);
+        setParcialQtds({});
+        setParcialObs('');
+        // Recarrega detalhe e historico
+        const orcRes = await fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, { cache: 'no-store' });
+        const orc = await orcRes.json();
+        if (orc && !orc.error) {
+          setOrcamentoDetalhe({
+            ...orc,
+            reagendamentos: orc.reagendamentos ?? 0,
+            orcamento_itens: orc.orcamento_itens || [],
+            observacoes: orc.observacoes || null,
+            clientes: orc.clientes || null,
+          });
+        }
+        carregarEntregasParciais(orcamentoDetalhe.id);
+        carregarHistorico();
+        if (data.tudo_entregue) {
+          alert('✅ Tudo entregue! Pedido marcado como completo.');
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao registrar entrega parcial', e);
+      alert('Erro ao registrar entrega parcial.');
+    }
+    setSalvandoParcial(false);
+  };
+
+  const marcarTudoEntregue = async () => {
+    if (!orcamentoDetalhe) return;
+    const pendentes = orcamentoDetalhe.orcamento_itens
+      .map(it => ({
+        orcamento_item_id: it.id,
+        quantidade: Number(it.quantidade) - (Number(it.quantidade_entregue) || 0),
+      }))
+      .filter(p => p.quantidade > 1e-9);
+    if (pendentes.length === 0) {
+      alert('Não há itens pendentes.');
+      return;
+    }
+    if (!confirm('Marcar TODO o restante como entregue nesta viagem?')) return;
+    setMarcandoTudoEntregue(true);
+    try {
+      const res = await fetch('/api/entregas-parciais', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orcamento_id: orcamentoDetalhe.id,
+          itens: pendentes,
+          observacoes: 'Última viagem — restante entregue',
+        }),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Erro ao marcar tudo entregue');
+      } else {
+        const orcRes = await fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, { cache: 'no-store' });
+        const orc = await orcRes.json();
+        if (orc && !orc.error) {
+          setOrcamentoDetalhe({
+            ...orc,
+            reagendamentos: orc.reagendamentos ?? 0,
+            orcamento_itens: orc.orcamento_itens || [],
+            observacoes: orc.observacoes || null,
+            clientes: orc.clientes || null,
+          });
+        }
+        carregarEntregasParciais(orcamentoDetalhe.id);
+        carregarHistorico();
+      }
+    } catch (e) {
+      console.error('Erro ao marcar tudo entregue', e);
+      alert('Erro ao marcar tudo entregue.');
+    }
+    setMarcandoTudoEntregue(false);
   };
 
   // Bug 6 - Restore edit button functionality
@@ -2584,6 +2751,9 @@ export default function OrcamentoApp() {  // Auth state
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
+                          {e.status === 'entrega_parcial' && e.falta_resumo && (
+                            <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
+                          )}
                         </div>
                         <button
                           onClick={ev => { ev.stopPropagation(); setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]); }}
@@ -2701,6 +2871,9 @@ export default function OrcamentoApp() {  // Auth state
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
+                          {e.status === 'entrega_parcial' && e.falta_resumo && (
+                            <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
+                          )}
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <button
@@ -3008,6 +3181,73 @@ export default function OrcamentoApp() {  // Auth state
                   <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Subtotal:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.subtotal)}</span></div>
                   <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-lg text-[#F7941D]">R$ {formatBRL(orcamentoDetalhe.total)}</span></div>
                 </div>
+                {/* Progresso de entrega (parciais) */}
+                {(() => {
+                  const itens = orcamentoDetalhe.orcamento_itens || [];
+                  const algumEntregue = itens.some(it => Number(it.quantidade_entregue) > 0);
+                  if (!algumEntregue && entregasParciais.length === 0) return null;
+                  const tudoEntregue = itens.length > 0 && itens.every(it => (Number(it.quantidade_entregue) || 0) + 1e-9 >= Number(it.quantidade));
+                  const faltando = itens
+                    .map(it => ({ nome: it.produto_nome, unidade: it.unidade, falta: Number(it.quantidade) - (Number(it.quantidade_entregue) || 0) }))
+                    .filter(x => x.falta > 1e-9);
+                  return (
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <h3 className="font-bold text-gray-700 mb-2 text-sm">📦 Progresso de Entrega</h3>
+                      <div className="space-y-2">
+                        {itens.map(it => {
+                          const total = Number(it.quantidade);
+                          const entregue = Math.min(total, Number(it.quantidade_entregue) || 0);
+                          const pct = total > 0 ? Math.round((entregue / total) * 100) : 0;
+                          const completo = entregue + 1e-9 >= total;
+                          return (
+                            <div key={it.id}>
+                              <div className="flex justify-between text-xs">
+                                <span className="text-gray-700">{it.produto_nome}</span>
+                                <span className={completo ? 'text-green-700 font-medium' : 'text-gray-600'}>
+                                  {completo ? `${total} de ${total} ${it.unidade} ✅` : `${entregue} de ${total} ${it.unidade} entregues`}
+                                </span>
+                              </div>
+                              <div className="w-full bg-gray-200 rounded h-1.5 mt-1 overflow-hidden">
+                                <div className={`h-full ${completo ? 'bg-green-500' : 'bg-indigo-500'}`} style={{ width: `${pct}%` }} />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {tudoEntregue ? (
+                        <p className="mt-3 text-sm font-bold text-green-700">✅ Tudo entregue</p>
+                      ) : faltando.length > 0 ? (
+                        <p className="mt-3 text-xs text-orange-700">⚠️ Falta entregar: {faltando.map(f => `${f.falta} ${f.unidade} de ${f.nome}`).join(' · ')}</p>
+                      ) : null}
+                    </div>
+                  );
+                })()}
+                {/* Histórico de entregas parciais */}
+                {entregasParciais.length > 0 && (
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-700 mb-2 text-sm">📋 Histórico de Entregas</h3>
+                    <div className="space-y-3">
+                      {entregasParciais.map(ep => {
+                        const dataFmt = ep.data_entrega
+                          ? new Date(ep.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')
+                          : new Date(ep.criado_em).toLocaleDateString('pt-BR');
+                        return (
+                          <div key={ep.id} className="border border-gray-100 rounded-lg p-2 bg-gray-50">
+                            <p className="text-sm font-semibold text-gray-700">Entrega #{ep.numero_entrega} — {dataFmt}</p>
+                            <ul className="mt-1 ml-3 text-xs text-gray-600 list-disc">
+                              {ep.entregas_parciais_itens.map(epi => (
+                                <li key={epi.id}>
+                                  {epi.orcamento_itens?.produto_nome || '—'}: {epi.quantidade} {epi.orcamento_itens?.unidade || ''}
+                                </li>
+                              ))}
+                            </ul>
+                            {ep.observacoes && <p className="mt-1 text-xs text-gray-500 italic">Obs: {ep.observacoes}</p>}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 {/* Card pricing - details modal */}
                 {(() => {
                   const totalDetalhe = orcamentoDetalhe.total;
@@ -3030,6 +3270,12 @@ export default function OrcamentoApp() {  // Auth state
                   <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
                   <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
                   <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
+                  {(orcamentoDetalhe.status === 'entrega_pendente' || orcamentoDetalhe.status === 'entrega_parcial') && (
+                    <>
+                      <button onClick={abrirRegistrarParcial} className="w-full bg-indigo-500 text-white py-2 rounded-xl font-bold hover:bg-indigo-600 transition text-sm">📦 Registrar Entrega Parcial</button>
+                      <button onClick={marcarTudoEntregue} disabled={marcandoTudoEntregue} className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">{marcandoTudoEntregue ? 'Salvando...' : '✅ Marcar Tudo Entregue'}</button>
+                    </>
+                  )}
                   {/* Feature 9 - Reschedule button */}
                   {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
@@ -3066,6 +3312,62 @@ export default function OrcamentoApp() {  // Auth state
               <button onClick={() => { if (novaDataEntrega && reagendandoId) reagendarEntrega(reagendandoId, novaDataEntrega); }}
                 disabled={!novaDataEntrega}
                 className="flex-1 bg-[#F7941D] text-white py-2 rounded-lg font-bold hover:bg-[#E8850A] transition disabled:opacity-50">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Registrar Entrega Parcial */}
+      {mostrarRegistrarParcial && orcamentoDetalhe && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => !salvandoParcial && setMostrarRegistrarParcial(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-3">📦 Registrar Entrega Parcial</h2>
+            <p className="text-xs text-gray-500 mb-3">Pedido {orcamentoDetalhe.codigo}. Informe a quantidade de cada item nesta viagem.</p>
+            <div className="space-y-2 mb-4">
+              {orcamentoDetalhe.orcamento_itens.map(it => {
+                const total = Number(it.quantidade);
+                const entregue = Number(it.quantidade_entregue) || 0;
+                const restante = total - entregue;
+                if (restante <= 1e-9) return null;
+                return (
+                  <div key={it.id} className="border border-gray-200 rounded-lg p-2">
+                    <p className="text-sm font-medium text-gray-800">{it.produto_nome}</p>
+                    <p className="text-xs text-gray-500 mb-1">Restante: {restante} {it.unidade}</p>
+                    <input
+                      type="number"
+                      min="0"
+                      max={restante}
+                      step="any"
+                      placeholder="Quantidade nesta viagem"
+                      value={parcialQtds[it.id] ?? ''}
+                      onChange={e => setParcialQtds(prev => ({ ...prev, [it.id]: e.target.value }))}
+                      className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]"
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            <div className="mb-4">
+              <label className="block text-xs font-medium text-gray-600 mb-1">Observações (opcional)</label>
+              <textarea
+                value={parcialObs}
+                onChange={e => setParcialObs(e.target.value)}
+                rows={2}
+                placeholder="Ex: Primeira viagem - só areia e cimento"
+                className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]"
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMostrarRegistrarParcial(false)}
+                disabled={salvandoParcial}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition disabled:opacity-50"
+              >Cancelar</button>
+              <button
+                onClick={confirmarEntregaParcial}
+                disabled={salvandoParcial}
+                className="flex-1 bg-indigo-500 text-white py-2 rounded-lg font-bold hover:bg-indigo-600 transition disabled:opacity-50"
+              >{salvandoParcial ? 'Salvando...' : 'Confirmar Entrega Parcial'}</button>
             </div>
           </div>
         </div>

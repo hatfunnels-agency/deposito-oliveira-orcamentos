@@ -30,7 +30,7 @@ export async function GET(
                                                                         numero, complemento, recebedor
                                                                                 ),
                                                                                         orcamento_itens (
-                                                                                                  id, produto_id, produto_nome, quantidade, unidade,
+                                                                                                  id, produto_id, produto_nome, quantidade, quantidade_entregue, unidade,
                                                                                                             preco_unitario, subtotal
                                                                                                                     )
                                                                                                                           `)
@@ -193,7 +193,7 @@ export async function PATCH(
             if (
                       status === 'cancelado' &&
                       previousStatus &&
-                      ['entrega_pendente', 'retirada_pendente', 'em_rota'].includes(previousStatus) &&
+                      ['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota'].includes(previousStatus) &&
                       orderItems &&
                       orderItems.length > 0
                     ) {

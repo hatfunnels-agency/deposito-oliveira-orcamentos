@@ -62,6 +62,7 @@ interface EntregaItem {
   status: string;
   total: number;
   itens_resumo: string;
+  falta_resumo: string;
   data_entrega: string | null;
   observacoes: string;
   distancia_km: number | null;
@@ -75,7 +76,7 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url);
     const data = searchParams.get('data');
 
-    const statusEntrega = ['aguardando', 'confirmado', 'entrega_pendente', 'em_rota', 'completo'];
+    const statusEntrega = ['aguardando', 'confirmado', 'entrega_pendente', 'entrega_parcial', 'em_rota', 'completo'];
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
@@ -85,7 +86,7 @@ export async function GET(request: NextRequest) {
           numero, complemento, recebedor
         ),
         orcamento_itens (
-          produto_nome, quantidade, unidade
+          produto_nome, quantidade, quantidade_entregue, unidade
         )
       `)
       .eq('tipo_entrega', 'entrega')
@@ -113,6 +114,17 @@ export async function GET(request: NextRequest) {
         const itensResumo = (itens || [])
           .map((i) => String(i.quantidade) + (i.unidade === 'unidade' ? 'x' : String(i.unidade)) + ' ' + String(i.produto_nome))
           .join(', ');
+        const faltaResumo = (itens || [])
+          .map((i) => {
+            const total = Number(i.quantidade) || 0;
+            const entregue = Number(i.quantidade_entregue) || 0;
+            const falta = total - entregue;
+            if (falta <= 1e-9) return null;
+            const u = String(i.unidade || '');
+            return `${falta} ${u} de ${i.produto_nome}`.trim();
+          })
+          .filter((x): x is string => !!x)
+          .join(' · ');
 
         const endereco = cliente?.endereco ? String(cliente.endereco) : '';
         const numero = cliente?.numero ? String(cliente.numero) : '';
@@ -144,6 +156,7 @@ export async function GET(request: NextRequest) {
           bairro, cidade,
           status: String(e.status), total: Number(e.total),
           itens_resumo: itensResumo,
+          falta_resumo: faltaResumo,
           data_entrega: e.data_entrega ? String(e.data_entrega) : null,
           observacoes: e.observacoes ? String(e.observacoes) : '',
           distancia_km: distanciaKm,
