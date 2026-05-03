@@ -8,11 +8,14 @@ interface ResumoData {
   total_frete: number;
   qtd_vendas: number;
   qtd_orcamentos: number;
+  qtd_total_orcamentos: number;
   qtd_cancelados: number;
   ticket_medio: number;
   cmv_total: number;
   lucro_bruto: number;
   margem_bruta_pct: number;
+  cash_collected: number;
+  vendas_hoje: number;
   total_filtrado_produto: number;
   qtd_filtrado_produto: number;
 }
@@ -362,25 +365,59 @@ export default function DashboardTab() {
             </div>
           </div>
 
-          {/* KPI row 1 */}
+          {/* KPI row 1 - principais */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128197; Vendas Hoje</p>
+              <p className="text-2xl font-bold text-gray-800">{fmt(r.vendas_hoje)}</p>
+              <p className="text-xs text-gray-400 mt-1">Total faturado no dia</p>
+            </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <p className="text-xs text-gray-500 mb-1">&#128176; Valor Faturado</p>
               <div className="flex items-center">
                 <p className="text-2xl font-bold text-gray-800">{fmt(r.total_faturado)}</p>
                 {rPrev && <DeltaBadge atual={r.total_faturado} anterior={rPrev.total_faturado} />}
               </div>
-              <p className="text-xs text-gray-400 mt-1">Subtotal: {fmt(r.total_subtotal)}</p>
-              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.total_faturado)}</p>}
+              {rPrev && <p className="text-xs text-gray-300 mt-1">Anterior: {fmt(rPrev.total_faturado)}</p>}
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-xs text-gray-500 mb-1">&#128230; Vendas Confirmadas</p>
+              <p className="text-xs text-gray-500 mb-1">&#128722; Vendas Confirmadas</p>
               <div className="flex items-center">
                 <p className="text-2xl font-bold text-gray-800">{r.qtd_vendas}</p>
                 {rPrev && <DeltaBadge atual={r.qtd_vendas} anterior={rPrev.qtd_vendas} />}
               </div>
-              <p className="text-xs text-gray-400 mt-1">Orçamentos gerados: {r.qtd_orcamentos}</p>
-              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {rPrev.qtd_vendas}</p>}
+              {rPrev && <p className="text-xs text-gray-300 mt-1">Anterior: {rPrev.qtd_vendas}</p>}
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128203; Orçamentos Gerados</p>
+              <div className="flex items-center">
+                <p className="text-2xl font-bold text-gray-800">{r.qtd_total_orcamentos}</p>
+                {rPrev && <DeltaBadge atual={r.qtd_total_orcamentos} anterior={rPrev.qtd_total_orcamentos} />}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Inclui cancelados</p>
+              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {rPrev.qtd_total_orcamentos}</p>}
+            </div>
+          </div>
+
+          {/* KPI row 2 - financeiros */}
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128181; Cash Collected</p>
+              <div className="flex items-center">
+                <p className="text-2xl font-bold text-green-700">{fmt(r.cash_collected)}</p>
+                {rPrev && <DeltaBadge atual={r.cash_collected} anterior={rPrev.cash_collected} />}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Recebido (pagto. completo)</p>
+              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.cash_collected)}</p>}
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <p className="text-xs text-gray-500 mb-1">&#128176; Lucro Bruto</p>
+              <div className="flex items-center">
+                <p className="text-2xl font-bold text-emerald-700">{fmt(r.lucro_bruto)}</p>
+                {rPrev && <DeltaBadge atual={r.lucro_bruto} anterior={rPrev.lucro_bruto} />}
+              </div>
+              <p className="text-xs text-gray-400 mt-1">Faturamento − CMV</p>
+              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.lucro_bruto)}</p>}
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <p className="text-xs text-gray-500 mb-1">&#127919; Ticket Médio</p>
@@ -388,8 +425,7 @@ export default function DashboardTab() {
                 <p className="text-2xl font-bold text-gray-800">{fmt(r.ticket_medio)}</p>
                 {rPrev && <DeltaBadge atual={r.ticket_medio} anterior={rPrev.ticket_medio} />}
               </div>
-              <p className="text-xs text-gray-400 mt-1">Frete médio: {fmt(r.qtd_vendas > 0 ? r.total_frete / r.qtd_vendas : 0)}</p>
-              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.ticket_medio)}</p>}
+              {rPrev && <p className="text-xs text-gray-300 mt-1">Anterior: {fmt(rPrev.ticket_medio)}</p>}
             </div>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
               <p className="text-xs text-gray-500 mb-1">&#128200; Margem Bruta</p>
@@ -397,15 +433,10 @@ export default function DashboardTab() {
                 <p className="text-2xl font-bold text-gray-800">{fmtPct(r.margem_bruta_pct)}</p>
                 {rPrev && <DeltaBadge atual={r.margem_bruta_pct} anterior={rPrev.margem_bruta_pct} />}
               </div>
-              <p className="text-xs text-gray-400 mt-1">Lucro: {fmt(r.lucro_bruto)}</p>
-              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmtPct(rPrev.margem_bruta_pct)}</p>}
+              {rPrev && <p className="text-xs text-gray-300 mt-1">Anterior: {fmtPct(rPrev.margem_bruta_pct)}</p>}
             </div>
-          </div>
-
-          {/* KPI row 2 */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-xs text-gray-500 mb-1">&#127981; CMV (Custo Merc. Vendida)</p>
+              <p className="text-xs text-gray-500 mb-1">&#128230; CMV</p>
               <div className="flex items-center">
                 <p className="text-2xl font-bold text-red-600">{fmt(r.cmv_total)}</p>
                 {rPrev && <DeltaBadge atual={r.cmv_total} anterior={rPrev.cmv_total} invertColor />}
@@ -413,16 +444,10 @@ export default function DashboardTab() {
               <p className="text-xs text-gray-400 mt-1">{fmtPct(r.total_subtotal > 0 ? (r.cmv_total/r.total_subtotal)*100 : 0)} do faturamento</p>
               {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.cmv_total)}</p>}
             </div>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-              <p className="text-xs text-gray-500 mb-1">&#128666; Frete Total</p>
-              <div className="flex items-center">
-                <p className="text-2xl font-bold text-gray-800">{fmt(r.total_frete)}</p>
-                {rPrev && <DeltaBadge atual={r.total_frete} anterior={rPrev.total_frete} />}
-              </div>
-              <p className="text-xs text-gray-400 mt-1">{fmtPct(r.total_faturado > 0 ? (r.total_frete/r.total_faturado)*100 : 0)} do faturado</p>
-              {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.total_frete)}</p>}
-            </div>
-            {filtroProduto && (
+          </div>
+
+          {filtroProduto && (
+            <div className="grid grid-cols-1 gap-4">
               <div className="bg-orange-50 rounded-2xl border border-orange-200 shadow-sm p-5">
                 <p className="text-xs text-orange-600 mb-1">&#128269; {filtroProduto}</p>
                 <div className="flex items-center">
@@ -432,8 +457,8 @@ export default function DashboardTab() {
                 <p className="text-xs text-orange-500 mt-1">{r.qtd_filtrado_produto} pedido(s)</p>
                 {rPrev && <p className="text-xs text-gray-300 mt-0.5">Anterior: {fmt(rPrev.total_filtrado_produto)}</p>}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* EVOLUCAO DIARIA */}
           {data.evolucao_diaria.length > 0 && (
