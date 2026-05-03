@@ -1,4 +1,4 @@
-çá'use client'; // v3 - auth + redesign
+'use client'; // v3 - auth + redesign
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
