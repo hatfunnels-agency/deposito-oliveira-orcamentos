@@ -786,67 +786,80 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   const gerarTextoWhatsApp = (detalhe?: OrcamentoDetalhe | null) => {
+    // Itens da calculadora ja contem metragem total no nome (ex.: "... | 15.2m");
+    // nao concatenar quantidade/unidade. Heuristica: nome contem "barras".
+    const formatarItem = (nome: string, qtd: number, unidade: string | null | undefined, valor: number) => {
+      const ehFerroMontado = (nome || '').toLowerCase().includes('barras');
+      if (ehFerroMontado) return `· ${nome} = R$ ${formatBRL(valor)}`;
+      const unidadeStr = unidade === 'm³' ? 'm³' : (unidade ? ' ' + unidade : '');
+      return `· ${nome} ${qtd}${unidadeStr} = R$ ${formatBRL(valor)}`;
+    };
+    const fmtData = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
+    const SEP = '------------------------------';
+
     if (detalhe) {
+      const c = detalhe.clientes;
       const endCompleto = [
-        detalhe.clientes?.endereco,
-        detalhe.clientes?.numero ? `nº ${detalhe.clientes.numero}` : '',
-        detalhe.clientes?.complemento,
-        detalhe.clientes?.bairro,
-        detalhe.clientes?.cidade ? `${detalhe.clientes.cidade}-${detalhe.clientes.estado}` : '',
+        c?.endereco,
+        c?.numero ? `nº ${c.numero}` : '',
+        c?.complemento,
+        c?.bairro,
+        c?.cidade ? `${c.cidade}-${c.estado}` : '',
       ].filter(Boolean).join(', ');
       const linhas = [
         '*ORÇAMENTO - Depósito Oliveira*',
         `Código: ${detalhe.codigo}`,
-        '',
-        '-----------------------------',
-        '',
-        `*Cliente:* ${detalhe.clientes?.nome || 'Cliente'}`,
-        detalhe.clientes?.telefone ? `*Telefone:* ${detalhe.clientes.telefone}` : '',
-        detalhe.clientes?.recebedor ? `*Recebedor:* ${detalhe.clientes.recebedor}` : '',
-        '',
-        '*Produtos:*',
-        ...detalhe.orcamento_itens.map(i => `· ${i.produto_nome} ${i.quantidade}${i.unidade === 'm³' ? 'm³' : (i.unidade ? ' ' + i.unidade : '')} = R$ ${formatBRL(i.subtotal)}`),
-        '',
-        `*Subtotal:* R$ ${formatBRL(detalhe.subtotal)}`,
-        detalhe.tipo_entrega === 'entrega' && detalhe.valor_frete > 0 ? `*Frete:* R$ ${formatBRL(detalhe.valor_frete)}` : '*Retirada na loja*',
+        SEP,
+        `*Cliente:* ${c?.nome || 'Cliente'}`,
+        c?.telefone ? `*Telefone:* ${c.telefone}` : '',
+        c?.recebedor ? `*Recebedor:* ${c.recebedor}` : '',
         detalhe.tipo_entrega === 'entrega' && endCompleto ? `*Endereço:* ${endCompleto}` : '',
-        detalhe.data_entrega ? `*Data de entrega:* ${new Date(detalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
+        detalhe.tipo_entrega === 'entrega' && detalhe.data_entrega
+          ? `*Data de entrega:* ${fmtData(detalhe.data_entrega)}`
+          : detalhe.tipo_entrega === 'retirada' && detalhe.data_retirada
+            ? `*Data de retirada:* ${fmtData(detalhe.data_retirada)}`
+            : '',
+        SEP,
+        '*Produtos:*',
+        ...detalhe.orcamento_itens.map(i => formatarItem(i.produto_nome, Number(i.quantidade), i.unidade, Number(i.subtotal))),
         '',
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
-        '',
-        (detalhe as any).status_pagamento === 'completo' ? '*✅ Pagamento: Pago*' : (detalhe as any).status_pagamento === 'parcial' ? '*⚠️ Pagamento: Parcial*' : '',
-        ...(detalhe.observacoes ? [`_Obs: ${detalhe.observacoes}_`] : []),
-                      ].filter((l): l is string => typeof l === 'string' && l.length > 0);
+        'Em até 3x sem juros',
+      ].filter((l): l is string => typeof l === 'string' && l.length > 0);
       return linhas.join('\n');
     }
+
     const codigo = orcamentoSalvo?.codigo;
+    const enderecoFmt = [
+      enderecoViaCEP,
+      numeroEndereco ? `nº ${numeroEndereco}` : '',
+      complementoEndereco,
+    ].filter(Boolean).join(', ');
     const linhas = [
       '*ORÇAMENTO - Depósito Oliveira*',
       codigo ? `Código: ${codigo}` : '',
-      '-----------------------------',
-      '',
+      SEP,
       nomeCliente ? `*Cliente:* ${nomeCliente}` : '',
       whatsappCliente ? `*Telefone:* ${whatsappCliente}` : '',
       recebedor ? `*Recebedor:* ${recebedor}` : '',
-      whatsappCliente ? `*Telefone:* ${whatsappCliente}\n` : '',
-      tipoEntrega === 'entrega' && enderecoViaCEP
-        ? `*Endereço:* ${[enderecoViaCEP, numeroEndereco ? 'nº ' + numeroEndereco : '', complementoEndereco].filter(Boolean).join(', ')}`
-        : '',
+      tipoEntrega === 'entrega' && enderecoFmt ? `*Endereço:* ${enderecoFmt}` : '',
+      tipoEntrega === 'entrega' && dataEntrega
+        ? `*Data de entrega:* ${fmtData(dataEntrega)}`
+        : tipoEntrega === 'retirada' && dataRetirada
+          ? `*Data de retirada:* ${fmtData(dataRetirada)}`
+          : '',
+      SEP,
       '*Produtos:*',
-      ...itens.map(i => `· ${i.produto.nome} ${i.quantidade}${i.produto.unidade === 'm³' ? 'm³' : (i.produto.unidade ? ' ' + i.produto.unidade : '')} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
-      '',
-      `*Subtotal:* R$ ${formatBRL(subtotal)}`,
-      tipoEntrega === 'entrega' && dadosFrete ? `*Frete:* R$ ${formatBRL(dadosFrete.frete || 0)}` : '*Retirada na loja*',
-      tipoEntrega === 'entrega' && dataEntrega ? `*Data de entrega:* ${new Date(dataEntrega + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
+      ...itens.map(i => formatarItem(
+        i.produto.nome,
+        i.quantidade,
+        i.produto.unidade,
+        (i.preco_custom ?? i.produto.preco) * i.quantidade,
+      )),
       '',
       `*TOTAL: R$ ${formatBRL(totalFinal)}*`,
-      `💳 Cartão (+8%): R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO))} | 2x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 2)} | 6x R$ ${formatBRL(total * (1 + ACRESCIMO_CARTAO) / 6)}`,
-      '',
-      observacoes ? `_Obs: ${observacoes}_` : '',
-      '_Orçamento válido por 7 dias_',
-      '_Sujeito a disponibilidade de estoque_',
-      '_Depósito Oliveira — (11) 4187-1801_',
-    ].filter((l): l is string => !!l);
+      'Em até 3x sem juros',
+    ].filter((l): l is string => typeof l === 'string' && l.length > 0);
     return linhas.join('\n');
   };
 
