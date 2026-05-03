@@ -58,22 +58,12 @@ export async function GET(request: NextRequest) {
             return NextResponse.json(extrairComponentes(data.result));
       }
 
-      // Comportamento original: geocoding direto
-      if (!query || query.trim().length < 3) {
-              return NextResponse.json({ error: 'Query deve ter pelo menos 3 caracteres' }, { status: 400 });
-      }
-
-      const geocodeUrl = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&region=br&language=pt-BR&key=${GOOGLE_MAPS_API_KEY}`;
-          const res = await fetch(geocodeUrl, { cache: 'no-store' });
-          const data = await res.json();
-
-      if (data.status !== 'OK' || !data.results?.length) {
-              return NextResponse.json({
-                        error: data.status === 'ZERO_RESULTS' ? 'Endereco nao encontrado.' : `Erro: ${data.error_message || data.status}`,
-              }, { status: 400 });
-      }
-
-      return NextResponse.json(extrairComponentes(data.results[0]));
+      // Geocoding livre por texto removido: retornava endereco errado para nomes ambiguos.
+      // Use type=autocomplete para obter sugestoes e type=details com place_id para resolver.
+      return NextResponse.json(
+        { error: 'Use type=autocomplete + type=details. Geocoding livre desabilitado.' },
+        { status: 400 }
+      );
     } catch (error) {
           console.error('Erro ao buscar endereco:', error);
           return NextResponse.json({ error: 'Erro interno ao buscar endereco' }, { status: 500 });

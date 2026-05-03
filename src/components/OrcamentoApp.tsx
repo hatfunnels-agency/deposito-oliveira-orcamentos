@@ -614,107 +614,46 @@ export default function OrcamentoApp() {  // Auth state
       carregarRetiradas();
     }  }, [abaAtiva]);
 
-  // Feature 7 - Search address by street name
-  const buscarEnderecoPorRua = async () => {
-    if (!buscaEndereco || buscaEndereco.trim().length < 5) return;
-    setBuscandoEndereco(true);
-    setErroFrete('');
+  // Smart address search - CEP only (street names must be picked from dropdown)
+  const buscarEnderecoSmart = async (input: string) => {
+    const cleaned = input.replace(/\D/g, '');
+    if (cleaned.length !== 8 || !/^\d{8}$/.test(cleaned)) {
+      setErroFrete('Para endereço por nome de rua, selecione uma sugestão do menu. O botão Buscar funciona apenas com CEP (8 dígitos).');
+      return;
+    }
+    // It's a CEP - fetch via ViaCEP and calculate freight
+    setCepDestino(cleaned);
+    setBuscaEndereco(input);
     try {
-      const res = await fetch(`/api/endereco?q=${encodeURIComponent(buscaEndereco)}`);
+      const viaRes = await fetch(`https://viacep.com.br/ws/${cleaned}/json/`);
+      const viaData = await viaRes.json();
+      if (!viaData.erro) {
+        setEnderecoViaCEP(`${viaData.logradouro}, ${viaData.bairro}, ${viaData.localidade}-${viaData.uf}`);
+      }
+    } catch {}
+    // Auto-calculate freight
+    setCalculandoFrete(true);
+    setErroFrete('');
+    setDadosFrete(null);
+    try {
+      const res = await fetch('/api/frete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cep: cleaned }),
+      });
       const data = await res.json();
       if (data.error) {
         setErroFrete(data.error);
+      } else if (!data.dentro_area) {
+        setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
       } else {
-        if (data.cep) setCepDestino(data.cep);
+        setDadosFrete(data);
         if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
-        if (data.bairro) setBuscaEndereco('');
       }
     } catch {
-      setErroFrete('Erro ao buscar endereço.');
+      setErroFrete('Erro ao calcular frete.');
     }
-    setBuscandoEndereco(false);
-  };
-
-
-  // Smart address search - detects CEP vs street name
-  const buscarEnderecoSmart = async (input: string) => {
-    const cleaned = input.replace(/\D/g, '');
-    if (cleaned.length === 8 && /^\d{8}$/.test(cleaned)) {
-      // It's a CEP - fetch via ViaCEP and calculate freight
-      setCepDestino(cleaned);
-      setBuscaEndereco(input);
-      try {
-        const viaRes = await fetch(`https://viacep.com.br/ws/${cleaned}/json/`);
-        const viaData = await viaRes.json();
-        if (!viaData.erro) {
-          setEnderecoViaCEP(`${viaData.logradouro}, ${viaData.bairro}, ${viaData.localidade}-${viaData.uf}`);
-        }
-      } catch {}
-      // Auto-calculate freight
-      setCalculandoFrete(true);
-      setErroFrete('');
-      setDadosFrete(null);
-      try {
-        const res = await fetch('/api/frete', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ cep: cleaned }),
-        });
-        const data = await res.json();
-        if (data.error) {
-          setErroFrete(data.error);
-        } else if (!data.dentro_area) {
-          setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
-        } else {
-          setDadosFrete(data);
-          if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
-        }
-      } catch {
-        setErroFrete('Erro ao calcular frete.');
-      }
-      setCalculandoFrete(false);
-    } else {
-      // It's a street name - geocoding search
-      if (input.trim().length < 5) return;
-      setBuscandoEndereco(true);
-      setErroFrete('');
-      try {
-        const res = await fetch(`/api/endereco?q=${encodeURIComponent(input)}`);
-        const data = await res.json();
-        if (data.error) {
-          setErroFrete(data.error);
-        } else {
-          if (data.cep) {
-            setCepDestino(data.cep);
-            // Auto-calculate freight with the found CEP
-            setCalculandoFrete(true);
-            try {
-              const freteRes = await fetch('/api/frete', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ cep: data.cep }),
-              });
-              const freteData = await freteRes.json();
-              if (freteData.error) {
-                setErroFrete(freteData.error);
-              } else if (!freteData.dentro_area) {
-                setErroFrete(freteData.mensagem || 'Endereço fora da área de entrega');
-              } else {
-                setDadosFrete(freteData);
-                if (freteData.endereco_completo) setEnderecoViaCEP(freteData.endereco_completo);
-              }
-            } catch {
-              setErroFrete('Erro ao calcular frete.');
-            }
-            setCalculandoFrete(false);
-          }
-          if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
-        }
-      } catch {
-        setErroFrete('Erro ao buscar endereço.');
-      }
-      setBuscandoEndereco(false);
-    }
+    setCalculandoFrete(false);
   };
 
   const calcularFrete = async () => {
@@ -2099,20 +2038,38 @@ export default function OrcamentoApp() {  // Auth state
                           <li key={s.place_id}
                             className="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0"
                             onClick={async () => {
+                              setMostrandoSugestoes(false);
+                              setSugestoesEndereco([]);
+                              setErroFrete('');
+                              setDadosFrete(null);
                               try {
                                 const res = await fetch(`/api/endereco?type=details&place_id=${s.place_id}`, { cache: 'no-store' });
                                 const data = await res.json();
+                                if (data.error) {
+                                  setErroFrete(data.error);
+                                  return;
+                                }
                                 if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : '') + (data.cidade ? ', ' + data.cidade + '-' + data.estado : ''));
                                 if (data.cep) setCepDestino(data.cep);
                                 setBuscaEndereco(s.description);
-                                if (data.cep) {
-                                  setCalculandoFrete(true);
-                                  fetch('/api/frete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cep: data.cep }), cache: 'no-store' })
-                                    .then(r => r.json()).then(fd => { if (!fd.error && fd.dentro_area) { setDadosFrete(fd); if (fd.endereco_completo) setEnderecoViaCEP(fd.endereco_completo); } }).catch(() => {}).finally(() => setCalculandoFrete(false));
+                                if (!data.cep) {
+                                  setErroFrete('Endereço selecionado não tem CEP. Digite o CEP manualmente para calcular o frete.');
+                                  return;
                                 }
-                              } catch {}
-                              setMostrandoSugestoes(false);
-                              setSugestoesEndereco([]);
+                                setCalculandoFrete(true);
+                                try {
+                                  const fr = await fetch('/api/frete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cep: data.cep }), cache: 'no-store' });
+                                  const fd = await fr.json();
+                                  if (fd.error) setErroFrete(fd.error);
+                                  else if (!fd.dentro_area) setErroFrete(fd.mensagem || 'Endereço fora da área de entrega');
+                                  else { setDadosFrete(fd); if (fd.endereco_completo) setEnderecoViaCEP(fd.endereco_completo); }
+                                } catch {
+                                  setErroFrete('Erro ao calcular frete.');
+                                }
+                                setCalculandoFrete(false);
+                              } catch {
+                                setErroFrete('Erro ao buscar detalhes do endereço.');
+                              }
                             }}
                           >📍 {s.description}</li>
                         ))}
