@@ -151,39 +151,7 @@ interface RotaResponse {
   mensagem?: string;
 }
 
-const UNIT_MAP: Record<string, string> = {
-  'arame': 'KG',
-  'areia': 'm³',
-  'areia ensacada': 'm³',
-  'ferro': 'metro',
-  'pedra brita': 'm³',
-  'pedra': 'm³',
-  'brita': 'm³',
-  'prego': 'KG',
-  'pregos': 'KG',
-  'pedrisco': 'm³',
-  'po de pedra': 'm³',
-  'pó de pedra': 'm³',
-  'cimento': 'saco',
-  'telha': 'unidade',
-  'parafuso': 'unidade',
-  'tijolo': 'unidade',
-  'barra de ferro': 'barra',
-  'vergalhao': 'barra',
-  'vergalhão': 'barra',
-};
 
-
-function mapUnit(productName: string, originalUnit: string): string {
-  const nameLower = productName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  for (const [key, unit] of Object.entries(UNIT_MAP)) {
-    const keyNorm = key.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    if (nameLower.includes(keyNorm)) {
-      return unit;
-    }
-  }
-  return originalUnit;
-}
 
 function formatBRL(value: number): string {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -450,7 +418,6 @@ export default function OrcamentoApp() {  // Auth state
       .then(data => {
         const prods = (data.produtos || []).map((p: Produto) => ({
           ...p,
-          unidade: mapUnit(p.nome, p.unidade),
           estoque: p.estoque,
         }));
         setProdutos(prods);
