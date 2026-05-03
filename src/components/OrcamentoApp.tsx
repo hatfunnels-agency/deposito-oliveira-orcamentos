@@ -30,15 +30,6 @@ interface ItemOrcamento {
   obs?: string;
 }
 
-interface DadosFrete {
-  frete: number | null;
-  distancia_km: number;
-  duracao_min: number;
-  endereco_completo: string;
-  dentro_area: boolean;
-  mensagem: string;
-}
-
 interface OrcamentoItem {
   id: string;
   produto_id: number | null;
@@ -264,8 +255,6 @@ export default function OrcamentoApp() {  // Auth state
   const [carregandoIA, setCarregandoIA] = useState(false);
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
-  const [dadosFrete, setDadosFrete] = useState<DadosFrete | null>(null);
-  const [calculandoFrete, setCalculandoFrete] = useState(false);
   const [nomeCliente, setNomeCliente] = useState('');
   const [whatsappCliente, setWhatsappCliente] = useState('');
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -561,8 +550,9 @@ export default function OrcamentoApp() {  // Auth state
   const getQuantidade = (produtoId: string) => itens.find(i => i.produto.id === produtoId)?.quantidade || 0;
 
   const subtotal = itens.reduce((acc, item) => acc + ((item.preco_custom ?? item.produto.preco) * item.quantidade), 0);
-  const totalFrete = tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete ? dadosFrete.frete : 0;
-  const total = subtotal + totalFrete;
+  // Frete removido do orcamento (deposito nao cobra mais frete).
+  const totalFrete = 0;
+  const total = subtotal;
   const totalFinal = descontoCustom > 0 ? total * (1 - descontoCustom / 100) : total;
 
   const pesoTotal = itens.reduce((acc, item) => {
@@ -598,73 +588,30 @@ export default function OrcamentoApp() {  // Auth state
       carregarRetiradas();
     }  }, [abaAtiva]);
 
-  // Smart address search - CEP only (street names must be picked from dropdown)
+  // Smart address search - CEP only (street names must be picked from dropdown).
+  // Frete desabilitado: apenas resolve o endereco via ViaCEP.
   const buscarEnderecoSmart = async (input: string) => {
     const cleaned = input.replace(/\D/g, '');
     if (cleaned.length !== 8 || !/^\d{8}$/.test(cleaned)) {
       setErroFrete('Para endereço por nome de rua, selecione uma sugestão do menu. O botão Buscar funciona apenas com CEP (8 dígitos).');
       return;
     }
-    // It's a CEP - fetch via ViaCEP and calculate freight
     setCepDestino(cleaned);
     setBuscaEndereco(input);
+    setErroFrete('');
+    setBuscandoEndereco(true);
     try {
       const viaRes = await fetch(`https://viacep.com.br/ws/${cleaned}/json/`);
       const viaData = await viaRes.json();
-      if (!viaData.erro) {
+      if (viaData.erro) {
+        setErroFrete('CEP não encontrado.');
+      } else {
         setEnderecoViaCEP(`${viaData.logradouro}, ${viaData.bairro}, ${viaData.localidade}-${viaData.uf}`);
       }
-    } catch {}
-    // Auto-calculate freight
-    setCalculandoFrete(true);
-    setErroFrete('');
-    setDadosFrete(null);
-    try {
-      const res = await fetch('/api/frete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cep: cleaned }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setErroFrete(data.error);
-      } else if (!data.dentro_area) {
-        setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
-      } else {
-        setDadosFrete(data);
-        if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
-      }
     } catch {
-      setErroFrete('Erro ao calcular frete.');
+      setErroFrete('Erro ao buscar CEP.');
     }
-    setCalculandoFrete(false);
-  };
-
-  const calcularFrete = async () => {
-    if (!cepDestino || cepDestino.replace(/\D/g, '').length !== 8) {
-      setErroFrete('Digite um CEP válido.');
-      return;
-    }
-    setCalculandoFrete(true);
-    setErroFrete('');
-    setDadosFrete(null);
-    try {
-      const res = await fetch('/api/frete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cep: cepDestino }),
-      });
-      const data = await res.json();
-      if (data.error) {
-        setErroFrete(data.error);
-      } else if (!data.dentro_area) {
-        setErroFrete(data.mensagem || 'Endereço fora da área de entrega');
-      } else {
-        setDadosFrete(data);
-        if (data.endereco_completo) setEnderecoViaCEP(data.endereco_completo);
-      }
-    } catch { setErroFrete('Erro ao calcular frete.'); }
-    setCalculandoFrete(false);
+    setBuscandoEndereco(false);
   };
 
   const resetarFormulario = () => {
@@ -672,7 +619,6 @@ export default function OrcamentoApp() {  // Auth state
     setNomeCliente('');
     setWhatsappCliente('');
     setCepDestino('');
-    setDadosFrete(null);
     setDataEntrega('');
     setDataRetirada('');
     setNumeroEndereco('');
@@ -890,7 +836,6 @@ export default function OrcamentoApp() {  // Auth state
     const sub = d ? d.subtotal : subtotal;
     const tot = d ? d.total : total;
     const tipo = d ? d.tipo_entrega : tipoEntrega;
-    const frete = d ? d.valor_frete : totalFrete;
     const end = d ? [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ') : enderecoViaCEP;
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
     const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
@@ -900,7 +845,7 @@ export default function OrcamentoApp() {  // Auth state
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
     const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr>${tipo==='entrega'&&frete>0?'<tr><td colspan="4" class="tr">Frete:</td><td class="tr">R$ '+formatBRL(frete)+'</td></tr>':''}<tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1729,25 +1674,6 @@ export default function OrcamentoApp() {  // Auth state
                       const cepLimpo = clienteEncontrado.cep.replace(/D/g,'');
                       setCepDestino(cepLimpo);
                       setTipoEntrega('entrega');
-                      // Calcular frete automaticamente
-                      setCalculandoFrete(true);
-                      setErroFrete('');
-                      setDadosFrete(null);
-                      try {
-                        const freteRes = await fetch('/api/frete', {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({ cep: cepLimpo }),
-                        });
-                        const freteData = await freteRes.json();
-                        if (!freteData.error && freteData.dentro_area) {
-                          setDadosFrete(freteData);
-                          if (freteData.endereco_completo) setEnderecoViaCEP(freteData.endereco_completo);
-                        } else if (freteData.error) {
-                          setErroFrete(freteData.error);
-                        }
-                      } catch {}
-                      setCalculandoFrete(false);
                     }
                   }
                   setModalClienteAberto(false);
@@ -2009,7 +1935,6 @@ export default function OrcamentoApp() {  // Auth state
                           setBuscaEndereco(val);
                           const cleaned = val.replace(/\D/g, '');
                           if (cleaned.length === 8) setCepDestino(cleaned);
-                          setDadosFrete(null);
                           setEnderecoViaCEP('');
                         // Debounce autocomplete
                         if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -2040,7 +1965,6 @@ export default function OrcamentoApp() {  // Auth state
                               setMostrandoSugestoes(false);
                               setSugestoesEndereco([]);
                               setErroFrete('');
-                              setDadosFrete(null);
                               try {
                                 const res = await fetch(`/api/endereco?type=details&place_id=${s.place_id}`, { cache: 'no-store' });
                                 const data = await res.json();
@@ -2051,21 +1975,6 @@ export default function OrcamentoApp() {  // Auth state
                                 if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : '') + (data.cidade ? ', ' + data.cidade + '-' + data.estado : ''));
                                 if (data.cep) setCepDestino(data.cep);
                                 setBuscaEndereco(s.description);
-                                if (!data.cep) {
-                                  setErroFrete('Endereço selecionado não tem CEP. Digite o CEP manualmente para calcular o frete.');
-                                  return;
-                                }
-                                setCalculandoFrete(true);
-                                try {
-                                  const fr = await fetch('/api/frete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cep: data.cep }), cache: 'no-store' });
-                                  const fd = await fr.json();
-                                  if (fd.error) setErroFrete(fd.error);
-                                  else if (!fd.dentro_area) setErroFrete(fd.mensagem || 'Endereço fora da área de entrega');
-                                  else { setDadosFrete(fd); if (fd.endereco_completo) setEnderecoViaCEP(fd.endereco_completo); }
-                                } catch {
-                                  setErroFrete('Erro ao calcular frete.');
-                                }
-                                setCalculandoFrete(false);
                               } catch {
                                 setErroFrete('Erro ao buscar detalhes do endereço.');
                               }
@@ -2076,23 +1985,14 @@ export default function OrcamentoApp() {  // Auth state
                     )}
                       <button
                         onClick={() => buscarEnderecoSmart(buscaEndereco || cepDestino)}
-                        disabled={calculandoFrete || buscandoEndereco}
+                        disabled={buscandoEndereco}
                         className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#E8850A] transition disabled:opacity-50"
                       >
-                        {calculandoFrete || buscandoEndereco ? '...' : 'Buscar'}
+                        {buscandoEndereco ? '...' : 'Buscar'}
                       </button>
                     </div>
-                      {enderecoViaCEP && !dadosFrete && <p className="text-xs text-gray-500">{enderecoViaCEP}</p>}
+                      {enderecoViaCEP && <p className="text-xs text-gray-500">{enderecoViaCEP}</p>}
                       {erroFrete && <p className="text-xs text-red-500">{erroFrete}</p>}
-                      {dadosFrete && dadosFrete.dentro_area && (
-                        <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-                          <p className="text-sm font-medium text-green-800">{dadosFrete.endereco_completo}</p>
-                          <p className="text-xs text-green-600 mt-1">{dadosFrete.distancia_km} km — ~{dadosFrete.duracao_min} min</p>
-                          <p className="text-sm font-bold text-green-700 mt-1">
-                            {dadosFrete.frete === 0 ? '✅ Frete grátis!' : `Frete: R$ ${formatBRL(dadosFrete.frete || 0)}`}
-                          </p>
-                        </div>
-                      )}
                       {/* Feature 8 - Numero, complemento, recebedor */}
                       <div className="grid grid-cols-2 gap-2">
                         <input type="text" placeholder="Número *" value={numeroEndereco} onChange={e => setNumeroEndereco(e.target.value)}
@@ -2125,8 +2025,6 @@ export default function OrcamentoApp() {  // Auth state
 
                 <div className="bg-[#E8850A] text-white rounded-xl p-4">
                   <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Subtotal:</span><span className="font-medium">R$ {formatBRL(subtotal)}</span></div>
-                  {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete && dadosFrete.frete > 0 && <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Frete ({dadosFrete.distancia_km}km):</span><span className="font-medium">R$ {formatBRL(dadosFrete.frete)}</span></div>}
-                  {tipoEntrega === 'entrega' && dadosFrete && dadosFrete.frete === 0 && <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Frete:</span><span className="font-medium text-green-300">Grátis!</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-[#F7941D]"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl">R$ {formatBRL(totalFinal)}</span></div>
                 </div>
               {/* Card pricing */}
@@ -3108,7 +3006,6 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
                 <div className="px-4 py-2 border-b border-gray-100">
                   <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Subtotal:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.subtotal)}</span></div>
-                  {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.valor_frete > 0 && <div className="flex justify-between mb-1"><span className="text-sm text-gray-600">Frete:</span><span className="font-medium">R$ {formatBRL(orcamentoDetalhe.valor_frete)}</span></div>}
                   <div className="flex justify-between mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-lg text-[#F7941D]">R$ {formatBRL(orcamentoDetalhe.total)}</span></div>
                 </div>
                 {/* Card pricing - details modal */}
