@@ -829,7 +829,9 @@ export default function OrcamentoApp() {  // Auth state
       whatsappCliente ? `*Telefone:* ${whatsappCliente}` : '',
       recebedor ? `*Recebedor:* ${recebedor}` : '',
       whatsappCliente ? `*Telefone:* ${whatsappCliente}\n` : '',
-                  detalhe.endereco ? `*Endereço:* ${detalhe.endereco}` : '',
+      tipoEntrega === 'entrega' && enderecoViaCEP
+        ? `*Endereço:* ${[enderecoViaCEP, numeroEndereco ? 'nº ' + numeroEndereco : '', complementoEndereco].filter(Boolean).join(', ')}`
+        : '',
       '*Produtos:*',
       ...itens.map(i => `· ${i.produto.nome} ${i.quantidade}${i.produto.unidade === 'm³' ? 'm³' : (i.produto.unidade ? ' ' + i.produto.unidade : '')} = R$ ${formatBRL(i.produto.preco * i.quantidade)}`),
       '',
