@@ -28,15 +28,18 @@ export async function POST(request: NextRequest) {
     forma_pagamento,
           } = body;
 
-      if (!cliente_nome || !cliente_telefone || !subtotal || !itens || itens.length === 0) {
+      if (!cliente_nome || !subtotal || !itens || itens.length === 0) {
               return NextResponse.json(
-                { error: 'Dados obrigatorios: nome, telefone, subtotal e itens' },
+                { error: 'Dados obrigatorios: nome, subtotal e itens' },
                 { status: 400 }
                       );
       }
 
-      // Upsert cliente
-      const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
+      // Upsert cliente. Telefone e opcional (PDV/venda balcao). Quando vazio, gera placeholder
+      // unico para nao quebrar UNIQUE constraint do banco e nao deduplicar com outros walk-ins.
+      const telefoneLimpo = cliente_telefone && String(cliente_telefone).replace(/\D/g, '').length > 0
+        ? String(cliente_telefone).replace(/\D/g, '')
+        : `pdv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const clienteData: Record<string, unknown> = {
                   nome: cliente_nome,
                   telefone: telefoneLimpo,

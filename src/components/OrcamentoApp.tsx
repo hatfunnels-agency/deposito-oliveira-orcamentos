@@ -273,11 +273,12 @@ export default function OrcamentoApp() {  // Auth state
   const [cepDestino, setCepDestino] = useState('');
   const [nomeCliente, setNomeCliente] = useState('');
   const [whatsappCliente, setWhatsappCliente] = useState('');
-  const [mostrarModal, setMostrarModal] = useState(false);
   const [erroFrete, setErroFrete] = useState('');
   const [enderecoViaCEP, setEnderecoViaCEP] = useState('');
   const [salvandoOrcamento, setSalvandoOrcamento] = useState(false);
-  const [descontoCustom, setDescontoCustom] = useState<number>(0);
+  const [descontoCustom, setDescontoCustom] = useState<number>(0); // sempre em %; valor efetivo aplicado
+  const [descontoModo, setDescontoModo] = useState<'pct' | 'valor'>('pct');
+  const [descontoValorInput, setDescontoValorInput] = useState<number>(0); // valor em R$ quando modo=valor
   const [mostrarSimulador, setMostrarSimulador] = useState(false);
   const [orcamentoSalvo, setOrcamentoSalvo] = useState<{ codigo: string; id?: string } | null>(null);
   const [orcamentos, setOrcamentos] = useState<OrcamentoSalvo[]>([]);
@@ -417,6 +418,16 @@ export default function OrcamentoApp() {  // Auth state
   const [editandoMotoristaVeiculo, setEditandoMotoristaVeiculo] = useState('');
   const [editandoMotoristaTelefone, setEditandoMotoristaTelefone] = useState('');
 
+  // PDV (Venda Rapida) - fluxo simplificado de balcao
+  const [mostrarPDV, setMostrarPDV] = useState(false);
+  const [pdvNome, setPdvNome] = useState('');
+  const [pdvTelefone, setPdvTelefone] = useState('');
+  const [pdvItens, setPdvItens] = useState<Array<{ produto: Produto; quantidade: number }>>([]);
+  const [pdvStatusPagamento, setPdvStatusPagamento] = useState<'pago' | 'pendente'>('pago');
+  const [pdvFormaPagamento, setPdvFormaPagamento] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
+  const [pdvBusca, setPdvBusca] = useState('');
+  const [salvandoPDV, setSalvandoPDV] = useState(false);
+
   // Entregas parciais
   const [entregasParciais, setEntregasParciais] = useState<EntregaParcial[]>([]);
   const [mostrarRegistrarParcial, setMostrarRegistrarParcial] = useState(false);
@@ -479,7 +490,11 @@ export default function OrcamentoApp() {  // Auth state
       if (filtroDataAte) params.set('dataAte', filtroDataAte);
       const res = await fetch(`/api/orcamentos?${params}`);
       const data = await res.json();
-      setOrcamentos(data.orcamentos || []);
+      // Defesa contra duplicacao por id (caso JOIN/agregacao crie linhas repetidas)
+      const lista = (data.orcamentos || []) as OrcamentoSalvo[];
+      const seenIds = new Set<string>();
+      const unicos = lista.filter(o => { if (seenIds.has(o.id)) return false; seenIds.add(o.id); return true; });
+      setOrcamentos(unicos);
       setTotalOrcamentos(data.total || 0);
     } catch (e) { console.error('Erro ao carregar historico', e); }
     setLoadingHistorico(false);
@@ -657,6 +672,8 @@ export default function OrcamentoApp() {  // Auth state
     setFormaPagamentoForm('');
     setFonteVenda('');
     setDescontoCustom(0);
+    setDescontoValorInput(0);
+    setDescontoModo('pct');
     setSugestoesEndereco([]);
     setMostrandoSugestoes(false);
     setErroFrete('');
@@ -703,6 +720,7 @@ export default function OrcamentoApp() {  // Auth state
         })),
       };
 
+      let savedId: string | null = null;
       if (editandoId) {
         const res = await fetch(`/api/orcamentos/${editandoId}`, {
           method: 'PATCH',
@@ -711,7 +729,7 @@ export default function OrcamentoApp() {  // Auth state
         });
         const data = await res.json();
         if (data.codigo) {
-          setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
+          savedId = data.id || editandoId;
           resetarFormulario();
         }
       } else {
@@ -722,13 +740,20 @@ export default function OrcamentoApp() {  // Auth state
         });
         const data = await res.json();
         if (data.codigo) {
-          setOrcamentoSalvo({ codigo: data.codigo, id: data.id });
+          savedId = data.id;
           resetarFormulario();
         }
       }
-    } catch (e) { console.error('Erro ao salvar orcamento', e); }
-    setSalvandoOrcamento(false);
-    setMostrarModal(true);
+      setSalvandoOrcamento(false);
+      if (savedId) {
+        // Abre direto o modal de detalhe completo (gestao, whatsapp, imprimir funcionam la)
+        carregarHistorico();
+        abrirDetalhe(savedId);
+      }
+    } catch (e) {
+      console.error('Erro ao salvar orcamento', e);
+      setSalvandoOrcamento(false);
+    }
   };
 
 ;
@@ -935,6 +960,56 @@ export default function OrcamentoApp() {  // Auth state
     setLoadingDetalhe(false);
   };
 
+  const finalizarVendaPDV = async () => {
+    if (!pdvNome.trim()) { alert('Informe o nome do cliente'); return; }
+    if (pdvItens.length === 0) { alert('Adicione pelo menos um produto'); return; }
+    setSalvandoPDV(true);
+    try {
+      const subtotal = pdvItens.reduce((s, i) => s + i.produto.preco * i.quantidade, 0);
+      const payload = {
+        cliente_nome: pdvNome.trim(),
+        cliente_telefone: pdvTelefone.replace(/\D/g, '') || '',
+        tipo_entrega: 'retirada',
+        valor_frete: 0,
+        subtotal,
+        total: subtotal,
+        status: 'retirada_pendente',
+        status_pagamento: pdvStatusPagamento === 'pago' ? 'completo' : 'pendente',
+        forma_pagamento: pdvFormaPagamento,
+        fonte: 'pdv',
+        criado_por: user?.id ?? null,
+        itens: pdvItens.map(i => ({
+          produto_id: i.produto.id,
+          produto_nome: i.produto.nome,
+          quantidade: i.quantidade,
+          unidade: i.produto.unidade,
+          preco_unitario: i.produto.preco,
+          preco_custo: i.produto.preco_custo || 0,
+        })),
+      };
+      const res = await fetch('/api/orcamentos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Erro ao finalizar venda');
+      } else {
+        setMostrarPDV(false);
+        setPdvNome(''); setPdvTelefone(''); setPdvItens([]); setPdvBusca('');
+        carregarHistorico();
+        // Abre detalhe completo da venda recem-criada
+        if (data.id) abrirDetalhe(data.id);
+      }
+    } catch (e) {
+      console.error('Erro PDV', e);
+      alert('Erro ao finalizar venda.');
+    }
+    setSalvandoPDV(false);
+  };
+
   const abrirRegistrarParcial = () => {
     if (!orcamentoDetalhe) return;
     const init: Record<string, string> = {};
@@ -949,6 +1024,7 @@ export default function OrcamentoApp() {  // Auth state
 
   const confirmarEntregaParcial = async () => {
     if (!orcamentoDetalhe) return;
+    if (salvandoParcial) return; // evita double-submit que criaria entradas duplicadas
     const itensPayload: Array<{ orcamento_item_id: string; quantidade: number }> = [];
     for (const [itemId, valor] of Object.entries(parcialQtds)) {
       const q = parseFloat((valor || '').replace(',', '.'));
@@ -1176,7 +1252,7 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   const atribuirTodosMotorista = async (motoristaId: string) => {
-    if (!entregasRota) return;
+    if (!entregasRota || !Array.isArray(entregasRota.rota_otimizada)) return;
     const entregasSemMotorista = entregasRota.rota_otimizada.filter((e: EntregaRota & { motorista_id?: string | null }) => !e.motorista_id);
     for (const e of entregasSemMotorista) {
       await atribuirMotorista(e.id, motoristaId);
@@ -1211,8 +1287,12 @@ export default function OrcamentoApp() {  // Auth state
       const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
       const res = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const data = await res.json();
-      const todas: EntregaRota[] = data.entregas || [];
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente'));
+      const todasRaw: EntregaRota[] = data.entregas || [];
+      // Defesa: dedup por id (em caso de JOIN multiplicar) e separa por status. entrega_parcial
+      // cai junto com pendentes para o motorista terminar a entrega.
+      const seen = new Set<string>();
+      const todas = todasRaw.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente' || e.status === 'entrega_parcial'));
       setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao carregar entregas do dia', e); }
@@ -1350,8 +1430,10 @@ export default function OrcamentoApp() {  // Auth state
       const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
       const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const reloadData = await reloadRes.json();
-      const todas: EntregaRota[] = reloadData.entregas || [];
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente'));
+      const todasRaw: EntregaRota[] = reloadData.entregas || [];
+      const seen = new Set<string>();
+      const todas = todasRaw.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente' || e.status === 'entrega_parcial'));
       setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
       setSelecionadas([]);
@@ -1381,8 +1463,10 @@ export default function OrcamentoApp() {  // Auth state
       });
       const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const reloadData = await reloadRes.json();
-      const todas: EntregaRota[] = reloadData.entregas || [];
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente'));
+      const todasRaw: EntregaRota[] = reloadData.entregas || [];
+      const seen = new Set<string>();
+      const todas = todasRaw.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
+      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente' || e.status === 'entrega_parcial'));
       setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao marcar entregue', e); }
@@ -1426,19 +1510,21 @@ export default function OrcamentoApp() {  // Auth state
   const carregarEntregas = async () => {
     setLoadingEntregas(true);
     try {
-      const res = await fetch('/api/entregas/rota', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data: dataEntregas || undefined }),
-      });
+      const qs = dataEntregas ? `?data=${encodeURIComponent(dataEntregas)}` : '';
+      const res = await fetch(`/api/entregas/rota${qs}`, { cache: 'no-store' });
       const data = await res.json();
-      setEntregasRota(data);
+      if (data && Array.isArray(data.rota_otimizada)) {
+        setEntregasRota(data);
+      } else {
+        // Resposta nao usavel; mantem estado previo, mas sem quebrar render
+        setEntregasRota(null);
+      }
     } catch (e) { console.error('Erro ao carregar entregas', e); }
     setLoadingEntregas(false);
   };
 
   const marcarEmRota = async () => {
-    if (!entregasRota || entregasRota.rota_otimizada.length === 0) return;
+    if (!entregasRota || !Array.isArray(entregasRota.rota_otimizada) || entregasRota.rota_otimizada.length === 0) return;
     setMarcandoRota(true);
     try {
       const ids = entregasRota.rota_otimizada.filter(e => e.status !== 'em_rota' && e.status !== 'completo').map(e => e.id);
@@ -1466,7 +1552,7 @@ export default function OrcamentoApp() {  // Auth state
     } catch (e) { console.error('Erro ao marcar entrega completa', e); }
   };
 
-  const entregasFiltradas = entregasRota ? {
+  const entregasFiltradas = entregasRota && Array.isArray(entregasRota.rota_otimizada) ? {
     ...entregasRota,
     rota_otimizada: entregasRota.rota_otimizada.filter((e: EntregaRota & { motorista_id?: string | null }) => {
       if (filtroMotorista === 'todos') return true;
@@ -1886,12 +1972,18 @@ export default function OrcamentoApp() {  // Auth state
                 {categorias.map(c => <option key={c} value={c}>{c}</option>)}
               </select>
             </div>
-            <div className="mb-4">
+            <div className="mb-4 flex gap-2 flex-wrap">
               <button
                 onClick={() => setShowCalculadoraFerro(true)}
                 className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm"
               >
                 <span>&#x1F527;</span> Calculadora de Ferro
+              </button>
+              <button
+                onClick={() => { setPdvNome(''); setPdvTelefone(''); setPdvItens([]); setPdvStatusPagamento('pago'); setPdvFormaPagamento('pix'); setPdvBusca(''); setMostrarPDV(true); }}
+                className="flex items-center gap-2 px-4 py-2 bg-[#F7941D] text-white rounded-lg hover:bg-[#E8850A] transition-colors font-medium text-sm"
+              >
+                <span>&#x1F3EA;</span> Venda Rápida
               </button>
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 pb-8">
@@ -2283,7 +2375,12 @@ export default function OrcamentoApp() {  // Auth state
                                 type="button"
                                 key={s.pct}
                                 disabled={!s.ok}
-                                onClick={() => { if (s.ok) setDescontoCustom(isSelected ? 0 : s.pct); }}
+                                onClick={() => {
+                                  if (!s.ok) return;
+                                  const novoPct = isSelected ? 0 : s.pct;
+                                  setDescontoCustom(novoPct);
+                                  setDescontoValorInput(total > 0 ? (total * novoPct) / 100 : 0);
+                                }}
                                 className={`${baseClasses} ${colorClasses}`}
                                 title={s.ok ? (isSelected ? 'Clique para remover este desconto' : `Aplicar ${s.pct}% de desconto`) : 'Margem ficaria abaixo de 20%'}
                               >
@@ -2295,23 +2392,59 @@ export default function OrcamentoApp() {  // Auth state
                             );
                           })}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Desconto personalizado:</label>
-                          <input type="number" min="0" max={descontoMaxPct.toFixed(1)} step="0.5"
-                            value={descontoCustom || ''}
-                            onChange={e => setDescontoCustom(parseFloat(e.target.value) || 0)}
-                            className="w-20 border border-blue-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
-                            placeholder="0"
-                          />
-                          <span className="text-xs text-blue-600">%</span>
+                        <div className="space-y-2">
+                          <div className="flex gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setDescontoModo('pct')}
+                              className={`flex-1 text-xs font-medium py-1.5 rounded ${descontoModo === 'pct' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-300'}`}
+                            >Porcentagem %</button>
+                            <button
+                              type="button"
+                              onClick={() => setDescontoModo('valor')}
+                              className={`flex-1 text-xs font-medium py-1.5 rounded ${descontoModo === 'valor' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-300'}`}
+                            >Valor R$</button>
+                          </div>
+                          {descontoModo === 'pct' ? (
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Desconto:</label>
+                              <input type="number" min="0" max={descontoMaxPct.toFixed(1)} step="0.5"
+                                value={descontoCustom || ''}
+                                onChange={e => {
+                                  const pct = parseFloat(e.target.value) || 0;
+                                  setDescontoCustom(pct);
+                                  setDescontoValorInput(total > 0 ? (total * pct) / 100 : 0);
+                                }}
+                                className="w-24 border border-blue-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                placeholder="0"
+                              />
+                              <span className="text-xs text-blue-600">%</span>
+                              <span className="text-xs text-gray-500">= R$ {(total > 0 ? (total * descontoCustom) / 100 : 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Desconto R$:</label>
+                              <input type="number" min="0" max={total} step="1"
+                                value={descontoValorInput || ''}
+                                onChange={e => {
+                                  const v = parseFloat(e.target.value) || 0;
+                                  setDescontoValorInput(v);
+                                  setDescontoCustom(total > 0 ? Math.min(100, (v / total) * 100) : 0);
+                                }}
+                                className="w-28 border border-blue-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                placeholder="0"
+                              />
+                              <span className="text-xs text-gray-500">= {(total > 0 ? (descontoValorInput / total) * 100 : 0).toFixed(1)}%</span>
+                            </div>
+                          )}
                           {descontoCustom > 0 && (
-                            <span className={`text-xs font-medium ${getMargemColor(margemComDesconto)}`}>
-                              Total: R$ {totalComDesconto.toLocaleString('pt-BR', {minimumFractionDigits:2})} | Margem: {(margemComDesconto * 100).toFixed(1)}% {getMargemIcon(margemComDesconto)}
-                            </span>
+                            <p className={`text-xs font-medium ${getMargemColor(margemComDesconto)}`}>
+                              Novo total: R$ {totalComDesconto.toLocaleString('pt-BR', {minimumFractionDigits:2})} | Margem: {(margemComDesconto * 100).toFixed(1)}% {getMargemIcon(margemComDesconto)}
+                            </p>
                           )}
                         </div>
-                        {descontoCustom > descontoMaxPct && (
-                          <div className="text-xs text-red-600 font-medium">⚠️ Desconto acima do máximo! Margem ficará abaixo de 20%.</div>
+                        {margemComDesconto < MARGEM_MINIMA && descontoCustom > 0 && (
+                          <div className="text-xs text-red-600 font-medium">⚠️ Margem ficaria abaixo de 20%! Reduza o desconto.</div>
                         )}
                       </div>
                     )}
@@ -3027,42 +3160,6 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         </div>
       )}
-      {/* Modal Orcamento Gerado */}
-      {mostrarModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6">
-            <h2 className="text-xl font-bold text-gray-800 mb-2 text-center">Orçamento {editandoId ? 'Atualizado' : 'Gerado'}!</h2>
-            {orcamentoSalvo && <p className="text-center text-green-600 font-bold mb-2">Código: {orcamentoSalvo.codigo}</p>}
-            
-            <div className="bg-gray-50 rounded-xl p-4 mb-4 text-sm font-mono whitespace-pre-wrap text-gray-700 max-h-64 overflow-y-auto">{gerarTextoWhatsApp()}</div>
-            <div className="space-y-3">
-              <button onClick={() => compartilharWhatsApp()} className="w-full bg-green-500 text-white py-3 rounded-xl font-bold text-lg hover:bg-green-600 transition">📱 Enviar por WhatsApp</button>
-              {orcamentoSalvo?.id && (
-                <button onClick={async () => {
-                  setMostrarModal(false);
-                  const res = await fetch(`/api/orcamentos/${orcamentoSalvo.id}`, { cache: 'no-store' });
-                  const det = await res.json();
-                  if (det && !det.error) { setOrcamentoDetalhe(det); setMostrarDetalhe(true); }
-                }} className="w-full bg-blue-600 text-white py-3 rounded-xl font-bold text-lg hover:bg-blue-700 transition">📋 Gestão do Pedido</button>
-              )}
-              <button onClick={async () => {
-                if (orcamentoSalvo?.id) {
-                  try {
-                    const res = await fetch(`/api/orcamentos/${orcamentoSalvo.id}`, { cache: 'no-store' });
-                    const det = await res.json();
-                    if (det && !det.error) { imprimirOrcamento({ ...det, reagendamentos: det.reagendamentos ?? 0, orcamento_itens: det.orcamento_itens || [] }); return; }
-                  } catch (e) { /* fallback */ }
-                }
-                imprimirOrcamento();
-              }} className="w-full bg-[#F7941D] text-white py-3 rounded-xl font-bold text-lg hover:bg-[#F7941D] transition">🖨️ Imprimir</button>
-              <button onClick={() => { navigator.clipboard.writeText(gerarTextoWhatsApp()); alert('Texto copiado!'); }} className="w-full bg-gray-100 text-gray-700 py-3 rounded-xl font-medium hover:bg-gray-200 transition">📋 Copiar Texto</button>
-              <button onClick={() => { setMostrarModal(false); setOrcamentoSalvo(null); resetarFormulario(); }}
-                className="w-full text-gray-500 py-2 hover:text-gray-700 transition text-sm">Fechar e Limpar</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* Modal Detalhe do Orcamento (Bug 6 fix - edit button restored) */}
       {mostrarDetalhe && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }}>
@@ -3316,6 +3413,113 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         </div>
       )}
+
+      {/* Modal PDV — Venda Rápida (balcão) */}
+      {mostrarPDV && (() => {
+        const pdvSubtotal = pdvItens.reduce((s, i) => s + i.produto.preco * i.quantidade, 0);
+        const pdvFiltrados = produtos.filter(p => p.nome.toLowerCase().includes(pdvBusca.toLowerCase()));
+        const ajustarQtd = (produtoId: string, delta: number) => {
+          setPdvItens(prev => {
+            const ex = prev.find(i => i.produto.id === produtoId);
+            if (!ex) return prev;
+            const nova = ex.quantidade + delta;
+            if (nova <= 0) return prev.filter(i => i.produto.id !== produtoId);
+            return prev.map(i => i.produto.id === produtoId ? { ...i, quantidade: nova } : i);
+          });
+        };
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => !salvandoPDV && setMostrarPDV(false)}>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-bold text-gray-800">🏪 Venda Rápida (PDV)</h2>
+                <button onClick={() => setMostrarPDV(false)} disabled={salvandoPDV} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Cliente *</label>
+                  <input type="text" value={pdvNome} onChange={e => setPdvNome(e.target.value)} placeholder="Cliente balcão"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Telefone (opcional)</label>
+                  <input type="tel" value={pdvTelefone} onChange={e => setPdvTelefone(e.target.value)} placeholder="—"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                </div>
+              </div>
+              <div className="mb-3">
+                <input type="text" value={pdvBusca} onChange={e => setPdvBusca(e.target.value)} placeholder="Buscar produto para adicionar..."
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                {pdvBusca && (
+                  <div className="mt-2 max-h-48 overflow-y-auto border border-gray-200 rounded-lg">
+                    {pdvFiltrados.slice(0, 20).map(p => (
+                      <button key={p.id} type="button" onClick={() => {
+                        setPdvItens(prev => {
+                          const ex = prev.find(i => i.produto.id === p.id);
+                          if (ex) return prev.map(i => i.produto.id === p.id ? { ...i, quantidade: i.quantidade + 1 } : i);
+                          return [...prev, { produto: p, quantidade: 1 }];
+                        });
+                      }} className="w-full flex justify-between items-center text-left px-3 py-2 text-sm hover:bg-orange-50 border-b border-gray-100 last:border-0">
+                        <span className="truncate">{p.nome}</span>
+                        <span className="text-xs font-semibold text-[#F7941D]">R$ {formatBRL(p.preco)}/{p.unidade}</span>
+                      </button>
+                    ))}
+                    {pdvFiltrados.length === 0 && <p className="text-xs text-gray-400 px-3 py-2">Nenhum produto</p>}
+                  </div>
+                )}
+              </div>
+              {pdvItens.length > 0 && (
+                <div className="mb-4 border border-gray-200 rounded-lg divide-y divide-gray-100">
+                  {pdvItens.map(item => (
+                    <div key={item.produto.id} className="flex items-center justify-between p-2">
+                      <div className="flex-1 min-w-0 mr-2">
+                        <p className="text-sm font-medium text-gray-800 truncate">{item.produto.nome}</p>
+                        <p className="text-xs text-gray-500">R$ {formatBRL(item.produto.preco)} × {item.quantidade} = R$ {formatBRL(item.produto.preco * item.quantidade)}</p>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button type="button" onClick={() => ajustarQtd(item.produto.id, -1)} className="bg-gray-200 text-gray-700 w-7 h-7 rounded font-bold">−</button>
+                        <span className="w-10 text-center text-sm font-semibold">{item.quantidade}</span>
+                        <button type="button" onClick={() => ajustarQtd(item.produto.id, 1)} className="bg-gray-200 text-gray-700 w-7 h-7 rounded font-bold">+</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Status pagamento</label>
+                  <select value={pdvStatusPagamento} onChange={e => setPdvStatusPagamento(e.target.value as 'pago' | 'pendente')}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white">
+                    <option value="pago">✅ Pago</option>
+                    <option value="pendente">⏳ Pendente</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-700 mb-1">Forma de pagamento</label>
+                  <select value={pdvFormaPagamento} onChange={e => setPdvFormaPagamento(e.target.value as 'pix' | 'dinheiro' | 'debito' | 'credito')}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white">
+                    <option value="pix">PIX</option>
+                    <option value="dinheiro">Dinheiro</option>
+                    <option value="debito">Débito</option>
+                    <option value="credito">Crédito</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex justify-between items-center mb-3 px-1">
+                <span className="text-sm text-gray-600">Total:</span>
+                <span className="text-xl font-bold text-[#F7941D]">R$ {formatBRL(pdvSubtotal)}</span>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => setMostrarPDV(false)} disabled={salvandoPDV}
+                  className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition disabled:opacity-50">Cancelar</button>
+                <button onClick={finalizarVendaPDV} disabled={salvandoPDV || pdvItens.length === 0 || !pdvNome.trim()}
+                  className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold hover:bg-green-700 transition disabled:opacity-50">
+                  {salvandoPDV ? 'Salvando...' : 'Finalizar Venda'}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal Registrar Entrega Parcial */}
       {mostrarRegistrarParcial && orcamentoDetalhe && (
