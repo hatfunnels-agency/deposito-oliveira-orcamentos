@@ -239,7 +239,11 @@ export async function PATCH(
       }
 
       if (itens && Array.isArray(itens) && itens.length > 0) {
-              await supabaseAdmin.from('orcamento_itens').delete().eq('orcamento_id', params.id);
+            // Snapshot dos itens atuais para rollback manual caso o insert falhe
+            const { data: itensAntigos } = await supabaseAdmin
+              .from('orcamento_itens')
+              .select('*')
+              .eq('orcamento_id', params.id);
 
             const itensToInsert = itens.map((item: {
                       produto_id?: string;
@@ -259,7 +263,29 @@ export async function PATCH(
                       preco_custo: typeof item.preco_custo === 'number' ? item.preco_custo : 0,
             }));
 
-            await supabaseAdmin.from('orcamento_itens').insert(itensToInsert);
+            // Substituicao atomica: so apaga os itens antigos depois de ter o payload
+            // novo pronto, e restaura o snapshot se o insert falhar. Evita que uma
+            // edicao deixe o orcamento sem itens ou acumule orfaos.
+            const { error: delItensErr } = await supabaseAdmin
+              .from('orcamento_itens')
+              .delete()
+              .eq('orcamento_id', params.id);
+            if (delItensErr) {
+              console.error('Erro ao remover itens antigos do orcamento:', delItensErr);
+              return NextResponse.json({ error: 'Erro ao atualizar itens do orcamento' }, { status: 500 });
+            }
+
+            const { error: insItensErr } = await supabaseAdmin
+              .from('orcamento_itens')
+              .insert(itensToInsert);
+            if (insItensErr) {
+              console.error('Erro ao inserir novos itens do orcamento:', insItensErr);
+              // Rollback manual: restaura os itens antigos para nao deixar o orcamento vazio
+              if (itensAntigos && itensAntigos.length > 0) {
+                await supabaseAdmin.from('orcamento_itens').insert(itensAntigos);
+              }
+              return NextResponse.json({ error: 'Erro ao salvar itens do orcamento' }, { status: 500 });
+            }
       }
 
       // GHL Sync (non-blocking)
