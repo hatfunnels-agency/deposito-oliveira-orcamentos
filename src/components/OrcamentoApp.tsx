@@ -435,6 +435,8 @@ export default function OrcamentoApp() {  // Auth state
   const [parcialObs, setParcialObs] = useState('');
   const [salvandoParcial, setSalvandoParcial] = useState(false);
   const [marcandoTudoEntregue, setMarcandoTudoEntregue] = useState(false);
+  const [entregaParaCancelar, setEntregaParaCancelar] = useState<EntregaParcial | null>(null);
+  const [cancelandoParcial, setCancelandoParcial] = useState(false);
 
   const carregarProdutos = useCallback(() => {
     fetch('/api/produtos')
@@ -1085,6 +1087,42 @@ export default function OrcamentoApp() {  // Auth state
       alert('Erro ao registrar entrega parcial.');
     }
     setSalvandoParcial(false);
+  };
+
+  const cancelarEntregaParcial = async (id: string) => {
+    if (!orcamentoDetalhe) return;
+    if (cancelandoParcial) return; // evita double-submit
+    setCancelandoParcial(true);
+    try {
+      const res = await fetch(`/api/entregas-parciais/${id}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        alert(data.error || 'Erro ao cancelar entrega parcial');
+      } else {
+        setEntregaParaCancelar(null);
+        // Recarrega detalhe e historico
+        const orcRes = await fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, { cache: 'no-store' });
+        const orc = await orcRes.json();
+        if (orc && !orc.error) {
+          setOrcamentoDetalhe({
+            ...orc,
+            reagendamentos: orc.reagendamentos ?? 0,
+            orcamento_itens: orc.orcamento_itens || [],
+            observacoes: orc.observacoes || null,
+            clientes: orc.clientes || null,
+          });
+        }
+        carregarEntregasParciais(orcamentoDetalhe.id);
+        carregarHistorico();
+      }
+    } catch (e) {
+      console.error('Erro ao cancelar entrega parcial', e);
+      alert('Erro ao cancelar entrega parcial.');
+    }
+    setCancelandoParcial(false);
   };
 
   const marcarTudoEntregue = async () => {
@@ -3341,11 +3379,18 @@ export default function OrcamentoApp() {  // Auth state
                           <div key={ep.id} className="border border-gray-100 rounded-lg p-2 bg-gray-50">
                             <div className="flex items-center justify-between gap-2">
                               <p className="text-sm font-semibold text-gray-700">Entrega #{ep.numero_entrega} — {dataFmt}</p>
-                              <button
-                                onClick={() => imprimirEntregaParcial(ep)}
-                                className="text-xs bg-[#F7941D] text-white px-2 py-1 rounded hover:bg-[#E8850A] whitespace-nowrap"
-                                title="Imprimir comprovante apenas desta entrega"
-                              >🖨️ Imprimir</button>
+                              <div className="flex items-center gap-1">
+                                <button
+                                  onClick={() => imprimirEntregaParcial(ep)}
+                                  className="text-xs bg-[#F7941D] text-white px-2 py-1 rounded hover:bg-[#E8850A] whitespace-nowrap"
+                                  title="Imprimir comprovante apenas desta entrega"
+                                >🖨️ Imprimir</button>
+                                <button
+                                  onClick={() => setEntregaParaCancelar(ep)}
+                                  className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200 whitespace-nowrap"
+                                  title="Cancelar esta entrega parcial"
+                                >Cancelar</button>
+                              </div>
                             </div>
                             <ul className="mt-1 ml-3 text-xs text-gray-600 list-disc">
                               {ep.entregas_parciais_itens.map(epi => (
@@ -3588,6 +3633,30 @@ export default function OrcamentoApp() {  // Auth state
                 disabled={salvandoParcial}
                 className="flex-1 bg-indigo-500 text-white py-2 rounded-lg font-bold hover:bg-indigo-600 transition disabled:opacity-50"
               >{salvandoParcial ? 'Salvando...' : 'Confirmar Entrega Parcial'}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Confirmar Cancelamento de Entrega Parcial */}
+      {entregaParaCancelar && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => !cancelandoParcial && setEntregaParaCancelar(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-5" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-2">Cancelar entrega parcial</h2>
+            <p className="text-sm text-gray-600 mb-4">
+              Deseja cancelar a Entrega #{entregaParaCancelar.numero_entrega}? As quantidades voltarão a aparecer como pendentes.
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEntregaParaCancelar(null)}
+                disabled={cancelandoParcial}
+                className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition disabled:opacity-50"
+              >Voltar</button>
+              <button
+                onClick={() => cancelarEntregaParcial(entregaParaCancelar.id)}
+                disabled={cancelandoParcial}
+                className="flex-1 bg-red-600 text-white py-2 rounded-lg font-bold hover:bg-red-700 transition disabled:opacity-50"
+              >{cancelandoParcial ? 'Cancelando...' : 'Cancelar entrega'}</button>
             </div>
           </div>
         </div>
