@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { TAGS_VALIDAS, isTagValida } from '@/lib/tags';
+import { TAGS_VALIDAS, isTagValida, filtrarTagsObraAtiva } from '@/lib/tags';
+import { buscarUltimaCompra } from '@/lib/cliente-tags-server';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,7 +22,12 @@ export async function GET(
       console.error('Erro GET /api/clientes/[id]/tags', error);
       return NextResponse.json({ error: 'Erro ao listar tags' }, { status: 500 });
     }
-    return NextResponse.json({ tags: data || [] });
+
+    // Compute-on-read: obra_ativa so aparece se a ultima compra foi ha <= 30 dias
+    const ultimaCompra = await buscarUltimaCompra(params.id);
+    const tags = filtrarTagsObraAtiva(data || [], ultimaCompra);
+
+    return NextResponse.json({ tags });
   } catch (e) {
     console.error('Erro GET /api/clientes/[id]/tags', e);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });

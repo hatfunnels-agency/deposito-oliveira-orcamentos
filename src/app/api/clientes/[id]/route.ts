@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { CompraResumo } from '@/lib/types';
+import { filtrarTagsObraAtiva } from '@/lib/tags';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,6 +75,9 @@ export async function GET(
     const qtd_compras = compras.length;
     const ultima_compra = compras.length > 0 ? compras[0].data : null;
 
+    // Compute-on-read: obra_ativa so aparece se a ultima compra foi ha <= 30 dias
+    const tags = filtrarTagsObraAtiva(tagsRes.data || [], ultima_compra);
+
     // Campos do cliente na raiz (sem wrapper) — mantem compat com callers atuais
     return NextResponse.json({
       ...clienteRes.data,
@@ -81,7 +85,7 @@ export async function GET(
       qtd_compras,
       ultima_compra,
       enderecos: enderecosRes.data || [],
-      tags: tagsRes.data || [],
+      tags,
       compras,
     });
   } catch (e) {

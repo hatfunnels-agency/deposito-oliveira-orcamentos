@@ -34,3 +34,26 @@ export async function aplicarTagObraAtiva(
     console.error('[auto-tag obra_ativa] excecao (nao bloqueante):', e);
   }
 }
+
+// Retorna a data da ultima compra do cliente (data_entrega quando existir,
+// senao criado_em do orcamento de venda mais recente) ou null se nao houver.
+// Mesma definicao de "venda" usada pelo GET /api/clientes/[id]: status fora
+// de 'orcamento' e 'cancelado'.
+export async function buscarUltimaCompra(clienteId: string): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from('orcamentos')
+    .select('criado_em, data_entrega')
+    .eq('cliente_id', clienteId)
+    .not('status', 'in', '(orcamento,cancelado)');
+
+  if (error || !data || data.length === 0) return null;
+
+  let ultima: string | null = null;
+  for (const o of data) {
+    const d = (o.data_entrega as string | null) || (o.criado_em as string);
+    if (d && (ultima === null || new Date(d).getTime() > new Date(ultima).getTime())) {
+      ultima = d;
+    }
+  }
+  return ultima;
+}
