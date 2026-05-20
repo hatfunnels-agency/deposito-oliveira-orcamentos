@@ -1,7 +1,94 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import type { CompraResumo } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+
+// GET /api/clientes/[id]
+// Retorna o cliente (campos na raiz, sem wrapper) + arrays enderecos,
+// tags e compras, mais os agregados total_compras/qtd_compras/ultima_compra.
+export async function GET(
+  request: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    // 1 query principal + 3 auxiliares, todas em paralelo
+    const [clienteRes, enderecosRes, tagsRes, comprasRes] = await Promise.all([
+      supabaseAdmin
+        .from('clientes')
+        .select('*')
+        .eq('id', params.id)
+        .single(),
+      supabaseAdmin
+        .from('enderecos_clientes')
+        .select('id, apelido, cep, rua, numero, complemento, bairro, cidade, estado, observacoes, is_padrao, criado_em')
+        .eq('cliente_id', params.id)
+        .order('is_padrao', { ascending: false })
+        .order('criado_em', { ascending: false }),
+      supabaseAdmin
+        .from('cliente_tags')
+        .select('tag, data_aplicacao, origem')
+        .eq('cliente_id', params.id)
+        .order('data_aplicacao', { ascending: false }),
+      supabaseAdmin
+        .from('orcamentos')
+        .select('id, codigo, criado_em, data_entrega, total, status, status_pagamento, tipo_entrega')
+        .eq('cliente_id', params.id)
+        .not('status', 'in', '(orcamento,cancelado)'),
+    ]);
+
+    // Cliente nao encontrado (PGRST116 = nenhuma linha) vs erro real de banco
+    if (clienteRes.error) {
+      if (clienteRes.error.code === 'PGRST116') {
+        return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
+      }
+      console.error('Erro GET /api/clientes/[id] (cliente)', clienteRes.error);
+      return NextResponse.json({ error: 'Erro ao buscar cliente' }, { status: 500 });
+    }
+    if (!clienteRes.data) {
+      return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
+    }
+
+    // Qualquer erro nas auxiliares -> 500 sem vazar a mensagem crua
+    const erroAux = enderecosRes.error || tagsRes.error || comprasRes.error;
+    if (erroAux) {
+      console.error('Erro GET /api/clientes/[id] (auxiliares)', erroAux);
+      return NextResponse.json({ error: 'Erro ao buscar dados do cliente' }, { status: 500 });
+    }
+
+    // compras: monta o resumo, ordena por data DESC e agrega os totais.
+    // `data` usa data_entrega quando existir, senao criado_em.
+    const compras: CompraResumo[] = (comprasRes.data || [])
+      .map(c => ({
+        id: c.id as string,
+        codigo: (c.codigo as string | null) ?? null,
+        data: (c.data_entrega as string | null) || (c.criado_em as string),
+        total: Number(c.total) || 0,
+        status: c.status as string,
+        status_pagamento: (c.status_pagamento as string | null) ?? null,
+        tipo_entrega: (c.tipo_entrega as string | null) ?? null,
+      }))
+      .sort((a, b) => new Date(b.data).getTime() - new Date(a.data).getTime());
+
+    const total_compras = compras.reduce((soma, c) => soma + c.total, 0);
+    const qtd_compras = compras.length;
+    const ultima_compra = compras.length > 0 ? compras[0].data : null;
+
+    // Campos do cliente na raiz (sem wrapper) — mantem compat com callers atuais
+    return NextResponse.json({
+      ...clienteRes.data,
+      total_compras,
+      qtd_compras,
+      ultima_compra,
+      enderecos: enderecosRes.data || [],
+      tags: tagsRes.data || [],
+      compras,
+    });
+  } catch (e) {
+    console.error('Erro GET /api/clientes/[id]', e);
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+  }
+}
 
 // Corpo aceito pelo PATCH de cliente. Todos os campos sao opcionais.
 // Os campos legados de endereco continuam suportados — zero breaking change.
