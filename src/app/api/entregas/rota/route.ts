@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { geocodeAddress } from '@/lib/geocode';
 
 const DEPOSITO_ADDRESS = 'Av. InocÃªncio SerÃ¡fico, 4020 - Centro, CarapicuÃ­ba - SP, 06380-021';
 const DEPOSITO_LAT = -23.5237;
@@ -33,19 +34,7 @@ async function getDrivingDistanceKm(destAddress: string, apiKey: string): Promis
   return null;
 }
 
-// Fallback: geocode + haversine if Distance Matrix not available
-async function geocodeAddress(address: string, apiKey: string): Promise<{lat: number, lng: number} | null> {
-  try {
-    const url = `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`;
-    const res = await fetch(url, { cache: 'no-store' });
-    const data = await res.json();
-    if (data.status === 'OK' && data.results[0]) {
-      const loc = data.results[0].geometry.location;
-      return { lat: loc.lat, lng: loc.lng };
-    }
-  } catch {}
-  return null;
-}
+// geocodeAddress foi extraido para src/lib/geocode.ts (Sessao 3 Fase 1)
 
 interface EntregaItem {
   id: string;
@@ -139,7 +128,7 @@ export async function GET(request: NextRequest) {
           // Try Distance Matrix API first (real driving distance)
           distanciaKm = await getDrivingDistanceKm(fullAddr, GOOGLE_MAPS_API_KEY);
           // Always geocode to get lat/lng for nearest-neighbor routing
-          coordsCache = await geocodeAddress(fullAddr, GOOGLE_MAPS_API_KEY);
+          coordsCache = await geocodeAddress(fullAddr);
           // Fallback to haversine if Distance Matrix fails
           if (distanciaKm === null && coordsCache) {
             distanciaKm = Math.round(haversineKm(DEPOSITO_LAT, DEPOSITO_LNG, coordsCache.lat, coordsCache.lng) * 10) / 10;
