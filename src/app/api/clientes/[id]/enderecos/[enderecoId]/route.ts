@@ -82,6 +82,18 @@ export async function DELETE(
       return NextResponse.json({ error: 'Endereco nao encontrado' }, { status: 404 });
     }
 
+    // Nao deixa o cliente sem nenhum endereco: bloqueia a remocao do ultimo.
+    const { count } = await supabaseAdmin
+      .from('enderecos_clientes')
+      .select('*', { count: 'exact', head: true })
+      .eq('cliente_id', params.id);
+    if ((count || 0) <= 1) {
+      return NextResponse.json(
+        { error: 'Cliente precisa de pelo menos 1 endereço cadastrado' },
+        { status: 400 },
+      );
+    }
+
     const { error: delErr } = await supabaseAdmin
       .from('enderecos_clientes')
       .delete()
