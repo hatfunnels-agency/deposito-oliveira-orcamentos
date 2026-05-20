@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import type { ClienteCompleto, EnderecoCliente } from '@/lib/types';
+import type { ClienteCompleto, EnderecoCliente, TagCliente, CompraResumo } from '@/lib/types';
 
 const LARANJA = '#F7941D';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -50,10 +50,6 @@ function Secao({ titulo, acao, children }: { titulo: string; acao?: ReactNode; c
       <div className="p-4">{children}</div>
     </section>
   );
-}
-
-function PlaceholderSecao() {
-  return <p className="text-sm italic text-gray-400">Em breve.</p>;
 }
 
 function SkeletonPerfil() {
@@ -493,6 +489,228 @@ function EnderecosSecao({
   );
 }
 
+// ---- Seção de Tags ----
+
+function TagsSecao({
+  clienteId,
+  tags,
+  onMudou,
+  mostrarToast,
+}: {
+  clienteId: string;
+  tags: TagCliente[];
+  onMudou: () => Promise<void> | void;
+  mostrarToast: (tipo: 'sucesso' | 'erro', msg: string) => void;
+}) {
+  const [tagsValidas, setTagsValidas] = useState<string[]>([]);
+  const [dropdownAberto, setDropdownAberto] = useState(false);
+  const [confirmandoTag, setConfirmandoTag] = useState<string | null>(null);
+  const [processando, setProcessando] = useState(false);
+
+  // Taxonomia vem do backend — não hardcoda a lista no client
+  useEffect(() => {
+    fetch('/api/tags-validas', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d?.tags)) setTagsValidas(d.tags as string[]);
+      })
+      .catch(() => {});
+  }, []);
+
+  const tagsAtuais = tags.map(t => t.tag);
+  const disponiveis = tagsValidas.filter(t => !tagsAtuais.includes(t));
+
+  async function adicionar(tag: string) {
+    setProcessando(true);
+    try {
+      const res = await fetch(`/api/clientes/${clienteId}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tag, origem: 'manual' }),
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        mostrarToast('erro', data?.error || 'Erro ao adicionar a tag');
+      } else {
+        setDropdownAberto(false);
+        await onMudou();
+        mostrarToast('sucesso', 'Tag adicionada');
+      }
+    } catch {
+      mostrarToast('erro', 'Erro ao adicionar a tag');
+    }
+    setProcessando(false);
+  }
+
+  async function remover(tag: string) {
+    setProcessando(true);
+    try {
+      const res = await fetch(`/api/clientes/${clienteId}/tags/${encodeURIComponent(tag)}`, {
+        method: 'DELETE',
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data?.error) {
+        mostrarToast('erro', data?.error || 'Erro ao remover a tag');
+      } else {
+        setConfirmandoTag(null);
+        await onMudou();
+        mostrarToast('sucesso', 'Tag removida');
+      }
+    } catch {
+      mostrarToast('erro', 'Erro ao remover a tag');
+    }
+    setProcessando(false);
+  }
+
+  return (
+    <Secao
+      titulo="Tags"
+      acao={
+        disponiveis.length > 0 ? (
+          <div className="relative">
+            <button
+              onClick={() => setDropdownAberto(o => !o)}
+              className="rounded-lg border border-gray-200 px-3 py-1 text-xs font-medium text-gray-600 hover:bg-gray-50"
+            >
+              + Adicionar tag
+            </button>
+            {dropdownAberto && (
+              <div className="absolute right-0 z-10 mt-1 max-h-60 w-44 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                {disponiveis.map(t => (
+                  <button
+                    key={t}
+                    onClick={() => adicionar(t)}
+                    disabled={processando}
+                    className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-orange-50 disabled:opacity-50"
+                  >
+                    {t}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : null
+      }
+    >
+      {tags.length === 0 ? (
+        <p className="text-sm italic text-gray-400">Nenhuma tag.</p>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {tags.map(t => (
+            <span
+              key={t.tag}
+              className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-800"
+            >
+              {t.tag}
+              {t.origem === 'auto' && (
+                <span className="rounded bg-gray-300 px-1 text-[10px] font-bold text-gray-700">
+                  AUTO
+                </span>
+              )}
+              {confirmandoTag === t.tag ? (
+                <span className="ml-0.5 flex items-center gap-1">
+                  <button
+                    onClick={() => remover(t.tag)}
+                    disabled={processando}
+                    className="font-bold text-red-600 disabled:opacity-50"
+                  >
+                    sim
+                  </button>
+                  <button onClick={() => setConfirmandoTag(null)} className="text-gray-500">
+                    não
+                  </button>
+                </span>
+              ) : (
+                <button
+                  onClick={() => setConfirmandoTag(t.tag)}
+                  title="Remover tag"
+                  className="ml-0.5 text-orange-500 hover:text-orange-800"
+                >
+                  ✕
+                </button>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+    </Secao>
+  );
+}
+
+// ---- Seção de Histórico de compras ----
+
+const STATUS_COMPRA: Record<string, { label: string; cls: string }> = {
+  entrega_pendente: { label: 'Entrega pendente', cls: 'bg-orange-100 text-orange-800' },
+  retirada_pendente: { label: 'Retirada pendente', cls: 'bg-purple-100 text-purple-800' },
+  em_rota: { label: 'Em rota', cls: 'bg-blue-100 text-blue-800' },
+  entrega_parcial: { label: 'Entrega parcial', cls: 'bg-amber-100 text-amber-800' },
+  completo: { label: 'Completo', cls: 'bg-green-100 text-green-800' },
+  ocorrencia: { label: 'Ocorrência', cls: 'bg-red-100 text-red-800' },
+};
+
+function formatarDataCurta(d: string | null): string {
+  if (!d) return '—';
+  const dt = new Date(d.length === 10 ? `${d}T12:00:00` : d);
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+}
+
+function HistoricoSecao({
+  compras,
+  onAbrirPedido,
+}: {
+  compras: CompraResumo[];
+  onAbrirPedido?: (orcamentoId: string) => void;
+}) {
+  const [verTodas, setVerTodas] = useState(false);
+  const visiveis = verTodas ? compras : compras.slice(0, 20);
+
+  return (
+    <Secao titulo="Histórico de compras">
+      {compras.length === 0 ? (
+        <p className="text-sm italic text-gray-400">Nenhuma compra registrada.</p>
+      ) : (
+        <div className="space-y-1.5">
+          {visiveis.map(c => {
+            const st = STATUS_COMPRA[c.status] || {
+              label: c.status,
+              cls: 'bg-gray-100 text-gray-600',
+            };
+            return (
+              <button
+                key={c.id}
+                onClick={() => onAbrirPedido?.(c.id)}
+                className="flex w-full items-center justify-between gap-2 rounded-lg border border-gray-100 px-3 py-2 text-left hover:bg-gray-50"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-medium text-gray-800">{c.codigo || '—'}</p>
+                  <p className="text-xs text-gray-500">{formatarDataCurta(c.data)}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-2">
+                  <span className="text-sm font-bold text-gray-800">R$ {formatBRL(c.total)}</span>
+                  <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${st.cls}`}>
+                    {st.label}
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+          {compras.length > 20 && !verTodas && (
+            <button
+              onClick={() => setVerTodas(true)}
+              className="w-full rounded-lg py-1.5 text-xs font-semibold text-[#F7941D] hover:underline"
+            >
+              Ver todas ({compras.length})
+            </button>
+          )}
+        </div>
+      )}
+    </Secao>
+  );
+}
+
 // ---- Componente principal ----
 
 interface ClienteProfileProps {
@@ -502,7 +720,7 @@ interface ClienteProfileProps {
   onAbrirPedido?: (orcamentoId: string) => void;
 }
 
-export default function ClienteProfile({ clienteId, onClose }: ClienteProfileProps) {
+export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: ClienteProfileProps) {
   const [cliente, setCliente] = useState<ClienteCompleto | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
@@ -797,13 +1015,16 @@ export default function ClienteProfile({ clienteId, onClose }: ClienteProfilePro
                 mostrarToast={mostrarToast}
               />
 
-              {/* Seções (preenchidas na próxima tarefa) */}
-              <Secao titulo="Tags">
-                <PlaceholderSecao />
-              </Secao>
-              <Secao titulo="Histórico de compras">
-                <PlaceholderSecao />
-              </Secao>
+              {/* Tags */}
+              <TagsSecao
+                clienteId={clienteId}
+                tags={cliente.tags}
+                onMudou={carregar}
+                mostrarToast={mostrarToast}
+              />
+
+              {/* Histórico de compras */}
+              <HistoricoSecao compras={cliente.compras} onAbrirPedido={onAbrirPedido} />
             </div>
           ) : null}
         </div>
