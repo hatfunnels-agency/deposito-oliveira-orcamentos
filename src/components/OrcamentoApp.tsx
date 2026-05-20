@@ -146,6 +146,15 @@ interface Motorista {
   ativo: boolean;
 }
 
+interface ClienteListaItem {
+  id: string;
+  nome: string;
+  telefone: string;
+  qtd_compras: number;
+  ultima_compra: string | null;
+  tags: string[];
+}
+
 interface RotaResponse {
   data?: string;
   total_entregas?: number;
@@ -163,6 +172,21 @@ interface RotaResponse {
 
 function formatBRL(value: number): string {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function formatarTelefoneBR(tel: string | null | undefined): string {
+  if (!tel) return '—';
+  const d = String(tel).replace(/\D/g, '');
+  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return String(tel);
+}
+
+function formatarDataBR(d: string | null | undefined): string {
+  if (!d) return '—';
+  const dt = new Date(d.length === 10 ? `${d}T12:00:00` : d);
+  if (isNaN(dt.getTime())) return '—';
+  return dt.toLocaleDateString('pt-BR');
 }
 
 const PESO_MEDIO_KG: Record<string, number> = {
@@ -255,8 +279,8 @@ export default function OrcamentoApp() {  // Auth state
   const abasVisiveis = papelUsuario === 'motorista'
     ? ['entregas']
     : papelUsuario === 'atendente'
-    ? ['produtos', 'orcamento', 'historico', 'ferragens', 'entregas', 'dashboard']
-    : ['produtos', 'orcamento', 'historico', 'ferragens', 'entregas', 'estoque', 'dashboard'];
+    ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'dashboard']
+    : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'dashboard'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -266,7 +290,7 @@ export default function OrcamentoApp() {  // Auth state
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'ferragens' | 'entregas' | 'estoque' | 'ia' | 'dashboard'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'clientes' | 'ferragens' | 'entregas' | 'estoque' | 'ia' | 'dashboard'>('produtos');
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
@@ -301,6 +325,13 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
   // Perfil de cliente (modal). Quando setado, renderiza <ClienteProfile>.
   const [clienteProfileId, setClienteProfileId] = useState<string | null>(null);
+  // Aba Clientes
+  const [clientesLista, setClientesLista] = useState<ClienteListaItem[]>([]);
+  const [clientesBusca, setClientesBusca] = useState('');
+  const [clientesPagina, setClientesPagina] = useState(1);
+  const [clientesTotal, setClientesTotal] = useState(0);
+  const [clientesTotalPages, setClientesTotalPages] = useState(1);
+  const [clientesLoading, setClientesLoading] = useState(false);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   // Feature 8 - Address detail fields
   const [numeroEndereco, setNumeroEndereco] = useState('');
@@ -509,6 +540,32 @@ export default function OrcamentoApp() {  // Auth state
   useEffect(() => {
     if (abaAtiva === 'historico') carregarHistorico();
   }, [abaAtiva, carregarHistorico]);
+
+  // ===== Aba Clientes =====
+  const carregarClientes = useCallback(async () => {
+    setClientesLoading(true);
+    try {
+      const params = new URLSearchParams({ page: String(clientesPagina), limit: '50' });
+      if (clientesBusca.trim()) params.set('search', clientesBusca.trim());
+      const res = await fetch(`/api/clientes?${params}`, { cache: 'no-store' });
+      const data = await res.json();
+      setClientesLista((data.clientes || []) as ClienteListaItem[]);
+      setClientesTotal(data.total || 0);
+      setClientesTotalPages(data.total_pages || 1);
+    } catch {
+      setClientesLista([]);
+      setClientesTotal(0);
+      setClientesTotalPages(1);
+    }
+    setClientesLoading(false);
+  }, [clientesPagina, clientesBusca]);
+
+  // Busca com debounce de 300ms (tambem dispara ao abrir a aba / trocar pagina)
+  useEffect(() => {
+    if (abaAtiva !== 'clientes') return;
+    const t = setTimeout(() => { carregarClientes(); }, 300);
+    return () => clearTimeout(t);
+  }, [abaAtiva, carregarClientes]);
 
   // Reset page to 1 when search/filter changes
   useEffect(() => {
@@ -1849,10 +1906,10 @@ export default function OrcamentoApp() {  // Auth state
 
       <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
         <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'ferragens' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
+          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'clientes' | 'ferragens' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
             <button key={aba} onClick={() => setAbaAtiva(aba)}
               className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'ferragens' ? '🔩 Ferragens' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
+              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'clientes' ? '👤 Clientes' : aba === 'ferragens' ? '🔩 Ferragens' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
             </button>
           ))}
         </div>
@@ -3157,6 +3214,65 @@ export default function OrcamentoApp() {  // Auth state
         )}
       </div>
 
+
+            {/* ===== CLIENTES TAB ===== */}
+        {abaAtiva === 'clientes' && (
+          <div>
+            <input
+              type="text"
+              value={clientesBusca}
+              onChange={e => { setClientesBusca(e.target.value); setClientesPagina(1); }}
+              placeholder="Buscar cliente por nome ou telefone..."
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+            />
+            {clientesLoading ? (
+              <p className="text-center text-gray-400 text-sm py-10">Carregando...</p>
+            ) : clientesLista.length === 0 ? (
+              <p className="text-center text-gray-400 text-sm py-10">Nenhum cliente encontrado.</p>
+            ) : (
+              <>
+                <div className="space-y-2">
+                  {clientesLista.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setClienteProfileId(c.id)}
+                      className="w-full text-left bg-white rounded-xl shadow-sm border border-gray-100 p-3 hover:shadow-md transition flex items-center justify-between gap-3"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-gray-800 truncate">{c.nome || 'Cliente'}</p>
+                        <p className="text-xs text-gray-500">{formatarTelefoneBR(c.telefone)}</p>
+                        {c.tags.length > 0 && (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {c.tags.slice(0, 3).map(t => (
+                              <span key={t} className="text-[10px] bg-orange-100 text-orange-800 rounded-full px-1.5 py-0.5">{t}</span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-gray-700">{c.qtd_compras} compra{c.qtd_compras === 1 ? '' : 's'}</p>
+                        <p className="text-xs text-gray-500">{c.ultima_compra ? formatarDataBR(c.ultima_compra) : 'sem compras'}</p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between mt-4 text-sm">
+                  <button
+                    onClick={() => setClientesPagina(p => Math.max(1, p - 1))}
+                    disabled={clientesPagina <= 1}
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40"
+                  >Anterior</button>
+                  <span className="text-gray-500">Página {clientesPagina} de {clientesTotalPages} · {clientesTotal} clientes</span>
+                  <button
+                    onClick={() => setClientesPagina(p => Math.min(clientesTotalPages, p + 1))}
+                    disabled={clientesPagina >= clientesTotalPages}
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 disabled:opacity-40"
+                  >Próxima</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
 
             {/* ===== DASHBOARD TAB ===== */}
         {abaAtiva === 'dashboard' && <DashboardTab />}
