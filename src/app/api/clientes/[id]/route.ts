@@ -22,7 +22,7 @@ export async function GET(
         .single(),
       supabaseAdmin
         .from('enderecos_clientes')
-        .select('id, apelido, cep, rua, numero, complemento, bairro, cidade, estado, observacoes, is_padrao, criado_em, lat, lng')
+        .select('id, apelido, cep, rua, numero, complemento, bairro, cidade, estado, observacoes, is_padrao, criado_em, lat, lng, geocoded_em, geocode_status')
         .eq('cliente_id', params.id)
         .order('is_padrao', { ascending: false })
         .order('criado_em', { ascending: false }),

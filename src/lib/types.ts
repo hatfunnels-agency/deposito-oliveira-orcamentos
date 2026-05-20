@@ -17,6 +17,8 @@ export interface EnderecoCliente {
   criado_em: string;
   lat: number | null;
   lng: number | null;
+  geocoded_em: string | null;
+  geocode_status: string | null;
 }
 
 // Uma tag aplicada ao cliente (tabela cliente_tags).
