@@ -1,5 +1,6 @@
 // Utilidades de geocoding (Google Maps Geocoding API). SERVER-ONLY:
-// usa GOOGLE_MAPS_API_KEY, que nao tem prefixo NEXT_PUBLIC_.
+// usa GOOGLE_MAPS_API_KEY e supabaseAdmin — nunca importar no client.
+import { supabaseAdmin } from '@/lib/supabase';
 
 export interface EnderecoParaGeocode {
   rua?: string | null;
@@ -44,4 +45,38 @@ export async function geocodeAddress(
     /* falha silenciosa — retorna null abaixo */
   }
   return null;
+}
+
+// Geocoda um endereco ja persistido (por id) e grava lat/lng/geocoded_em/
+// geocode_status. Fire-and-forget: NUNCA lanca — qualquer erro e so logado,
+// para nao quebrar a operacao principal (criacao/edicao do endereco).
+export async function geocodeEnderecoAsync(enderecoId: string): Promise<void> {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from('enderecos_clientes')
+      .select('id, rua, numero, complemento, bairro, cidade, estado, cep')
+      .eq('id', enderecoId)
+      .single();
+    if (error || !data) return;
+
+    const coords = await geocodeAddress(buildEnderecoString(data));
+    if (coords) {
+      await supabaseAdmin
+        .from('enderecos_clientes')
+        .update({
+          lat: coords.lat,
+          lng: coords.lng,
+          geocoded_em: new Date().toISOString(),
+          geocode_status: 'success',
+        })
+        .eq('id', enderecoId);
+    } else {
+      await supabaseAdmin
+        .from('enderecos_clientes')
+        .update({ geocoded_em: new Date().toISOString(), geocode_status: 'failed' })
+        .eq('id', enderecoId);
+    }
+  } catch (e) {
+    console.error('[geocode-endereco] falha ao geocodar', enderecoId, e);
+  }
 }

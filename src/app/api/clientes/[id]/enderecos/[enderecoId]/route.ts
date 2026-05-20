@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { geocodeEnderecoAsync } from '@/lib/geocode';
 
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +9,9 @@ const CAMPOS_ENDERECO = [
   'apelido', 'cep', 'rua', 'numero', 'complemento',
   'bairro', 'cidade', 'estado', 'observacoes',
 ] as const;
+
+// Campos que, ao mudar, invalidam o geocoding (lat/lng precisa ser refeito)
+const CAMPOS_GEO = ['rua', 'numero', 'complemento', 'bairro', 'cidade', 'estado', 'cep'] as const;
 
 // PATCH /api/clientes/[id]/enderecos/[enderecoId]
 // Atualiza um endereco. Aceita os campos de endereco e is_padrao.
@@ -21,7 +25,7 @@ export async function PATCH(
     // Garante que o endereco existe e pertence ao cliente da rota
     const { data: atual, error: buscaErr } = await supabaseAdmin
       .from('enderecos_clientes')
-      .select('id, cliente_id, is_padrao')
+      .select('id, cliente_id, is_padrao, rua, numero, complemento, bairro, cidade, estado, cep')
       .eq('id', params.enderecoId)
       .single();
     if (buscaErr || !atual || atual.cliente_id !== params.id) {
@@ -31,6 +35,21 @@ export async function PATCH(
     const update: Record<string, unknown> = {};
     for (const campo of CAMPOS_ENDERECO) {
       if (body[campo] !== undefined) update[campo] = body[campo];
+    }
+
+    // Se algum campo de endereco mudou, o lat/lng atual fica invalido:
+    // zera as colunas de geocoding e dispara o re-geocode depois do update.
+    // apelido/observacoes/is_padrao nao afetam o geocoding.
+    const norm = (v: unknown) => (v === null || v === undefined ? '' : String(v).trim());
+    const atualRec = atual as Record<string, unknown>;
+    const enderecoMudou = CAMPOS_GEO.some(
+      campo => body[campo] !== undefined && norm(body[campo]) !== norm(atualRec[campo]),
+    );
+    if (enderecoMudou) {
+      update.lat = null;
+      update.lng = null;
+      update.geocoded_em = null;
+      update.geocode_status = null;
     }
 
     // Promover a padrao: zera os demais antes (unique index uk_enderecos_clientes_padrao)
@@ -58,6 +77,10 @@ export async function PATCH(
       .single();
     if (error || !data) {
       return NextResponse.json({ error: 'Erro ao atualizar endereco' }, { status: 500 });
+    }
+    // Endereco mudou -> regeocoda em background (fire-and-forget)
+    if (enderecoMudou) {
+      void geocodeEnderecoAsync(params.enderecoId);
     }
     return NextResponse.json(data);
   } catch (e) {

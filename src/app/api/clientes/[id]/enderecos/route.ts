@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { geocodeEnderecoAsync } from '@/lib/geocode';
 
 export const dynamic = 'force-dynamic';
 
@@ -83,6 +84,8 @@ export async function POST(
     if (error || !data) {
       return NextResponse.json({ error: 'Erro ao criar endereco' }, { status: 500 });
     }
+    // Geocoding em background — fire-and-forget, nao bloqueia a resposta
+    void geocodeEnderecoAsync(data.id as string);
     return NextResponse.json(data);
   } catch (e) {
     console.error('Erro POST /api/clientes/[id]/enderecos', e);
