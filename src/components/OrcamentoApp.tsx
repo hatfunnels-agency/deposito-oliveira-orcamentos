@@ -5,6 +5,7 @@ import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import DashboardTab from './DashboardTab';
 import ClienteProfile from './ClienteProfile';
+import MapaEntregas from './MapaEntregas';
 
 interface Produto {
   id: string;
@@ -367,6 +368,8 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingRota, setLoadingRota] = useState(false);
   const [expandedDia, setExpandedDia] = useState<string[]>([]);
   const [dataEntregas, setDataEntregas] = useState('');
+  // Visualizacao da aba Entregas: lista (padrao) ou mapa. Persistida em localStorage.
+  const [vistaEntregas, setVistaEntregas] = useState<'lista' | 'mapa'>('lista');
   const [marcandoRota, setMarcandoRota] = useState(false);
   const [entregasEmRota, setEntregasEmRota] = useState<EntregaRota[]>([]);
   const [entregasCompletas, setEntregasCompletas] = useState<EntregaRota[]>([]);
@@ -540,6 +543,15 @@ export default function OrcamentoApp() {  // Auth state
   useEffect(() => {
     if (abaAtiva === 'historico') carregarHistorico();
   }, [abaAtiva, carregarHistorico]);
+
+  // Restaura/persiste a preferencia de vista da aba Entregas
+  useEffect(() => {
+    const v = localStorage.getItem('do_vista_entregas');
+    if (v === 'mapa' || v === 'lista') setVistaEntregas(v);
+  }, []);
+  useEffect(() => {
+    localStorage.setItem('do_vista_entregas', vistaEntregas);
+  }, [vistaEntregas]);
 
   // ===== Aba Clientes =====
   const carregarClientes = useCallback(async () => {
@@ -2883,6 +2895,26 @@ export default function OrcamentoApp() {  // Auth state
         {abaAtiva === 'entregas' && (
           <div className="pb-8 space-y-6">
 
+            {/* Toggle Lista | Mapa */}
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              <button
+                onClick={() => setVistaEntregas('lista')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaEntregas === 'lista' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >📋 Lista</button>
+              <button
+                onClick={() => setVistaEntregas('mapa')}
+                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaEntregas === 'mapa' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+              >🗺️ Mapa</button>
+            </div>
+
+            {vistaEntregas === 'mapa' ? (
+              <MapaEntregas
+                data={dataEntregas || (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()}
+                onAbrirPedido={abrirDetalhe}
+              />
+            ) : (
+            <>
+
             {/* === SECTION 0: RETIRADAS PENDENTES === */}
             <div className="bg-white rounded-xl shadow-sm border border-purple-200 p-4">
               <div className="flex items-center justify-between mb-3">
@@ -3210,6 +3242,8 @@ export default function OrcamentoApp() {  // Auth state
               )}
             </div>
 
+            </>
+            )}
           </div>
         )}
       </div>
