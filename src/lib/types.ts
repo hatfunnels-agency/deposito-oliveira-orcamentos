@@ -15,6 +15,8 @@ export interface EnderecoCliente {
   observacoes: string | null;
   is_padrao: boolean;
   criado_em: string;
+  lat: number | null;
+  lng: number | null;
 }
 
 // Uma tag aplicada ao cliente (tabela cliente_tags).
