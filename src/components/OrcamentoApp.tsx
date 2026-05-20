@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import DashboardTab from './DashboardTab';
+import ClienteProfile from './ClienteProfile';
 
 interface Produto {
   id: string;
@@ -298,6 +299,8 @@ export default function OrcamentoApp() {  // Auth state
   const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<OrcamentoDetalhe | null>(null);
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
   const [loadingDetalhe, setLoadingDetalhe] = useState(false);
+  // Perfil de cliente (modal). Quando setado, renderiza <ClienteProfile>.
+  const [clienteProfileId, setClienteProfileId] = useState<string | null>(null);
   const [editandoId, setEditandoId] = useState<string | null>(null);
   // Feature 8 - Address detail fields
   const [numeroEndereco, setNumeroEndereco] = useState('');
@@ -3232,6 +3235,18 @@ export default function OrcamentoApp() {  // Auth state
                   <p className="text-sm text-gray-800 font-medium">{orcamentoDetalhe.clientes?.nome || 'Cliente'}</p>
                   {orcamentoDetalhe.clientes?.telefone && <p className="text-sm text-gray-600">📞 {orcamentoDetalhe.clientes.telefone}</p>}
                   {orcamentoDetalhe.clientes?.recebedor && <p className="text-sm text-gray-600">👤 Recebedor: {orcamentoDetalhe.clientes.recebedor}</p>}
+                  {orcamentoDetalhe.clientes?.id && (
+                    <button
+                      onClick={() => {
+                        const cid = orcamentoDetalhe.clientes?.id;
+                        if (!cid) return;
+                        setMostrarDetalhe(false);
+                        setOrcamentoDetalhe(null);
+                        setClienteProfileId(cid);
+                      }}
+                      className="mt-2 text-xs font-semibold text-[#F7941D] hover:underline"
+                    >👤 Ver perfil do cliente</button>
+                  )}
                 </div>
                 <div className="px-4 py-2 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-1 text-sm">Entrega</h3>
@@ -3660,6 +3675,15 @@ export default function OrcamentoApp() {  // Auth state
             </div>
           </div>
         </div>
+      )}
+
+      {/* Modal Perfil do Cliente */}
+      {clienteProfileId && (
+        <ClienteProfile
+          clienteId={clienteProfileId}
+          onClose={() => setClienteProfileId(null)}
+          onAbrirPedido={abrirDetalhe}
+        />
       )}
 
       {/* Modal Registrar Entrada */}
