@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
+import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 
 export async function POST(request: NextRequest) {
     try {
@@ -176,6 +177,10 @@ export async function POST(request: NextRequest) {
         console.error('Erro ao criar itens:', itensError);
         return NextResponse.json({ error: 'Erro ao criar itens do orçamento' }, { status: 500 });
       }
+
+      // Auto-tag: se o orcamento ja nasce como venda real, marca o cliente
+      // com obra_ativa. Nao bloqueia o request (helper trata os erros).
+      await aplicarTagObraAtiva(cliente.id as string, String(insertData.status));
 
       // GHL Sync (non-blocking)
       try {

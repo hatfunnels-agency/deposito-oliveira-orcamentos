@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 
 // Tarefa 5: helper para resolver produto principal no estoque compartilhado
 async function resolverIdPrincipal(produto_id: string): Promise<string> {
@@ -137,11 +138,20 @@ export async function PATCH(
             .from('orcamentos')
             .update(updateData)
             .eq('id', params.id)
-            .select('id, codigo, status, atualizado_em, motorista_id')
+            .select('id, codigo, status, atualizado_em, motorista_id, cliente_id')
             .single();
 
       if (error) {
               return NextResponse.json({ error: 'Erro ao atualizar orcamento' }, { status: 500 });
+      }
+
+      // Auto-tag: se este PATCH alterou o status para uma venda real,
+      // marca o cliente com obra_ativa. Nao bloqueia o request.
+      if (status) {
+              await aplicarTagObraAtiva(
+                data?.cliente_id as string | undefined,
+                data?.status as string | undefined,
+              );
       }
 
       // Stock management
