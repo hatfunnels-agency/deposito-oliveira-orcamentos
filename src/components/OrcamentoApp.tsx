@@ -3217,7 +3217,7 @@ export default function OrcamentoApp() {  // Auth state
 
             {/* ===== CLIENTES TAB ===== */}
         {abaAtiva === 'clientes' && (
-          <div>
+          <div className="max-w-4xl mx-auto py-6">
             <input
               type="text"
               value={clientesBusca}
@@ -3236,7 +3236,7 @@ export default function OrcamentoApp() {  // Auth state
                     <button
                       key={c.id}
                       onClick={() => setClienteProfileId(c.id)}
-                      className="w-full text-left bg-white rounded-xl shadow-sm border border-gray-100 p-3 hover:shadow-md transition flex items-center justify-between gap-3"
+                      className="w-full text-left cursor-pointer bg-white border border-gray-200 rounded-lg p-4 hover:border-orange-300 hover:shadow-sm transition flex items-center justify-between gap-3"
                     >
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-800 truncate">{c.nome || 'Cliente'}</p>
