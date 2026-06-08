@@ -63,15 +63,18 @@ export async function GET(request: NextRequest) {
     const data = searchParams.get('data');
 
     const statusEntrega = ['aguardando', 'confirmado', 'entrega_pendente', 'entrega_parcial', 'em_rota', 'completo'];
+    // JOIN agora via orcamentos.endereco_id (FK pra enderecos_clientes)
+    // em vez de pegar o is_padrao do cliente. INNER mantem a semantica
+    // antiga: orcamentos sem endereco_id ficam fora do mapa.
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
         id, codigo, tipo_entrega, status, total, data_entrega, observacoes,
         clientes!inner (
-          nome, telefone, recebedor,
-          enderecos_clientes!inner (
-            cep, rua, numero, complemento, bairro, cidade, estado, lat, lng
-          )
+          nome, telefone, recebedor
+        ),
+        endereco_completo:enderecos_clientes!inner (
+          cep, rua, numero, complemento, bairro, cidade, estado, lat, lng
         ),
         orcamento_itens (
           produto_nome, quantidade, quantidade_entregue, unidade
@@ -79,7 +82,6 @@ export async function GET(request: NextRequest) {
       `)
       .eq('tipo_entrega', 'entrega')
       .in('status', statusEntrega)
-      .eq('clientes.enderecos_clientes.is_padrao', true)
       .order('criado_em', { ascending: true });
 
     if (data) {
@@ -98,13 +100,14 @@ export async function GET(request: NextRequest) {
 
     const entregasComDist: EntregaItem[] = await Promise.all(
       (entregas || []).map(async (e: Record<string, unknown>) => {
-        // clientes!inner -> objeto (to-one); enderecos_clientes!inner -> array
+        // clientes!inner -> objeto (to-one). endereco_completo agora vem
+        // direto via FK orcamentos.endereco_id, nao mais aninhado no cliente.
         const clienteRaw = e.clientes;
         const cliente = (Array.isArray(clienteRaw) ? clienteRaw[0] : clienteRaw) as
           | Record<string, unknown>
           | null;
-        const endsRaw = cliente?.enderecos_clientes;
-        const end = (Array.isArray(endsRaw) ? endsRaw[0] : endsRaw) as
+        const endRaw = e.endereco_completo;
+        const end = (Array.isArray(endRaw) ? endRaw[0] : endRaw) as
           | Record<string, unknown>
           | null;
 
