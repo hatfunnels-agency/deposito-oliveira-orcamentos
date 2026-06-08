@@ -26,7 +26,7 @@ export async function POST(request: Request) {
 
     const { data: produtos } = await supabaseAdmin
       .from('produtos')
-      .select('nome, codigo, categoria, preco_venda, preco_custo, estoque_atual, estoque_minimo, unidade_venda, ativo')
+      .select('nome, codigo, categoria, preco_venda, preco_custo, estoque_atual, estoque_minimo, unidade_venda, ativo, tipo_estoque, total_vendido')
       .eq('ativo', true);
 
     const { data: clientes } = await supabaseAdmin
@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       .join('\n');
 
     const estoqueStr = (produtos || [])
-      .map(p => `- ${p.nome} (${p.categoria}): ${p.estoque_atual >= 999 ? 'Sob demanda' : p.estoque_atual + ' ' + p.unidade_venda} | Preco venda: R$${p.preco_venda} | Custo: R$${p.preco_custo} | Margem: ${p.preco_venda > 0 ? (((p.preco_venda - p.preco_custo) / p.preco_venda) * 100).toFixed(0) : 0}%`)
+      .map(p => `- ${p.nome} (${p.categoria}): ${p.tipo_estoque === 'sob_demanda' ? `Sob demanda (${Number(p.total_vendido) || 0} vendidos)` : p.estoque_atual + ' ' + p.unidade_venda} | Preco venda: R$${p.preco_venda} | Custo: R$${p.preco_custo} | Margem: ${p.preco_venda > 0 ? (((p.preco_venda - p.preco_custo) / p.preco_venda) * 100).toFixed(0) : 0}%`)
       .join('\n');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -127,7 +127,7 @@ ${ultimosOrc}`.trim();
     } else if (tipo === 'analise_clientes') {
       promptUsuario = 'Analise o perfil dos clientes dos ultimos 30 dias. Identifique: clientes que mais compraram (valor e frequencia), clientes que fizeram orcamento mas nao compraram, bairros/regioes com mais pedidos, padroes de compra, e oportunidades de recompra. Sugira acoes praticas.';
     } else if (tipo === 'previsao_estoque') {
-      promptUsuario = 'Analise a velocidade de venda de cada produto e preveja quando o estoque vai precisar de reposicao. Para cada produto com estoque fisico (excluir sob demanda/999), calcule: vendas por dia, dias ate acabar, e quando pedir reposicao. Destaque os produtos mais urgentes.';
+      promptUsuario = 'Analise a velocidade de venda de cada produto e preveja quando o estoque vai precisar de reposicao. Para cada produto com estoque fisico (excluir produtos marcados como Sob demanda), calcule: vendas por dia, dias ate acabar, e quando pedir reposicao. Destaque os produtos mais urgentes.';
     }
 
     const response = await fetch('https://api.anthropic.com/v1/messages', {

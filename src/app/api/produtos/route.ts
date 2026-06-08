@@ -31,6 +31,11 @@ export async function GET() {
       const fatorConversao = Number(p.fator_conversao) || 1;
       let   estoqueAtual = Number(p.estoque_atual) || 0;
       let   estoqueMinimo = Number(p.estoque_minimo) || 0;
+      // tipo_estoque e total_vendido tambem herdam do principal quando ha
+      // estoque_compartilhado_com (o controle do tipo segue o produto que
+      // detem o saldo, nao a variante).
+      let   tipoEstoque = (p.tipo_estoque as string | null) || 'estocavel';
+      let   totalVendido = Number(p.total_vendido) || 0;
 
             // Tarefa 5: se produto secundario, usar estoque do principal
             if (p.estoque_compartilhado_com) {
@@ -38,6 +43,8 @@ export async function GET() {
                       if (principal) {
                                   estoqueAtual = Number(principal.estoque_atual) || 0;
                                   estoqueMinimo = Number(principal.estoque_minimo) || 0;
+                                  tipoEstoque = (principal.tipo_estoque as string | null) || tipoEstoque;
+                                  totalVendido = Number(principal.total_vendido) || 0;
                       }
             }
 
@@ -63,6 +70,8 @@ export async function GET() {
         unidade_armazenamento: p.unidade,
         estoque_armazenamento: estoqueAtual,
         estoque_compartilhado_com: p.estoque_compartilhado_com || null,
+        tipo_estoque: tipoEstoque,
+        total_vendido: totalVendido,
       };
     });
 
