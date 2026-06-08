@@ -298,15 +298,22 @@ export async function PATCH(
             }
       }
 
-      // GHL Sync (non-blocking)
+      // GHL Sync — AWAITED de proposito (nao-bloqueante via try/catch).
+      // Fire-and-forget aninhado morre quando esta rota e chamada por
+      // outra (ex: /api/entregas/rota delega aqui): a lambda externa
+      // termina assim que o response volta, matando o fetch interno
+      // antes do GHL responder. Next 14.2 nao tem after() estavel (so
+      // unstable_after, que exige flag experimental). Await garante que
+      // o sync complete antes do response. Erros continuam logados sem
+      // propagar 500 ao caller.
       try {
               const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
-              fetch(`${appUrl}/api/ghl/sync`, {
+              await fetch(`${appUrl}/api/ghl/sync`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ orcamento_id: params.id }),
                         cache: 'no-store',
-              }).catch(e => console.log('[GHL Sync] Falha (nao bloqueante):', e));
+              });
       } catch (e) {
               console.log('[GHL Sync] Falha (nao bloqueante):', e);
       }
