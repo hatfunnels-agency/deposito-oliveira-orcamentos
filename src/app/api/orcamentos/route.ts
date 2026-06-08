@@ -1,19 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
-import { aplicarBaixaItem } from '@/lib/estoque-baixa';
-
-// Status em que o orcamento ja "consumiu" estoque — quando POST cria
-// direto em um destes, dispara baixa. Mesma lista usada pelo PATCH
-// /api/orcamentos/[id] na regra de transicao non-committed -> committed.
-const COMMITTED_STATUSES = [
-  'entrega_pendente',
-  'retirada_pendente',
-  'entrega_parcial',
-  'em_rota',
-  'completo',
-  'ocorrencia',
-];
+import { aplicarBaixaItem, ehCommitted } from '@/lib/estoque-baixa';
 
 export async function POST(request: NextRequest) {
     try {
@@ -195,7 +183,7 @@ export async function POST(request: NextRequest) {
       // gap historico vinha daqui — POST nunca baixava). Awaited de
       // proposito; fire-and-forget morre em delegacao entre lambdas.
       // Falha por item nao bloqueia a criacao do orcamento — so loga.
-      if (COMMITTED_STATUSES.includes(String(insertData.status))) {
+      if (ehCommitted(String(insertData.status))) {
         for (const it of itensToInsert) {
           try {
             const r = await aplicarBaixaItem(

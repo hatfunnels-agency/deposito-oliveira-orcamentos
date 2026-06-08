@@ -19,6 +19,25 @@
 
 import { supabaseAdmin } from '@/lib/supabase';
 
+// Status em que o orcamento ja "consumiu" estoque. Usado por:
+// - POST /api/orcamentos: se nasce committed, dispara baixa.
+// - PATCH /api/orcamentos/[id]: baixa na transicao
+//   non-committed -> committed (compara previousStatus com newStatus
+//   pra nao duplicar).
+export const COMMITTED_STATUSES = [
+  'entrega_pendente',
+  'retirada_pendente',
+  'entrega_parcial',
+  'em_rota',
+  'completo',
+  'ocorrencia',
+] as const;
+
+export function ehCommitted(status: string | null | undefined): boolean {
+  if (!status) return false;
+  return (COMMITTED_STATUSES as readonly string[]).includes(status);
+}
+
 export interface ItemBaixa {
   produto_id: string | null | undefined;
   produto_nome?: string | null;

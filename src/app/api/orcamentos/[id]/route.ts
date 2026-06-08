@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
+import { aplicarBaixaItem, ehCommitted } from '@/lib/estoque-baixa';
 
 // Tarefa 5: helper para resolver produto principal no estoque compartilhado
 async function resolverIdPrincipal(produto_id: string): Promise<string> {
@@ -63,6 +64,19 @@ export async function PATCH(
                   cliente_numero, cliente_complemento, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
           } = body;
+
+      // Resolve previousStatus AGORA (antes do UPDATE) pra logica de
+      // baixa/devolucao saber qual era o estado anterior. Usa body
+      // _previous_status se cliente mandou; senao busca do banco.
+      let previousStatusResolvido: string | undefined = body._previous_status;
+      if (status && previousStatusResolvido === undefined) {
+              const { data: orcAtual } = await supabaseAdmin
+                .from('orcamentos')
+                .select('status')
+                .eq('id', params.id)
+                .single();
+              previousStatusResolvido = (orcAtual?.status as string | undefined) ?? undefined;
+      }
 
       const updateData: Record<string, unknown> = {
               atualizado_em: new Date().toISOString(),
@@ -161,48 +175,38 @@ export async function PATCH(
                 .select('produto_nome, quantidade, produto_id')
                 .eq('orcamento_id', params.id);
 
-            const previousStatus = body._previous_status;
+            const previousStatus = previousStatusResolvido;
 
-            // Baixa de estoque ao confirmar entrega ou retirada pendente
-            if ((status === 'entrega_pendente' || status === 'retirada_pendente') && orderItems && orderItems.length > 0) {
+            // Baixa de estoque na TRANSICAO non-committed -> committed.
+            // Substitui a checagem antiga (status === 'entrega_pendente'
+            // || 'retirada_pendente') que cobria so 2 dos 6 committed e
+            // ainda duplicava em re-PATCH com mesmo status. A regra
+            // ehCommitted(new) && !ehCommitted(prev) cobre todas as
+            // transicoes relevantes e e idempotente. Awaited; helper
+            // trata produto_id null, tipo_estoque sob_demanda etc.
+            if (ehCommitted(status) && !ehCommitted(previousStatus) && orderItems && orderItems.length > 0) {
                       for (const item of orderItems) {
-                                  if (!item.produto_id) continue;
-
-                        // Tarefa 5: sempre operar no produto PRINCIPAL
-                        const idPrincipal = await resolverIdPrincipal(item.produto_id);
-
-                        const { data: produto } = await supabaseAdmin
-                                    .from('produtos')
-                                    .select('id, estoque_atual, fator_conversao')
-                                    .eq('id', idPrincipal)
-                                    .single();
-
-                        if (produto) {
-                                      const fator = Number(produto.fator_conversao) || 1;
-                                      const qtdEstoque = Number(item.quantidade) * fator;
-                                      const estoqueAnterior = Number(produto.estoque_atual);
-                                      const estoqueNovo = Math.max(0, estoqueAnterior - qtdEstoque);
-
-                                    await supabaseAdmin
-                                        .from('produtos')
-                                        .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
-                                        .eq('id', idPrincipal);
-
-                                    await supabaseAdmin.from('movimentacoes_estoque').insert({
-                                                    produto_id: idPrincipal,
-                                                    tipo: 'saida',
-                                                    quantidade: qtdEstoque,
-                                                    estoque_anterior: estoqueAnterior,
-                                                    estoque_novo: estoqueNovo,
-                                                    referencia_tipo: 'orcamento',
-                                                    referencia_id: params.id,
-                                                    observacoes: `Venda - ${item.produto_nome} x${item.quantidade}`,
-                                    });
-                        }
+                              try {
+                                      const r = await aplicarBaixaItem(
+                                                {
+                                                          produto_id: item.produto_id as string | null,
+                                                          produto_nome: item.produto_nome as string,
+                                                          quantidade: Number(item.quantidade),
+                                                },
+                                                params.id,
+                                      );
+                                      if (!r.ok && !('skipped' in r)) {
+                                                console.error('[PATCH orcamentos] baixa falhou', item.produto_nome, r);
+                                      }
+                              } catch (e) {
+                                      console.error('[PATCH orcamentos] excecao na baixa', item.produto_nome, e);
+                              }
                       }
             }
 
-            // Devolucao de estoque ao cancelar
+            // Devolucao de estoque ao cancelar — mantida inline; a
+            // logica de devolucao pra sob_demanda (decrementar
+            // total_vendido) e escopo futuro.
             if (
                       status === 'cancelado' &&
                       previousStatus &&
