@@ -304,6 +304,11 @@ export async function POST(request: NextRequest) {
 }
 
 // PATCH - atualiza status das entregas (em_rota ou completo)
+// Delega pra PATCH /api/orcamentos/[id] de cada ID em paralelo, herdando
+// os side-effects canonicos: aplicarTagObraAtiva, GHL sync, force
+// status_pagamento='completo' quando status==='completo', e
+// atualizado_em. Falhas sao isoladas por ID — uma nao interrompe as
+// outras, e vem reportadas em `falhas[]` no response.
 export async function PATCH(request: NextRequest) {
   try {
     const { ids, novoStatus } = await request.json();
@@ -312,14 +317,60 @@ export async function PATCH(request: NextRequest) {
     }
     const statusValidos = ['em_rota', 'completo'];
     const status = statusValidos.includes(novoStatus) ? novoStatus : 'em_rota';
-    const { error } = await supabaseAdmin
+
+    // Busca o status anterior pra cada ID — necessario pra que o PATCH
+    // canonico saiba qual era o estado previo (usado pelos side-effects
+    // de devolucao de estoque em cancelamento, ainda que aqui o novo
+    // status seja em_rota|completo).
+    const { data: estadosAtuais, error: selError } = await supabaseAdmin
       .from('orcamentos')
-      .update({ status })
+      .select('id, status')
       .in('id', ids);
-    if (error) {
-      return NextResponse.json({ error: 'Erro ao atualizar status das entregas' }, { status: 500 });
+    if (selError) {
+      return NextResponse.json({ error: 'Erro ao consultar estados atuais' }, { status: 500 });
     }
-    return NextResponse.json({ success: true, mensagem: ids.length + ' entrega(s) atualizada(s) para ' + status });
+    const mapaEstados = new Map<string, string>();
+    for (const e of (estadosAtuais || []) as Array<{ id: string; status: string }>) {
+      mapaEstados.set(e.id, e.status);
+    }
+
+    const baseUrl = request.nextUrl.origin;
+
+    const resultados = await Promise.all(
+      (ids as string[]).map(async (id) => {
+        try {
+          const prev = mapaEstados.get(id);
+          const res = await fetch(`${baseUrl}/api/orcamentos/${id}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status, _previous_status: prev }),
+            cache: 'no-store',
+          });
+          if (!res.ok) {
+            const corpo = await res.text().catch(() => '');
+            return { id, ok: false, erro: `HTTP ${res.status}: ${corpo.slice(0, 120)}` };
+          }
+          return { id, ok: true as const };
+        } catch (e) {
+          return { id, ok: false, erro: (e as Error).message || 'erro desconhecido' };
+        }
+      }),
+    );
+
+    const falhas = resultados
+      .filter((r) => !r.ok)
+      .map((r) => ({ id: r.id, erro: (r as { erro: string }).erro }));
+    if (falhas.length > 0) {
+      console.error('[entregas/rota PATCH] falhas parciais', falhas);
+    }
+    const sucesso = ids.length - falhas.length;
+    return NextResponse.json({
+      success: true,
+      mensagem:
+        `${sucesso} entrega(s) atualizada(s) para ${status}` +
+        (falhas.length > 0 ? ` — ${falhas.length} falharam` : ''),
+      falhas,
+    });
   } catch (error) {
     console.error('Erro ao atualizar status:', error);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
