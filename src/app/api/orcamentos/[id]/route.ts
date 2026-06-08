@@ -56,7 +56,8 @@ export async function PATCH(
                   cliente_nome, cliente_telefone, cliente_cep, cliente_endereco,
                   cliente_numero, cliente_complemento, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
-          } = body;
+                  endereco_id: enderecoIdBody,
+          } = body as Record<string, unknown> & { endereco_id?: string | null };
 
       // Resolve previousStatus AGORA (antes do UPDATE) pra logica de
       // baixa/devolucao saber qual era o estado anterior. Usa body
@@ -69,6 +70,37 @@ export async function PATCH(
                 .eq('id', params.id)
                 .single();
               previousStatusResolvido = (orcAtual?.status as string | undefined) ?? undefined;
+      }
+
+      // Valida ownership do endereco_id quando o caller pede pra
+      // trocar. Nao permite vincular o orcamento a um endereco de
+      // outro cliente. Permite enderecoIdBody=null pra desvincular.
+      let enderecoIdValidado: string | null | undefined = undefined;
+      if (enderecoIdBody !== undefined) {
+              if (enderecoIdBody === null) {
+                      enderecoIdValidado = null;
+              } else if (typeof enderecoIdBody === 'string' && enderecoIdBody.length > 0) {
+                      const { data: orc } = await supabaseAdmin
+                        .from('orcamentos')
+                        .select('cliente_id')
+                        .eq('id', params.id)
+                        .single();
+                      if (!orc?.cliente_id) {
+                              return NextResponse.json({ error: 'Orcamento sem cliente' }, { status: 400 });
+                      }
+                      const { data: end } = await supabaseAdmin
+                        .from('enderecos_clientes')
+                        .select('id, cliente_id')
+                        .eq('id', enderecoIdBody)
+                        .single();
+                      if (!end || end.cliente_id !== orc.cliente_id) {
+                              return NextResponse.json(
+                                { error: 'endereco_id invalido ou nao pertence ao cliente do orcamento' },
+                                { status: 400 },
+                              );
+                      }
+                      enderecoIdValidado = end.id as string;
+              }
       }
 
       const updateData: Record<string, unknown> = {
@@ -90,6 +122,7 @@ export async function PATCH(
           // Coloca apos a atribuicao explicita para o auto vencer caso o body trouxer divergente.
           if (status === 'completo') updateData.status_pagamento = 'completo';
           if (ferragem_status !== undefined) updateData.ferragem_status = ferragem_status;
+          if (enderecoIdValidado !== undefined) updateData.endereco_id = enderecoIdValidado;
 
       // Reschedule logic
       if (data_entrega !== undefined) {
