@@ -983,16 +983,28 @@ export default function OrcamentoApp() {  // Auth state
         })),
       };
 
-      // Resolve endereco do orcamento (Step 3 Tarefa 5):
-      // 1. enderecoIdSelecionado set -> manda endereco_id (cliente
-      //    escolheu existente no picker).
-      // 2. modo='novo' com sub-form preenchido -> manda endereco_novo.
-      // 3. Senao -> nao manda nada; backend cai no fallback is_padrao
-      //    (UI legada de cliente novo / sem enderecos cadastrados).
+      // Resolve endereco do orcamento (Step 4 Tarefa 3):
+      // 1. enderecoIdSelecionado set + modo='existente' -> body.endereco_id
+      //    (picker, cliente escolheu existente).
+      // 2. modo='novo' COM enderecoNovoForm preenchido -> body.endereco_novo
+      //    a partir do sub-form do picker (cliente existente clicou
+      //    "+ Novo endereço").
+      // 3. Cliente novo / sem enderecos cadastrados -> body.endereco_novo
+      //    a partir dos campos separados do form principal
+      //    (ruaDestino/numeroEndereco/etc., Step 4 Tarefa 2).
+      //
+      // Campos cliente_* legacy continuam no payload em paralelo durante
+      // o deploy gap entre essa Tarefa 3 e a Tarefa 4 (backend ignorar).
+      // Limpeza fica pra sessao futura junto com o drop de clientes.endereco.
       if (tipoEntrega === 'entrega') {
         if (enderecoIdSelecionado && modoEndereco === 'existente') {
           payload.endereco_id = enderecoIdSelecionado;
-        } else if (modoEndereco === 'novo' && enderecoNovoForm.rua.trim() && enderecoNovoForm.numero.trim()) {
+        } else if (
+          enderecosDoCliente.length > 0 &&
+          modoEndereco === 'novo' &&
+          enderecoNovoForm.rua.trim() &&
+          enderecoNovoForm.numero.trim()
+        ) {
           payload.endereco_novo = {
             apelido: enderecoNovoForm.apelido || null,
             cep: enderecoNovoForm.cep || null,
@@ -1002,6 +1014,17 @@ export default function OrcamentoApp() {  // Auth state
             bairro: enderecoNovoForm.bairro || null,
             cidade: enderecoNovoForm.cidade || null,
             estado: enderecoNovoForm.estado || null,
+          };
+        } else if (ruaDestino.trim() && numeroEndereco.trim()) {
+          payload.endereco_novo = {
+            apelido: apelidoEndereco || null,
+            cep: cepDestino || null,
+            rua: ruaDestino,
+            numero: numeroEndereco,
+            complemento: complementoEndereco || null,
+            bairro: bairroDestino || null,
+            cidade: cidadeDestino || null,
+            estado: estadoDestino || null,
           };
         }
       }
