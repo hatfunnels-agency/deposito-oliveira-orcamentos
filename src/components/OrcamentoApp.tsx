@@ -163,6 +163,18 @@ interface OrcamentoSalvo {
   forma_pagamento?: string | null;
   status_pagamento?: string | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null; recebedor?: string | null } | null;
+  endereco_completo?: {
+    id: string;
+    cep: string | null;
+    rua: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    estado: string | null;
+    lat: number | null;
+    lng: number | null;
+  } | null;
 }
 
 interface EntregaRota {
@@ -413,6 +425,13 @@ export default function OrcamentoApp() {  // Auth state
   const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
   const [modoEndereco, setModoEndereco] = useState<'existente' | 'novo'>('existente');
   const [enderecoNovoForm, setEnderecoNovoForm] = useState<EnderecoNovoForm>(ENDERECO_NOVO_VAZIO);
+  // Campos separados pra o form de cliente novo / sem enderecos cadastrados.
+  // Substituem o enderecoViaCEP concatenado da UI legacy (Step 4 Tarefa 2).
+  const [ruaDestino, setRuaDestino] = useState('');
+  const [bairroDestino, setBairroDestino] = useState('');
+  const [cidadeDestino, setCidadeDestino] = useState('');
+  const [estadoDestino, setEstadoDestino] = useState('');
+  const [apelidoEndereco, setApelidoEndereco] = useState('');
   // Sub-picker pra trocar endereco no modal de detalhe (Tarefa 6).
   // State separado do picker do form pra nao colidir quando ambos abertos.
   const [mostrarTrocaEndereco, setMostrarTrocaEndereco] = useState(false);
@@ -825,7 +844,18 @@ export default function OrcamentoApp() {  // Auth state
     try {
       const res = await fetch(`https://viacep.com.br/ws/${cepLimpo}/json/`);
       const data = await res.json();
-      if (!data.erro) setEnderecoViaCEP(`${data.logradouro}, ${data.bairro}, ${data.localidade}-${data.uf}`);
+      if (!data.erro) {
+        // Popula campos separados (source-of-truth do Step 4) E mantem
+        // enderecoViaCEP concatenado em paralelo durante o deploy gap
+        // (Tarefa 3 ainda envia cliente_endereco legacy ate Tarefa 4
+        // ignorar). Pode ser removido junto com cliente_endereco quando
+        // o legacy sair do payload.
+        setRuaDestino(data.logradouro || '');
+        setBairroDestino(data.bairro || '');
+        setCidadeDestino(data.localidade || '');
+        setEstadoDestino(data.uf || '');
+        setEnderecoViaCEP(`${data.logradouro}, ${data.bairro}, ${data.localidade}-${data.uf}`);
+      }
     } catch {}
   }, []);
 
@@ -865,6 +895,10 @@ export default function OrcamentoApp() {  // Auth state
       if (viaData.erro) {
         setErroFrete('CEP não encontrado.');
       } else {
+        setRuaDestino(viaData.logradouro || '');
+        setBairroDestino(viaData.bairro || '');
+        setCidadeDestino(viaData.localidade || '');
+        setEstadoDestino(viaData.uf || '');
         setEnderecoViaCEP(`${viaData.logradouro}, ${viaData.bairro}, ${viaData.localidade}-${viaData.uf}`);
       }
     } catch {
@@ -905,6 +939,11 @@ export default function OrcamentoApp() {  // Auth state
     setEnderecoIdSelecionado(null);
     setModoEndereco('existente');
     setEnderecoNovoForm(ENDERECO_NOVO_VAZIO);
+    setRuaDestino('');
+    setBairroDestino('');
+    setCidadeDestino('');
+    setEstadoDestino('');
+    setApelidoEndereco('');
   };
 
   const salvarEGerarOrcamento = async () => {
@@ -1132,7 +1171,13 @@ export default function OrcamentoApp() {  // Auth state
     const sub = d ? d.subtotal : subtotal;
     const tot = d ? d.total : total;
     const tipo = d ? d.tipo_entrega : tipoEntrega;
-    const end = d ? [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ') : enderecoViaCEP;
+    // Prefere endereco_completo (REAL do pedido, Step 2). Fallback pro
+    // legacy clientes.endereco em orfaos (endereco_completo NULL).
+    const end = d
+      ? (d.endereco_completo
+          ? [d.endereco_completo.rua, d.endereco_completo.numero ? `nº ${d.endereco_completo.numero}` : '', d.endereco_completo.complemento, d.endereco_completo.bairro, d.endereco_completo.cidade ? `${d.endereco_completo.cidade}-${d.endereco_completo.estado || ''}` : ''].filter(Boolean).join(', ')
+          : [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', '))
+      : enderecoViaCEP;
     const dataEnt = d ? d.data_entrega : (tipoEntrega === 'entrega' ? dataEntrega : '');
     const dataRet = d ? (d as any).data_retirada : (tipoEntrega === 'retirada' ? dataRetirada : '');
     const dataCriacao = d ? new Date(d.criado_em).toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
@@ -1157,7 +1202,9 @@ export default function OrcamentoApp() {  // Auth state
     const tel = d.clientes?.telefone || '';
     const cod = d.codigo;
     const tipo = d.tipo_entrega;
-    const end = [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ');
+    const end = d.endereco_completo
+      ? [d.endereco_completo.rua, d.endereco_completo.numero ? `nº ${d.endereco_completo.numero}` : '', d.endereco_completo.complemento, d.endereco_completo.bairro, d.endereco_completo.cidade ? `${d.endereco_completo.cidade}-${d.endereco_completo.estado || ''}` : ''].filter(Boolean).join(', ')
+      : [d.clientes?.endereco, d.clientes?.numero ? `nº ${d.clientes.numero}` : '', d.clientes?.complemento, d.clientes?.bairro, d.clientes?.cidade ? `${d.clientes.cidade}-${d.clientes.estado}` : ''].filter(Boolean).join(', ');
     const dataFmt = ep.data_entrega
       ? new Date(ep.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')
       : new Date(ep.criado_em).toLocaleDateString('pt-BR');
@@ -1437,11 +1484,24 @@ export default function OrcamentoApp() {  // Auth state
     // endereco caem aqui sem regressao.
     const ec = detalhe.endereco_completo;
     if (ec) {
-      if (ec.rua) setEnderecoViaCEP(ec.rua);
+      setRuaDestino(ec.rua || '');
+      setBairroDestino(ec.bairro || '');
+      setCidadeDestino(ec.cidade || '');
+      setEstadoDestino(ec.estado || '');
+      if (ec.rua) setEnderecoViaCEP([ec.rua, ec.bairro, ec.cidade ? `${ec.cidade}-${ec.estado || ''}` : null].filter(Boolean).join(', '));
       if (ec.cep) { setCepDestino(ec.cep); setBuscaEndereco(ec.cep); }
       setNumeroEndereco(ec.numero || '');
       setComplementoEndereco(ec.complemento || '');
     } else {
+      // Orfaos (endereco_completo NULL): fallback best-effort no legacy.
+      // Campos separados ficam preenchidos so com o que clientes tem
+      // estruturado (bairro/cidade/estado). rua = clientes.endereco
+      // inteiro (best-effort, pode conter "rua, bairro, cidade"
+      // concatenado). User edita manualmente antes de salvar.
+      setRuaDestino(detalhe.clientes?.endereco || '');
+      setBairroDestino(detalhe.clientes?.bairro || '');
+      setCidadeDestino(detalhe.clientes?.cidade || '');
+      setEstadoDestino(detalhe.clientes?.estado || '');
       if (detalhe.clientes?.endereco) setEnderecoViaCEP(detalhe.clientes.endereco);
       if (detalhe.clientes?.cep) { setCepDestino(detalhe.clientes.cep); setBuscaEndereco(detalhe.clientes.cep); }
       setNumeroEndereco(detalhe.clientes?.numero || '');
@@ -2593,88 +2653,115 @@ export default function OrcamentoApp() {  // Auth state
                         </div>
                       )}
 
-                      {/* Form legacy de busca smart — esconde quando picker
-                          esta ativo (cliente ja tem enderecos cadastrados).
-                          Cliente novo / sem enderecos continua usando este
-                          form e cai no fallback is_padrao do backend. */}
+                      {/* Form de cliente novo / sem enderecos cadastrados —
+                          campos separados (Step 4 Tarefa 2) que alimentam
+                          body.endereco_novo no submit (Step 4 Tarefa 3).
+                          Mantem busca smart como helper de autocomplete
+                          (CEP/Google Places populam os separados). */}
                       {enderecosDoCliente.length === 0 && (
                         <>
-                      {/* Unified smart address field - detects CEP vs street */}
-                    <div className="relative flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="CEP ou endereço (rua, bairro, cidade...)"
-                        value={buscaEndereco || cepDestino}
-                        onChange={e => {
-                          const val = e.target.value;
-                          setBuscaEndereco(val);
-                          const cleaned = val.replace(/\D/g, '');
-                          if (cleaned.length === 8) setCepDestino(cleaned);
-                          setEnderecoViaCEP('');
-                        // Debounce autocomplete
-                        if (debounceRef.current) clearTimeout(debounceRef.current);
-                        if (val.length >= 3 && !/^\d{8}$/.test(val.replace(/\D/g, ''))) {
-                          debounceRef.current = setTimeout(async () => {
-                            try {
-                              const res = await fetch(`/api/endereco?type=autocomplete&q=${encodeURIComponent(val)}`, { cache: 'no-store' });
-                              const data = await res.json();
-                              const mapped = (data.suggestions || []).map((s: {place_id: string; descricao: string}) => ({ place_id: s.place_id, description: s.descricao }));
-                              setSugestoesEndereco(mapped);
-                              setMostrandoSugestoes(mapped.length > 0);
-                            } catch {}
-                          }, 300);
-                        } else {
-                          setSugestoesEndereco([]);
-                          setMostrandoSugestoes(false);
-                        }
-                        }}
-                        onKeyDown={e => e.key === 'Enter' && buscarEnderecoSmart(buscaEndereco || cepDestino)}
-                        className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
-                      />
-                    {mostrandoSugestoes && sugestoesEndereco.length > 0 && (
-                      <ul className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-300 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
-                        {sugestoesEndereco.map(s => (
-                          <li key={s.place_id}
-                            className="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0"
-                            onClick={async () => {
-                              setMostrandoSugestoes(false);
-                              setSugestoesEndereco([]);
-                              setErroFrete('');
-                              try {
-                                const res = await fetch(`/api/endereco?type=details&place_id=${s.place_id}`, { cache: 'no-store' });
-                                const data = await res.json();
-                                if (data.error) {
-                                  setErroFrete(data.error);
-                                  return;
+                          {/* Apelido opcional */}
+                          <input type="text" placeholder="Apelido (ex: Obra, Casa) — opcional" value={apelidoEndereco}
+                            onChange={e => setApelidoEndereco(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+
+                          {/* Busca smart — preenche os separados via CEP ou Google Places */}
+                          <div className="relative flex gap-2">
+                            <input
+                              type="text"
+                              placeholder="🔍 Buscar por CEP ou rua (opcional)"
+                              value={buscaEndereco || cepDestino}
+                              onChange={e => {
+                                const val = e.target.value;
+                                setBuscaEndereco(val);
+                                const cleaned = val.replace(/\D/g, '');
+                                if (cleaned.length === 8) setCepDestino(cleaned);
+                                if (debounceRef.current) clearTimeout(debounceRef.current);
+                                if (val.length >= 3 && !/^\d{8}$/.test(val.replace(/\D/g, ''))) {
+                                  debounceRef.current = setTimeout(async () => {
+                                    try {
+                                      const res = await fetch(`/api/endereco?type=autocomplete&q=${encodeURIComponent(val)}`, { cache: 'no-store' });
+                                      const data = await res.json();
+                                      const mapped = (data.suggestions || []).map((s: {place_id: string; descricao: string}) => ({ place_id: s.place_id, description: s.descricao }));
+                                      setSugestoesEndereco(mapped);
+                                      setMostrandoSugestoes(mapped.length > 0);
+                                    } catch {}
+                                  }, 300);
+                                } else {
+                                  setSugestoesEndereco([]);
+                                  setMostrandoSugestoes(false);
                                 }
-                                if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : '') + (data.cidade ? ', ' + data.cidade + '-' + data.estado : ''));
-                                if (data.cep) setCepDestino(data.cep);
-                                setBuscaEndereco(s.description);
-                              } catch {
-                                setErroFrete('Erro ao buscar detalhes do endereço.');
-                              }
-                            }}
-                          >📍 {s.description}</li>
-                        ))}
-                      </ul>
-                    )}
-                      <button
-                        onClick={() => buscarEnderecoSmart(buscaEndereco || cepDestino)}
-                        disabled={buscandoEndereco}
-                        className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#E8850A] transition disabled:opacity-50"
-                      >
-                        {buscandoEndereco ? '...' : 'Buscar'}
-                      </button>
-                    </div>
-                      {enderecoViaCEP && <p className="text-xs text-gray-500">{enderecoViaCEP}</p>}
-                      {erroFrete && <p className="text-xs text-red-500">{erroFrete}</p>}
-                      {/* Feature 8 - Numero, complemento */}
-                      <div className="grid grid-cols-2 gap-2">
-                        <input type="text" placeholder="Número *" value={numeroEndereco} onChange={e => setNumeroEndereco(e.target.value)}
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                        <input type="text" placeholder="Complemento (opcional)" value={complementoEndereco} onChange={e => setComplementoEndereco(e.target.value)}
-                          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
-                      </div>
+                              }}
+                              onKeyDown={e => e.key === 'Enter' && buscarEnderecoSmart(buscaEndereco || cepDestino)}
+                              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                            />
+                            {mostrandoSugestoes && sugestoesEndereco.length > 0 && (
+                              <ul className="absolute top-full left-0 right-0 z-50 bg-white border border-gray-300 rounded-xl shadow-lg mt-1 max-h-48 overflow-y-auto">
+                                {sugestoesEndereco.map(s => (
+                                  <li key={s.place_id}
+                                    className="px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-100 last:border-0"
+                                    onClick={async () => {
+                                      setMostrandoSugestoes(false);
+                                      setSugestoesEndereco([]);
+                                      setErroFrete('');
+                                      try {
+                                        const res = await fetch(`/api/endereco?type=details&place_id=${s.place_id}`, { cache: 'no-store' });
+                                        const data = await res.json();
+                                        if (data.error) {
+                                          setErroFrete(data.error);
+                                          return;
+                                        }
+                                        // Popula campos separados a partir da resposta do Google Places.
+                                        if (data.logradouro) setRuaDestino(data.logradouro);
+                                        if (data.bairro) setBairroDestino(data.bairro);
+                                        if (data.cidade) setCidadeDestino(data.cidade);
+                                        if (data.estado) setEstadoDestino(data.estado);
+                                        if (data.cep) setCepDestino(data.cep);
+                                        // enderecoViaCEP mantido em paralelo durante o deploy gap.
+                                        if (data.logradouro) setEnderecoViaCEP(data.logradouro + (data.bairro ? ', ' + data.bairro : '') + (data.cidade ? ', ' + data.cidade + '-' + data.estado : ''));
+                                        setBuscaEndereco(s.description);
+                                      } catch {
+                                        setErroFrete('Erro ao buscar detalhes do endereço.');
+                                      }
+                                    }}
+                                  >📍 {s.description}</li>
+                                ))}
+                              </ul>
+                            )}
+                            <button
+                              onClick={() => buscarEnderecoSmart(buscaEndereco || cepDestino)}
+                              disabled={buscandoEndereco}
+                              className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm hover:bg-[#E8850A] transition disabled:opacity-50"
+                            >
+                              {buscandoEndereco ? '...' : 'Buscar'}
+                            </button>
+                          </div>
+                          {erroFrete && <p className="text-xs text-red-500">{erroFrete}</p>}
+
+                          {/* Campos separados — editaveis manualmente. CEP fica
+                              espelhado em cepDestino (state ja usado pela busca). */}
+                          <input type="text" placeholder="Rua *" value={ruaDestino}
+                            onChange={e => setRuaDestino(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input type="text" placeholder="Número *" value={numeroEndereco}
+                              onChange={e => setNumeroEndereco(e.target.value)}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                            <input type="text" placeholder="Complemento (opcional)" value={complementoEndereco}
+                              onChange={e => setComplementoEndereco(e.target.value)}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          </div>
+                          <input type="text" placeholder="Bairro" value={bairroDestino}
+                            onChange={e => setBairroDestino(e.target.value)}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          <div className="grid grid-cols-3 gap-2">
+                            <input type="text" placeholder="Cidade" value={cidadeDestino}
+                              onChange={e => setCidadeDestino(e.target.value)}
+                              className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                            <input type="text" placeholder="UF" maxLength={2} value={estadoDestino}
+                              onChange={e => setEstadoDestino(e.target.value.toUpperCase())}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          </div>
                         </>
                       )}
                       <input type="text" placeholder="Quem vai receber? (opcional)" value={recebedor} onChange={e => setRecebedor(e.target.value)}
@@ -2935,9 +3022,19 @@ export default function OrcamentoApp() {  // Auth state
                           <p className="text-sm font-medium text-gray-800">{orc.clientes?.nome || 'Cliente'}</p>
                           <p className="text-xs text-gray-500">{orc.clientes?.telefone || ''} {orc.clientes?.cidade ? `• ${orc.clientes.cidade}-${orc.clientes.estado}` : ''}</p>
                           <p className="text-xs text-gray-400 mt-1">{new Date(orc.criado_em).toLocaleDateString('pt-BR')} {new Date(orc.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
-                          {(orc.tipo_entrega === 'entrega' && orc.data_entrega) && (
-                            <p className="text-xs text-blue-600 mt-1">🚛 Entrega: {new Date(orc.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}{orc.clientes?.endereco ? ' · ' + orc.clientes.endereco + (orc.clientes.numero ? ', ' + orc.clientes.numero : '') + (orc.clientes.bairro ? ' — ' + orc.clientes.bairro : '') : ''}</p>
-                          )}
+                          {(orc.tipo_entrega === 'entrega' && orc.data_entrega) && (() => {
+                            // Prefere endereco_completo (REAL do pedido). Fallback
+                            // pro clientes.endereco legacy em orfaos.
+                            const ec = orc.endereco_completo;
+                            const enderecoExibido = ec
+                              ? ec.rua + (ec.numero ? ', ' + ec.numero : '') + (ec.bairro ? ' — ' + ec.bairro : '')
+                              : orc.clientes?.endereco
+                                ? orc.clientes.endereco + (orc.clientes.numero ? ', ' + orc.clientes.numero : '') + (orc.clientes.bairro ? ' — ' + orc.clientes.bairro : '')
+                                : '';
+                            return (
+                              <p className="text-xs text-blue-600 mt-1">🚛 Entrega: {new Date(orc.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}{enderecoExibido ? ' · ' + enderecoExibido : ''}</p>
+                            );
+                          })()}
                           {(orc.tipo_entrega === 'retirada' && orc.data_retirada) && (
                             <p className="text-xs text-green-600 mt-1">🏪 Retirada: {new Date(orc.data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>
                           )}
