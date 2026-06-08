@@ -1,17 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
-import { aplicarBaixaItem, ehCommitted } from '@/lib/estoque-baixa';
-
-// Tarefa 5: helper para resolver produto principal no estoque compartilhado
-async function resolverIdPrincipal(produto_id: string): Promise<string> {
-    const { data } = await supabaseAdmin
-      .from('produtos')
-      .select('estoque_compartilhado_com')
-      .eq('id', produto_id)
-      .single();
-    return data?.estoque_compartilhado_com || produto_id;
-}
+import { aplicarBaixaItem, ehCommitted, reverterBaixaItem } from '@/lib/estoque-baixa';
 
 export async function GET(
     request: NextRequest,
@@ -204,9 +194,14 @@ export async function PATCH(
                       }
             }
 
-            // Devolucao de estoque ao cancelar — mantida inline; a
-            // logica de devolucao pra sob_demanda (decrementar
-            // total_vendido) e escopo futuro.
+            // Devolucao de estoque ao cancelar. As 4 transicoes
+            // disparadoras (cancelado a partir de entrega_pendente,
+            // entrega_parcial, retirada_pendente, em_rota) sao
+            // intencionalmente as mesmas — sem expansao de escopo.
+            // O helper reverterBaixaItem trata tipo_estoque
+            // (sob_demanda decrementa total_vendido; estocavel
+            // restaura estoque_atual + insere movimentacao
+            // tipo='cancelamento'). Awaited; falha por item so loga.
             if (
                       status === 'cancelado' &&
                       previousStatus &&
@@ -215,39 +210,21 @@ export async function PATCH(
                       orderItems.length > 0
                     ) {
                       for (const item of orderItems) {
-                                  if (!item.produto_id) continue;
-
-                        // Tarefa 5: sempre operar no produto PRINCIPAL
-                        const idPrincipal = await resolverIdPrincipal(item.produto_id);
-
-                        const { data: produto } = await supabaseAdmin
-                                    .from('produtos')
-                                    .select('id, estoque_atual, fator_conversao')
-                                    .eq('id', idPrincipal)
-                                    .single();
-
-                        if (produto) {
-                                      const fator = Number(produto.fator_conversao) || 1;
-                                      const qtdEstoque = Number(item.quantidade) * fator;
-                                      const estoqueAnterior = Number(produto.estoque_atual);
-                                      const estoqueNovo = estoqueAnterior + qtdEstoque;
-
-                                    await supabaseAdmin
-                                        .from('produtos')
-                                        .update({ estoque_atual: estoqueNovo, atualizado_em: new Date().toISOString() })
-                                        .eq('id', idPrincipal);
-
-                                    await supabaseAdmin.from('movimentacoes_estoque').insert({
-                                                    produto_id: idPrincipal,
-                                                    tipo: 'cancelamento',
-                                                    quantidade: qtdEstoque,
-                                                    estoque_anterior: estoqueAnterior,
-                                                    estoque_novo: estoqueNovo,
-                                                    referencia_tipo: 'orcamento',
-                                                    referencia_id: params.id,
-                                                    observacoes: `Cancelamento - ${item.produto_nome} x${item.quantidade}`,
-                                    });
-                        }
+                              try {
+                                      const r = await reverterBaixaItem(
+                                                {
+                                                          produto_id: item.produto_id as string | null,
+                                                          produto_nome: item.produto_nome as string,
+                                                          quantidade: Number(item.quantidade),
+                                                },
+                                                params.id,
+                                      );
+                                      if (!r.ok && !('skipped' in r)) {
+                                                console.error('[PATCH orcamentos] devolucao falhou', item.produto_nome, r);
+                                      }
+                              } catch (e) {
+                                      console.error('[PATCH orcamentos] excecao na devolucao', item.produto_nome, e);
+                              }
                       }
             }
       }
