@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
+import { aplicarBaixaItem } from '@/lib/estoque-baixa';
+
+// Status em que o orcamento ja "consumiu" estoque — quando POST cria
+// direto em um destes, dispara baixa. Mesma lista usada pelo PATCH
+// /api/orcamentos/[id] na regra de transicao non-committed -> committed.
+const COMMITTED_STATUSES = [
+  'entrega_pendente',
+  'retirada_pendente',
+  'entrega_parcial',
+  'em_rota',
+  'completo',
+  'ocorrencia',
+];
 
 export async function POST(request: NextRequest) {
     try {
@@ -176,6 +189,26 @@ export async function POST(request: NextRequest) {
       if (itensError) {
         console.error('Erro ao criar itens:', itensError);
         return NextResponse.json({ error: 'Erro ao criar itens do orçamento' }, { status: 500 });
+      }
+
+      // Baixa de estoque quando o orcamento nasce ja committed (49pp do
+      // gap historico vinha daqui — POST nunca baixava). Awaited de
+      // proposito; fire-and-forget morre em delegacao entre lambdas.
+      // Falha por item nao bloqueia a criacao do orcamento — so loga.
+      if (COMMITTED_STATUSES.includes(String(insertData.status))) {
+        for (const it of itensToInsert) {
+          try {
+            const r = await aplicarBaixaItem(
+              { produto_id: it.produto_id, produto_nome: it.produto_nome, quantidade: it.quantidade },
+              orcamento.id as string,
+            );
+            if (!r.ok && !('skipped' in r)) {
+              console.error('[POST orcamentos] baixa falhou', it.produto_nome, r);
+            }
+          } catch (e) {
+            console.error('[POST orcamentos] excecao na baixa', it.produto_nome, e);
+          }
+        }
       }
 
       // Auto-tag: se o orcamento ja nasce como venda real, marca o cliente
