@@ -77,6 +77,7 @@ interface OrcamentoDetalhe {
   motorista_id?: string | null;
   forma_pagamento?: string | null;
   status_pagamento?: string | null;
+  endereco_id: string | null;
   clientes: {
     id: string;
     nome: string;
@@ -90,9 +91,56 @@ interface OrcamentoDetalhe {
     complemento: string | null;
     recebedor: string | null;
   } | null;
+  endereco_completo: {
+    id: string;
+    cep: string | null;
+    rua: string | null;
+    numero: string | null;
+    complemento: string | null;
+    bairro: string | null;
+    cidade: string | null;
+    estado: string | null;
+    lat: number | null;
+    lng: number | null;
+  } | null;
   orcamento_itens: OrcamentoItem[];
     fonte?: string | null;
 }
+
+interface EnderecoClienteUI {
+  id: string;
+  apelido: string | null;
+  cep: string | null;
+  rua: string | null;
+  numero: string | null;
+  complemento: string | null;
+  bairro: string | null;
+  cidade: string | null;
+  estado: string | null;
+  is_padrao: boolean;
+}
+
+interface EnderecoNovoForm {
+  apelido: string;
+  cep: string;
+  rua: string;
+  numero: string;
+  complemento: string;
+  bairro: string;
+  cidade: string;
+  estado: string;
+}
+
+const ENDERECO_NOVO_VAZIO: EnderecoNovoForm = {
+  apelido: '',
+  cep: '',
+  rua: '',
+  numero: '',
+  complemento: '',
+  bairro: '',
+  cidade: '',
+  estado: '',
+};
 
 interface OrcamentoSalvo {
   id: string;
@@ -342,6 +390,14 @@ export default function OrcamentoApp() {  // Auth state
   const [numeroEndereco, setNumeroEndereco] = useState('');
   const [complementoEndereco, setComplementoEndereco] = useState('');
   const [recebedor, setRecebedor] = useState('');
+  // Picker de enderecos (Step 3). enderecosDoCliente carrega via lookup
+  // do telefone (modal de criacao) ou ao abrir editar. enderecoIdSelecionado
+  // null = caller cai no fallback do backend (is_padrao) ou em endereco_novo
+  // quando modoEndereco='novo'.
+  const [enderecosDoCliente, setEnderecosDoCliente] = useState<EnderecoClienteUI[]>([]);
+  const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
+  const [modoEndereco, setModoEndereco] = useState<'existente' | 'novo'>('existente');
+  const [enderecoNovoForm, setEnderecoNovoForm] = useState<EnderecoNovoForm>(ENDERECO_NOVO_VAZIO);
   const [observacoes, setObservacoes] = useState('');
   // Feature 7 - Address search
   const [buscaEndereco, setBuscaEndereco] = useState('');
@@ -622,6 +678,23 @@ export default function OrcamentoApp() {  // Auth state
       !nome.includes('ensacada');
   };
 
+  // Carrega enderecos do cliente pra alimentar o picker. Falha silenciosa
+  // (sem alerta) — o picker cai pro modo 'novo' / fallback automaticamente
+  // quando enderecosDoCliente.length === 0.
+  const carregarEnderecosDoCliente = useCallback(async (clienteId: string) => {
+    try {
+      const res = await fetch(`/api/clientes/${clienteId}/enderecos`, { cache: 'no-store' });
+      const data = await res.json();
+      const enderecos = (data?.enderecos || []) as EnderecoClienteUI[];
+      setEnderecosDoCliente(enderecos);
+      return enderecos;
+    } catch (e) {
+      console.error('Erro ao carregar enderecos do cliente', e);
+      setEnderecosDoCliente([]);
+      return [] as EnderecoClienteUI[];
+    }
+  }, []);
+
   const adicionarMeioMetro = (produto: Produto) => {
     const idMeio = produto.id + '-meio';
     setItens(prev => {
@@ -768,6 +841,10 @@ export default function OrcamentoApp() {  // Auth state
     setClienteEncontrado(null);
     setMostrarSimulador(false);
     setEtapaOrcamento('catalogo');
+    setEnderecosDoCliente([]);
+    setEnderecoIdSelecionado(null);
+    setModoEndereco('existente');
+    setEnderecoNovoForm(ENDERECO_NOVO_VAZIO);
   };
 
   const salvarEGerarOrcamento = async () => {
@@ -1269,11 +1346,33 @@ export default function OrcamentoApp() {  // Auth state
     setDataEntrega(detalhe.data_entrega || '');
     setDataRetirada(detalhe.data_retirada || '');
     setFonteVenda(detalhe.fonte || '');
-    if (detalhe.clientes?.endereco) setEnderecoViaCEP(detalhe.clientes.endereco);
-    if (detalhe.clientes?.cep) { setCepDestino(detalhe.clientes.cep); setBuscaEndereco(detalhe.clientes.cep); }
-    setNumeroEndereco(detalhe.clientes?.numero || '');
-    setComplementoEndereco(detalhe.clientes?.complemento || '');
+    // Prefere endereco_completo do orcamento (endereco REAL gravado nele,
+    // Step 2). Fallback pro clientes.endereco legacy quando endereco_completo
+    // for null — orcamentos antigos (~74 orfaos do backfill) e PDV sem
+    // endereco caem aqui sem regressao.
+    const ec = detalhe.endereco_completo;
+    if (ec) {
+      if (ec.rua) setEnderecoViaCEP(ec.rua);
+      if (ec.cep) { setCepDestino(ec.cep); setBuscaEndereco(ec.cep); }
+      setNumeroEndereco(ec.numero || '');
+      setComplementoEndereco(ec.complemento || '');
+    } else {
+      if (detalhe.clientes?.endereco) setEnderecoViaCEP(detalhe.clientes.endereco);
+      if (detalhe.clientes?.cep) { setCepDestino(detalhe.clientes.cep); setBuscaEndereco(detalhe.clientes.cep); }
+      setNumeroEndereco(detalhe.clientes?.numero || '');
+      setComplementoEndereco(detalhe.clientes?.complemento || '');
+    }
     setRecebedor(detalhe.clientes?.recebedor || '');
+    // Carrega enderecos do cliente pra alimentar o picker e pre-seleciona
+    // o endereco_id atual do pedido (quando existir).
+    if (detalhe.clientes?.id) {
+      void carregarEnderecosDoCliente(detalhe.clientes.id);
+    } else {
+      setEnderecosDoCliente([]);
+    }
+    setEnderecoIdSelecionado(detalhe.endereco_id || null);
+    setModoEndereco('existente');
+    setEnderecoNovoForm(ENDERECO_NOVO_VAZIO);
     setObservacoes(detalhe.observacoes || '');
     setStatusPedidoForm(detalhe.status || 'orcamento');
     setStatusPagamentoForm(detalhe.status_pagamento || 'pendente');
@@ -1980,8 +2079,25 @@ export default function OrcamentoApp() {  // Auth state
                               if (cli.numero) setNumeroEndereco(cli.numero);
                               if (cli.complemento) setComplementoEndereco(cli.complemento);
                               if (cli.recebedor) setRecebedor(cli.recebedor);
+                              // Pre-fetch enderecos pro picker (Step 3 — UI mostra
+                              // dropdown se >0). Pre-seleciona is_padrao quando existe.
+                              const ends = await carregarEnderecosDoCliente(cli.id);
+                              const padrao = ends.find(e => e.is_padrao);
+                              if (padrao) {
+                                setEnderecoIdSelecionado(padrao.id);
+                                setModoEndereco('existente');
+                              } else if (ends.length > 0) {
+                                setEnderecoIdSelecionado(ends[0].id);
+                                setModoEndereco('existente');
+                              } else {
+                                setEnderecoIdSelecionado(null);
+                                setModoEndereco('novo');
+                              }
                             } else {
                               setClienteEncontrado(null);
+                              setEnderecosDoCliente([]);
+                              setEnderecoIdSelecionado(null);
+                              setModoEndereco('novo');
                             }
                           } catch {}
                           setClienteBuscandoNum(false);
