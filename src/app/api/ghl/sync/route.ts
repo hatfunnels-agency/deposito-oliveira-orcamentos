@@ -307,7 +307,9 @@ export async function POST(request: NextRequest) {
         data_entrega,
         data_retirada,
         cliente_id,
+        endereco_id,
         clientes (id, nome, telefone, cep, endereco, numero, bairro, cidade, estado),
+        endereco_completo:enderecos_clientes (cep, rua, numero, complemento, bairro, cidade, estado),
         orcamento_itens (id, quantidade, produto_nome)
       `)
       .eq('id', orcamento_id)
@@ -318,8 +320,31 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'not found' }, { status: 404 });
     }
 
-    const cliente = (orcamento as any).clientes;
+    const clienteRaw = (orcamento as any).clientes;
     const itens = (orcamento as any).orcamento_itens || [];
+
+    // Step 4 Tarefa 4.5: GHL passa a receber o endereco REAL do pedido
+    // (orcamentos.endereco_id -> enderecos_clientes), nao mais o
+    // "padrao" do cliente que pode estar desatualizado. Fallback pro
+    // clientes.endereco legacy mantem orfaos do backfill funcionando
+    // (e clientes pre-Step 4 que ainda nao tem endereco_id setado).
+    // As funcoes createContact/updateContact continuam lendo
+    // cliente.endereco/numero/etc. (interface preservada).
+    const ec = (orcamento as any).endereco_completo as
+      | { cep?: string | null; rua?: string | null; numero?: string | null; complemento?: string | null; bairro?: string | null; cidade?: string | null; estado?: string | null }
+      | null;
+    const cliente = ec
+      ? {
+          ...clienteRaw,
+          endereco: ec.rua ?? clienteRaw?.endereco ?? null,
+          numero: ec.numero ?? clienteRaw?.numero ?? null,
+          complemento: ec.complemento ?? clienteRaw?.complemento ?? null,
+          bairro: ec.bairro ?? clienteRaw?.bairro ?? null,
+          cidade: ec.cidade ?? clienteRaw?.cidade ?? null,
+          estado: ec.estado ?? clienteRaw?.estado ?? null,
+          cep: ec.cep ?? clienteRaw?.cep ?? null,
+        }
+      : clienteRaw;
 
     if (!cliente?.telefone) {
       console.log('[GHL Sync] No phone, skipping');

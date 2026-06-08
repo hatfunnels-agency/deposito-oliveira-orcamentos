@@ -217,10 +217,12 @@ export async function POST(request: NextRequest) {
     const { data: entregas, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, status, total, data_entrega, observacoes,
+        id, codigo, tipo_entrega, status, total, data_entrega, observacoes, endereco_id,
         clientes (
-          nome, telefone, cep, endereco, bairro, cidade, estado,
-          numero, complemento, recebedor
+          nome, telefone, recebedor
+        ),
+        endereco_completo:enderecos_clientes (
+          cep, rua, numero, complemento, bairro, cidade, estado
         ),
         orcamento_itens (
           produto_nome, quantidade, unidade
@@ -232,8 +234,19 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erro ao buscar entregas' }, { status: 500 });
     }
 
+    // Step 4 Tarefa 4.5: endereco vem do orcamentos.endereco_id (REAL
+    // do pedido). Sem endereco_id (orfao ou retirada), os campos
+    // ficam vazios e o waypoint do Google Maps e excluido naturalmente
+    // pelo filter(e => e.endereco) abaixo.
     const entregasFormatadas = (entregas || []).map((e: Record<string, unknown>) => {
-      const cliente = e.clientes as Record<string, unknown> | null;
+      const clienteRaw = e.clientes;
+      const cliente = (Array.isArray(clienteRaw) ? clienteRaw[0] : clienteRaw) as
+        | Record<string, unknown>
+        | null;
+      const endRaw = e.endereco_completo;
+      const end = (Array.isArray(endRaw) ? endRaw[0] : endRaw) as
+        | Record<string, unknown>
+        | null;
       const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
       const itensResumo = (itens || [])
         .map((i) => String(i.quantidade) + (i.unidade === 'unidade' ? 'x' : String(i.unidade)) + ' ' + String(i.produto_nome))
@@ -242,13 +255,13 @@ export async function POST(request: NextRequest) {
         id: String(e.id), codigo: String(e.codigo),
         cliente_nome: cliente?.nome ? String(cliente.nome) : 'Sem nome',
         cliente_telefone: cliente?.telefone ? String(cliente.telefone) : '',
-        endereco: cliente?.endereco ? String(cliente.endereco) : '',
-        cep: cliente?.cep ? String(cliente.cep) : '',
-        numero: cliente?.numero ? String(cliente.numero) : '',
-        complemento: cliente?.complemento ? String(cliente.complemento) : '',
+        endereco: end?.rua ? String(end.rua) : '',
+        cep: end?.cep ? String(end.cep) : '',
+        numero: end?.numero ? String(end.numero) : '',
+        complemento: end?.complemento ? String(end.complemento) : '',
         recebedor: cliente?.recebedor ? String(cliente.recebedor) : '',
-        bairro: cliente?.bairro ? String(cliente.bairro) : '',
-        cidade: cliente?.cidade ? String(cliente.cidade) + '-' + String(cliente.estado || '') : '',
+        bairro: end?.bairro ? String(end.bairro) : '',
+        cidade: end?.cidade ? String(end.cidade) + '-' + String(end.estado || '') : '',
         status: String(e.status), total: Number(e.total),
         itens_resumo: itensResumo,
         data_entrega: e.data_entrega ? String(e.data_entrega) : null,
