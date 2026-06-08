@@ -223,6 +223,21 @@ interface RotaResponse {
 
 
 
+// Label resumido pra o picker e o display read-only do endereco
+// selecionado. Apelido > rua, fallback "Sem rua".
+function formatarEnderecoUI(e: {
+  apelido?: string | null;
+  rua?: string | null;
+  numero?: string | null;
+  bairro?: string | null;
+  is_padrao?: boolean;
+}): string {
+  const label = e.apelido || e.rua || 'Sem rua';
+  const parts = [label, e.numero, e.bairro].filter(Boolean);
+  const base = parts.join(' · ');
+  return e.is_padrao ? `${base} (padrão)` : base;
+}
+
 function formatBRL(value: number): string {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -2435,6 +2450,85 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                   {tipoEntrega === 'entrega' && (
                     <div className="space-y-3">
+                      {/* Picker de enderecos do cliente — so aparece quando ja existem */}
+                      {enderecosDoCliente.length > 0 && (
+                        <div>
+                          <label className="block text-sm font-medium text-gray-700 mb-1">Endereço da entrega</label>
+                          <select
+                            value={modoEndereco === 'novo' ? '__novo__' : (enderecoIdSelecionado || '')}
+                            onChange={ev => {
+                              const val = ev.target.value;
+                              if (val === '__novo__') {
+                                setModoEndereco('novo');
+                                setEnderecoIdSelecionado(null);
+                                setEnderecoNovoForm(ENDERECO_NOVO_VAZIO);
+                              } else {
+                                const end = enderecosDoCliente.find(x => x.id === val);
+                                if (end) {
+                                  setEnderecoIdSelecionado(end.id);
+                                  setModoEndereco('existente');
+                                  // Espelha nos campos legacy pra preview, frete e payload de fallback
+                                  if (end.cep) { setCepDestino(end.cep.replace(/\D/g,'')); setBuscaEndereco(end.cep); }
+                                  setEnderecoViaCEP([end.rua, end.bairro, end.cidade ? `${end.cidade}-${end.estado || ''}` : null].filter(Boolean).join(', '));
+                                  setNumeroEndereco(end.numero || '');
+                                  setComplementoEndereco(end.complemento || '');
+                                }
+                              }
+                            }}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                          >
+                            {enderecosDoCliente.map(e => (
+                              <option key={e.id} value={e.id}>{formatarEnderecoUI(e)}</option>
+                            ))}
+                            <option value="__novo__">+ Novo endereço</option>
+                          </select>
+                        </div>
+                      )}
+
+                      {/* Sub-form de "+ Novo endereço" — campos separados,
+                          submit envia body.endereco_novo. */}
+                      {enderecosDoCliente.length > 0 && modoEndereco === 'novo' && (
+                        <div className="space-y-2 rounded-lg border border-dashed border-[#F7941D] bg-[#FFF3E0]/40 p-3">
+                          <p className="text-xs font-medium text-[#E8850A]">Novo endereço para {clienteEncontrado?.nome || nomeCliente || 'este cliente'}</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            <input type="text" placeholder="Apelido (ex: Obra, Casa)" value={enderecoNovoForm.apelido}
+                              onChange={ev => setEnderecoNovoForm(f => ({ ...f, apelido: ev.target.value }))}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                            <input type="text" placeholder="CEP" value={enderecoNovoForm.cep}
+                              onChange={ev => setEnderecoNovoForm(f => ({ ...f, cep: ev.target.value }))}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          </div>
+                          <input type="text" placeholder="Rua *" value={enderecoNovoForm.rua}
+                            onChange={ev => setEnderecoNovoForm(f => ({ ...f, rua: ev.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          <div className="grid grid-cols-2 gap-2">
+                            <input type="text" placeholder="Número *" value={enderecoNovoForm.numero}
+                              onChange={ev => setEnderecoNovoForm(f => ({ ...f, numero: ev.target.value }))}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                            <input type="text" placeholder="Complemento" value={enderecoNovoForm.complemento}
+                              onChange={ev => setEnderecoNovoForm(f => ({ ...f, complemento: ev.target.value }))}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          </div>
+                          <input type="text" placeholder="Bairro" value={enderecoNovoForm.bairro}
+                            onChange={ev => setEnderecoNovoForm(f => ({ ...f, bairro: ev.target.value }))}
+                            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          <div className="grid grid-cols-3 gap-2">
+                            <input type="text" placeholder="Cidade" value={enderecoNovoForm.cidade}
+                              onChange={ev => setEnderecoNovoForm(f => ({ ...f, cidade: ev.target.value }))}
+                              className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                            <input type="text" placeholder="UF" maxLength={2} value={enderecoNovoForm.estado}
+                              onChange={ev => setEnderecoNovoForm(f => ({ ...f, estado: ev.target.value.toUpperCase() }))}
+                              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Form legacy de busca smart — esconde quando picker
+                          esta ativo (cliente ja tem enderecos cadastrados).
+                          Cliente novo / sem enderecos continua usando este
+                          form e cai no fallback is_padrao do backend. */}
+                      {enderecosDoCliente.length === 0 && (
+                        <>
                       {/* Unified smart address field - detects CEP vs street */}
                     <div className="relative flex gap-2">
                       <input
@@ -2504,13 +2598,15 @@ export default function OrcamentoApp() {  // Auth state
                     </div>
                       {enderecoViaCEP && <p className="text-xs text-gray-500">{enderecoViaCEP}</p>}
                       {erroFrete && <p className="text-xs text-red-500">{erroFrete}</p>}
-                      {/* Feature 8 - Numero, complemento, recebedor */}
+                      {/* Feature 8 - Numero, complemento */}
                       <div className="grid grid-cols-2 gap-2">
                         <input type="text" placeholder="Número *" value={numeroEndereco} onChange={e => setNumeroEndereco(e.target.value)}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                         <input type="text" placeholder="Complemento (opcional)" value={complementoEndereco} onChange={e => setComplementoEndereco(e.target.value)}
                           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                       </div>
+                        </>
+                      )}
                       <input type="text" placeholder="Quem vai receber? (opcional)" value={recebedor} onChange={e => setRecebedor(e.target.value)}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                       <div>
