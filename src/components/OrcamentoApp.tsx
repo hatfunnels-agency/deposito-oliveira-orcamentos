@@ -137,6 +137,8 @@ interface EntregaRota {
   motorista_id?: string | null;
   leva_id?: string | null;
   distancia_km?: number | null;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 interface Motorista {
