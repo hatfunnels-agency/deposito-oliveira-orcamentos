@@ -45,18 +45,24 @@ export async function POST(request: NextRequest) {
 
       // Upsert cliente. Telefone e opcional (PDV/venda balcao). Quando vazio, gera placeholder
       // unico para nao quebrar UNIQUE constraint do banco e nao deduplicar com outros walk-ins.
+      //
+      // Step 4 Tarefa 4: campos de endereco (cep/endereco/numero/
+      // complemento) NAO sao mais escritos no upsert do cliente — eles
+      // viviam em clientes.* como legado e o trigger
+      // sync_cliente_to_enderecos_padrao espelhava em enderecos_clientes.
+      // Agora o endereco vai sempre via body.endereco_id ou endereco_novo
+      // direto pra enderecos_clientes; o trigger pode ser dropado em
+      // seguranca. Recebedor permanece no clientes.* como atributo per-
+      // cliente (nao e endereco). Os campos legacy continuam aceitos no
+      // body durante o deploy gap mas sao ignorados aqui.
       const telefoneLimpo = cliente_telefone && String(cliente_telefone).replace(/\D/g, '').length > 0
         ? String(cliente_telefone).replace(/\D/g, '')
         : `pdv-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
           const clienteData: Record<string, unknown> = {
                   nome: cliente_nome,
                   telefone: telefoneLimpo,
-                  cep: cliente_cep || null,
-                  endereco: cliente_endereco || null,
                   atualizado_em: new Date().toISOString(),
           };
-          if (cliente_numero !== undefined) clienteData.numero = cliente_numero;
-          if (cliente_complemento !== undefined) clienteData.complemento = cliente_complemento;
           if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
 
       const { data: cliente, error: clienteError } = await supabaseAdmin
@@ -70,11 +76,11 @@ export async function POST(request: NextRequest) {
               return NextResponse.json({ error: 'Erro ao salvar cliente' }, { status: 500 });
       }
 
-      // Resolve endereco_id do orcamento. Prioridade: endereco_id
-      // explicito > endereco_novo (cria via helper) > fallback no
-      // is_padrao do cliente (compat com UI legada que ainda nao
-      // envia nenhum dos dois). O fallback some quando a UI for
-      // atualizada (Step 3).
+      // Resolve endereco_id do orcamento. Step 4 Tarefa 4: o fallback
+      // is_padrao foi removido. Pra tipo_entrega='entrega', endereco_id
+      // OU endereco_novo e obrigatorio (400 se nem um nem outro). Pra
+      // retirada/PDV, endereco e opcional (enderecoIdFinal pode ficar
+      // null sem erro).
       let enderecoIdFinal: string | null = null;
       if (typeof enderecoIdBody === 'string' && enderecoIdBody.length > 0) {
               const { data: end } = await supabaseAdmin
@@ -99,15 +105,11 @@ export async function POST(request: NextRequest) {
                       );
               }
               enderecoIdFinal = r.endereco.id;
-      } else {
-              // Fallback legado: pega o is_padrao do cliente.
-              const { data: padrao } = await supabaseAdmin
-                .from('enderecos_clientes')
-                .select('id')
-                .eq('cliente_id', cliente.id as string)
-                .eq('is_padrao', true)
-                .maybeSingle();
-              enderecoIdFinal = (padrao?.id as string | undefined) ?? null;
+      } else if (tipo_entrega === 'entrega') {
+              return NextResponse.json(
+                { error: 'endereco_id ou endereco_novo e obrigatorio para tipo_entrega=entrega' },
+                { status: 400 },
+              );
       }
 
       // Gera codigo unico
