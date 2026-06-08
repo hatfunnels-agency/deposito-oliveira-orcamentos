@@ -899,6 +899,29 @@ export default function OrcamentoApp() {  // Auth state
         })),
       };
 
+      // Resolve endereco do orcamento (Step 3 Tarefa 5):
+      // 1. enderecoIdSelecionado set -> manda endereco_id (cliente
+      //    escolheu existente no picker).
+      // 2. modo='novo' com sub-form preenchido -> manda endereco_novo.
+      // 3. Senao -> nao manda nada; backend cai no fallback is_padrao
+      //    (UI legada de cliente novo / sem enderecos cadastrados).
+      if (tipoEntrega === 'entrega') {
+        if (enderecoIdSelecionado && modoEndereco === 'existente') {
+          payload.endereco_id = enderecoIdSelecionado;
+        } else if (modoEndereco === 'novo' && enderecoNovoForm.rua.trim() && enderecoNovoForm.numero.trim()) {
+          payload.endereco_novo = {
+            apelido: enderecoNovoForm.apelido || null,
+            cep: enderecoNovoForm.cep || null,
+            rua: enderecoNovoForm.rua,
+            numero: enderecoNovoForm.numero,
+            complemento: enderecoNovoForm.complemento || null,
+            bairro: enderecoNovoForm.bairro || null,
+            cidade: enderecoNovoForm.cidade || null,
+            estado: enderecoNovoForm.estado || null,
+          };
+        }
+      }
+
       let savedId: string | null = null;
       if (editandoId) {
         const res = await fetch(`/api/orcamentos/${editandoId}`, {
