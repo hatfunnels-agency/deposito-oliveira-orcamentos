@@ -413,6 +413,11 @@ export default function OrcamentoApp() {  // Auth state
   const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
   const [modoEndereco, setModoEndereco] = useState<'existente' | 'novo'>('existente');
   const [enderecoNovoForm, setEnderecoNovoForm] = useState<EnderecoNovoForm>(ENDERECO_NOVO_VAZIO);
+  // Sub-picker pra trocar endereco no modal de detalhe (Tarefa 6).
+  // State separado do picker do form pra nao colidir quando ambos abertos.
+  const [mostrarTrocaEndereco, setMostrarTrocaEndereco] = useState(false);
+  const [enderecosDetalhe, setEnderecosDetalhe] = useState<EnderecoClienteUI[]>([]);
+  const [trocandoEndereco, setTrocandoEndereco] = useState(false);
   const [observacoes, setObservacoes] = useState('');
   // Feature 7 - Address search
   const [buscaEndereco, setBuscaEndereco] = useState('');
@@ -709,6 +714,46 @@ export default function OrcamentoApp() {  // Auth state
       return [] as EnderecoClienteUI[];
     }
   }, []);
+
+  // Abre o sub-picker de troca de endereco no modal de detalhe. Carrega
+  // os enderecos do cliente do orcamento atual (se houver).
+  const abrirTrocaEndereco = async () => {
+    if (!orcamentoDetalhe?.clientes?.id) return;
+    setMostrarTrocaEndereco(true);
+    try {
+      const res = await fetch(`/api/clientes/${orcamentoDetalhe.clientes.id}/enderecos`, { cache: 'no-store' });
+      const data = await res.json();
+      setEnderecosDetalhe((data?.enderecos || []) as EnderecoClienteUI[]);
+    } catch (e) {
+      console.error('Erro ao carregar enderecos pra troca', e);
+      setEnderecosDetalhe([]);
+    }
+  };
+
+  // PATCH /api/orcamentos/[id] com endereco_id e recarrega o detalhe.
+  const trocarEnderecoDetalhe = async (novoEnderecoId: string) => {
+    if (!orcamentoDetalhe) return;
+    setTrocandoEndereco(true);
+    try {
+      const res = await fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ endereco_id: novoEnderecoId }),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) {
+        alert(data?.error || 'Erro ao trocar endereco');
+      } else {
+        setMostrarTrocaEndereco(false);
+        await abrirDetalhe(orcamentoDetalhe.id);
+      }
+    } catch (e) {
+      console.error('Erro ao trocar endereco', e);
+      alert('Erro ao trocar endereco');
+    }
+    setTrocandoEndereco(false);
+  };
 
   const adicionarMeioMetro = (produto: Produto) => {
     const idMeio = produto.id + '-meio';
@@ -1154,6 +1199,8 @@ export default function OrcamentoApp() {  // Auth state
     setLoadingDetalhe(true);
     setMostrarDetalhe(true);
     setEntregasParciais([]);
+    setMostrarTrocaEndereco(false);
+    setEnderecosDetalhe([]);
     try {
       const res = await fetch(`/api/orcamentos/${id}`, { cache: 'no-store' });
       const data = await res.json();
@@ -3676,11 +3723,62 @@ export default function OrcamentoApp() {  // Auth state
                 <div className="px-4 py-2 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-1 text-sm">Entrega</h3>
                   <p className="text-sm text-gray-800">{orcamentoDetalhe.tipo_entrega === 'entrega' ? '🚚 Entrega no endereço' : '🏪 Retirada na loja'}</p>
-                  {orcamentoDetalhe.tipo_entrega === 'entrega' && orcamentoDetalhe.clientes?.endereco && (
-                    <p className="text-sm text-gray-600 mt-1">
-                      {[orcamentoDetalhe.clientes.endereco, orcamentoDetalhe.clientes.numero ? `nº ${orcamentoDetalhe.clientes.numero}` : '', orcamentoDetalhe.clientes.complemento, orcamentoDetalhe.clientes.bairro, orcamentoDetalhe.clientes.cidade ? `${orcamentoDetalhe.clientes.cidade}-${orcamentoDetalhe.clientes.estado}` : ''].filter(Boolean).join(', ')}
-                    </p>
-                  )}
+                  {orcamentoDetalhe.tipo_entrega === 'entrega' && (() => {
+                    // Prefere endereco_completo (REAL gravado no pedido,
+                    // Step 2). Fallback pro clientes.endereco legacy quando
+                    // endereco_completo for null — orfaos do backfill.
+                    const ec = orcamentoDetalhe.endereco_completo;
+                    const cl = orcamentoDetalhe.clientes;
+                    const partes = ec
+                      ? [ec.rua, ec.numero ? `nº ${ec.numero}` : '', ec.complemento, ec.bairro, ec.cidade ? `${ec.cidade}-${ec.estado || ''}` : '']
+                      : cl?.endereco
+                        ? [cl.endereco, cl.numero ? `nº ${cl.numero}` : '', cl.complemento, cl.bairro, cl.cidade ? `${cl.cidade}-${cl.estado}` : '']
+                        : [];
+                    const enderecoStr = partes.filter(Boolean).join(', ');
+                    return (
+                      <>
+                        {enderecoStr && <p className="text-sm text-gray-600 mt-1">{enderecoStr}</p>}
+                        {orcamentoDetalhe.clientes?.id && (
+                          <div className="mt-2">
+                            {!mostrarTrocaEndereco ? (
+                              <button
+                                onClick={abrirTrocaEndereco}
+                                className="text-xs font-semibold text-[#F7941D] hover:underline"
+                              >🔄 Trocar endereço</button>
+                            ) : (
+                              <div className="rounded-lg border border-[#F7941D] bg-[#FFF8F0] p-2 space-y-1">
+                                <p className="text-xs font-semibold text-[#E8850A] mb-1">Escolha um endereço do cliente</p>
+                                {enderecosDetalhe.length === 0 ? (
+                                  <p className="text-xs text-gray-500">Carregando ou nenhum endereço cadastrado…</p>
+                                ) : (
+                                  enderecosDetalhe.map(e => {
+                                    const ehAtual = e.id === orcamentoDetalhe.endereco_id;
+                                    return (
+                                      <button
+                                        key={e.id}
+                                        onClick={() => trocarEnderecoDetalhe(e.id)}
+                                        disabled={trocandoEndereco || ehAtual}
+                                        className={`w-full text-left text-xs px-2 py-1.5 rounded border transition ${ehAtual ? 'border-green-300 bg-green-50 text-green-700 cursor-default' : 'border-gray-200 bg-white hover:bg-orange-50 text-gray-700'}`}
+                                      >
+                                        {ehAtual ? '✓ ' : ''}{formatarEnderecoUI(e)}
+                                      </button>
+                                    );
+                                  })
+                                )}
+                                <div className="flex gap-2 pt-1">
+                                  <button
+                                    onClick={() => setMostrarTrocaEndereco(false)}
+                                    className="text-xs text-gray-500 hover:text-gray-700 px-2 py-1"
+                                  >Cancelar</button>
+                                  <span className="text-xs text-gray-400 self-center">Pra criar novo, abra o perfil do cliente.</span>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
                   {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
