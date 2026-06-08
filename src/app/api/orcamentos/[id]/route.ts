@@ -49,6 +49,12 @@ export async function PATCH(
   ) {
     try {
           const body = await request.json();
+          // Destructuring sem cast pra preservar `any` implicito (estilo
+          // do codebase pre-Step 3). O cast `Record<string, unknown>`
+          // que estava aqui forcava cliente_telefone/itens/etc. a
+          // unknown e quebrava .replace/.length/.map na build de TS.
+          // Narrowing pra endereco_id e feito via typeof/=== checks
+          // mais abaixo.
           const {
                   status, observacoes, tipo_entrega, valor_frete, subtotal, total,
                   data_entrega, data_retirada, fonte, itens, forma_pagamento, status_pagamento,
@@ -57,7 +63,7 @@ export async function PATCH(
                   cliente_numero, cliente_complemento, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
                   endereco_id: enderecoIdBody,
-          } = body as Record<string, unknown> & { endereco_id?: string | null };
+          } = body;
 
       // Resolve previousStatus AGORA (antes do UPDATE) pra logica de
       // baixa/devolucao saber qual era o estado anterior. Usa body

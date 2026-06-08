@@ -2,11 +2,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted } from '@/lib/estoque-baixa';
-import { criarEnderecoCliente, type DadosEnderecoEntrada } from '@/lib/enderecos';
+import { criarEnderecoCliente } from '@/lib/enderecos';
 
 export async function POST(request: NextRequest) {
     try {
           const body = await request.json();
+          // Destructuring sem cast pra preservar `any` implicito (estilo
+          // do codebase pre-Step 3). O cast `Record<string, unknown>`
+          // que estava aqui forcava itens/cliente_telefone/etc. a
+          // unknown e quebrava .length/.replace/.map na build de TS.
+          // Narrowing pra endereco_id/endereco_novo e feito via
+          // typeof/instanceof checks mais abaixo.
           const {
                   cliente_nome,
                   cliente_telefone,
@@ -31,10 +37,7 @@ export async function POST(request: NextRequest) {
                   forma_pagamento,
                   endereco_id: enderecoIdBody,
                   endereco_novo: enderecoNovoBody,
-          } = body as Record<string, unknown> & {
-                  endereco_id?: string;
-                  endereco_novo?: DadosEnderecoEntrada;
-          };
+          } = body;
 
       if (!cliente_nome || !subtotal || !itens || itens.length === 0) {
               return NextResponse.json(
