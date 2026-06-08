@@ -378,6 +378,12 @@ export default function OrcamentoApp() {  // Auth state
   const [marcandoRota, setMarcandoRota] = useState(false);
   const [entregasEmRota, setEntregasEmRota] = useState<EntregaRota[]>([]);
   const [entregasCompletas, setEntregasCompletas] = useState<EntregaRota[]>([]);
+  // Uniao das 3 listas do dia (pendentes inclui parcial) — fonte do mapa,
+  // que precisa exibir entregas de todos os status, nao so pendentes.
+  const entregasMapa = useMemo(
+    () => [...entregasDia, ...entregasEmRota, ...entregasCompletas],
+    [entregasDia, entregasEmRota, entregasCompletas],
+  );
   const [loadingCompleto, setLoadingCompleto] = useState<string | null>(null);
   const [retiradas, setRetiradas] = useState<OrcamentoSalvo[]>([]);
   const [loadingRetiradas, setLoadingRetiradas] = useState(false);
@@ -2915,7 +2921,7 @@ export default function OrcamentoApp() {  // Auth state
             {vistaEntregas === 'mapa' ? (
               <>
                 <MapaEntregas
-                  entregas={entregasDia}
+                  entregas={entregasMapa}
                   selecionadas={selecionadasSet}
                   onToggleSelecionada={toggleSelecionada}
                   onAbrirPedido={abrirDetalhe}
