@@ -40,19 +40,19 @@ const COR_DEFAULT = '#374151';
 const COR_SELECIONADO = '#10B981';
 
 const FILTRO_KEY = 'do_mapa_status_filtro';
-type FiltroStatus = { pendente: boolean; em_rota: boolean; parcial: boolean; entregue: boolean };
+type FiltroStatus = { pendente: boolean; em_rota: boolean; entregue: boolean };
 const FILTRO_DEFAULT: FiltroStatus = {
   pendente: true,
   em_rota: true,
-  parcial: true,
   entregue: false,
 };
 
 // Mapeia status -> grupo do chip de filtro. null = nao filtrado (sempre exibe).
+// entrega_parcial cai no grupo 'pendente' (entrega incompleta a concluir);
+// mantem cor amarela no pin pra distinguir visualmente.
 function grupoDoStatus(s: string): keyof FiltroStatus | null {
-  if (s === 'aguardando' || s === 'confirmado' || s === 'entrega_pendente') return 'pendente';
+  if (s === 'aguardando' || s === 'confirmado' || s === 'entrega_pendente' || s === 'entrega_parcial') return 'pendente';
   if (s === 'em_rota') return 'em_rota';
-  if (s === 'entrega_parcial') return 'parcial';
   if (s === 'completo') return 'entregue';
   return null;
 }
@@ -315,12 +315,6 @@ export default function MapaEntregas({
           label="Em Rota"
           on={filtros.em_rota}
           onClick={() => setFiltroGrupo('em_rota')}
-        />
-        <FiltroChip
-          cor="#EAB308"
-          label="Parcial"
-          on={filtros.parcial}
-          onClick={() => setFiltroGrupo('parcial')}
         />
         <FiltroChip
           cor="#9CA3AF"

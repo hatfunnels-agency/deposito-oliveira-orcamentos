@@ -1,6 +1,6 @@
 'use client'; // v3 - auth + redesign
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import DashboardTab from './DashboardTab';
@@ -365,6 +365,9 @@ export default function OrcamentoApp() {  // Auth state
   const [loadingEntregas, setLoadingEntregas] = useState(false);
   const [entregasDia, setEntregasDia] = useState<EntregaRota[]>([]);
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
+  // Set memoizado para o MapaEntregas (state nativo continua array — refatorar
+  // pra Set quebraria JSON.stringify do fetch e ~10 callsites internas).
+  const selecionadasSet = useMemo(() => new Set(selecionadas), [selecionadas]);
   const [rotaGerada, setRotaGerada] = useState<RotaResponse | null>(null);
   const [loadingDia, setLoadingDia] = useState(false);
   const [loadingRota, setLoadingRota] = useState(false);
@@ -2910,12 +2913,24 @@ export default function OrcamentoApp() {  // Auth state
             </div>
 
             {vistaEntregas === 'mapa' ? (
-              <MapaEntregas
-                entregas={[]}
-                selecionadas={new Set<string>()}
-                onToggleSelecionada={() => {}}
-                onAbrirPedido={abrirDetalhe}
-              />
+              <>
+                <MapaEntregas
+                  entregas={entregasDia}
+                  selecionadas={selecionadasSet}
+                  onToggleSelecionada={toggleSelecionada}
+                  onAbrirPedido={abrirDetalhe}
+                  ordemRotaGerada={rotaGerada?.entregas?.map(e => e.id)}
+                />
+                {selecionadas.length > 0 && (
+                  <button
+                    onClick={gerarRota}
+                    disabled={loadingRota}
+                    className="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-full shadow-lg flex items-center gap-2"
+                  >
+                    🚚 {loadingRota ? 'Gerando rota...' : `Gerar Rota (${selecionadas.length} ${selecionadas.length === 1 ? 'entrega' : 'entregas'})`}
+                  </button>
+                )}
+              </>
             ) : (
             <>
 
@@ -3010,9 +3025,18 @@ export default function OrcamentoApp() {  // Auth state
               {entregasDia.length > 0 && (
                 <div className="space-y-2 mb-4">
                   {entregasDia.map((e, idx) => (
-                    <div key={e.id} className="border border-gray-200 rounded-lg text-sm overflow-hidden">
+                    <div
+                      key={e.id}
+                      className={`rounded-lg text-sm overflow-hidden ${
+                        selecionadas.includes(e.id)
+                          ? 'border-2 border-orange-500 bg-orange-50'
+                          : 'border border-gray-200'
+                      }`}
+                    >
                       <div
-                        className="p-3 flex items-start gap-3 cursor-pointer hover:bg-gray-50"
+                        className={`p-3 flex items-start gap-3 cursor-pointer ${
+                          selecionadas.includes(e.id) ? 'hover:bg-orange-100' : 'hover:bg-gray-50'
+                        }`}
                         onClick={() => toggleSelecionada(e.id)}
                       >
                         <input

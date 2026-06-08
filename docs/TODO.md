@@ -22,3 +22,20 @@ legado de `clientes`), então não é regressão — mas é impreciso.
   de entrega usar.
 - `/api/entregas/mapa` e `/api/entregas/rota`: usar `orcamentos.endereco_id`
   em vez do endereço padrão do cliente.
+
+## Tech debt (Sessão 4)
+
+- Endpoint `/api/entregas/mapa` virou dead code após Tarefa 2 — o mapa
+  agora consome do parent (que carrega via `/api/entregas/rota`). Remover
+  quando confirmar zero callers em produção (Vercel logs).
+- Função `getLevaColor` deletada — `leva_id` em `orcamentos` continua no
+  schema mas é morto há 30+ dias (0 registros nos últimos 30 dias).
+  Considerar `DROP COLUMN orcamentos.leva_id` e drop da tabela
+  `levas_entrega` no futuro.
+- `PATCH /api/entregas/rota` (mudança de status pra `em_rota`) **não**
+  dispara movimentação de estoque que o `PATCH /api/orcamentos/[id]`
+  dispararia. Investigar se essa side-effect deveria rodar em mudanças
+  via `/api/entregas/rota` (e idem para a transição de volta em caso de
+  cancelamento).
+- Vercel cron pra rodar geocode loop semanalmente (substituir backfill
+  manual de `enderecos_clientes.lat/lng`).
