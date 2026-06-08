@@ -260,6 +260,7 @@ export async function GET(request: NextRequest) {
                 motorista_id,
                 reagendamentos,
                 bling_pedido_id,
+                endereco_id,
                 clientes (
                   id,
                   nome,
@@ -270,6 +271,9 @@ export async function GET(request: NextRequest) {
                   numero,
                   bairro,
                   recebedor
+                ),
+                endereco_completo:enderecos_clientes (
+                  id, cep, rua, numero, complemento, bairro, cidade, estado, lat, lng
                 ),
                 motoristas:motorista_id (
                   nome

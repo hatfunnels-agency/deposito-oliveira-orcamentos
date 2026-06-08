@@ -16,11 +16,14 @@ export async function GET(
                                     data_entrega, data_retirada, fonte, forma_pagamento,
                                             status_pagamento,
                                             ferragem_status,
-                                            data_entrega_original, reagendamentos, bling_pedido_id, motorista_id, leva_id,
+                                            data_entrega_original, reagendamentos, bling_pedido_id, motorista_id, leva_id, endereco_id,
                                                     clientes (
                                                               id, nome, telefone, cep, endereco, bairro, cidade, estado,
                                                                         numero, complemento, recebedor
                                                                                 ),
+                                                                                        endereco_completo:enderecos_clientes (
+                                                                                                  id, cep, rua, numero, complemento, bairro, cidade, estado, lat, lng
+                                                                                                                ),
                                                                                         orcamento_itens (
                                                                                                   id, produto_id, produto_nome, quantidade, quantidade_entregue, unidade,
                                                                                                             preco_unitario, subtotal
