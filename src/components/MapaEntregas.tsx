@@ -4,56 +4,57 @@
 // O SDK do Google Maps e carregado via <script> em runtime — sem tipos
 // estaticos, por isso os objetos do mapa sao tratados como `any`.
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 const DEPOSITO = { lat: -23.5376, lng: -46.8375 };
 const MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
 
-interface ItemEntrega {
-  produto_nome: string;
-  quantidade: number;
-  quantidade_entregue: number;
-  unidade: string;
-}
-
-interface EntregaMapa {
+// Shape minimo que o mapa consome. O parent passa entradas vindas de
+// /api/entregas/rota (interface EntregaRota em OrcamentoApp.tsx) — campos
+// extras sao ignorados, falta de lat/lng exclui do mapa.
+export interface EntregaMapaItem {
   id: string;
   codigo: string;
   status: string;
   total: number;
-  leva_id: string | null;
-  observacoes: string | null;
-  cliente: { id: string; nome: string; telefone: string | null };
-  endereco: {
-    rua: string | null;
-    numero: string | null;
-    complemento: string | null;
-    bairro: string | null;
-    cidade: string | null;
-    lat: number;
-    lng: number;
-  };
-  itens: ItemEntrega[];
+  cliente_nome: string;
+  cliente_telefone?: string | null;
+  endereco?: string;
+  numero?: string;
+  bairro?: string;
+  itens_resumo?: string;
+  lat?: number | null;
+  lng?: number | null;
 }
 
 const STATUS_INFO: Record<string, { label: string; cor: string }> = {
-  aguardando: { label: 'Aguardando', cor: '#6B7280' },
-  confirmado: { label: 'Confirmado', cor: '#2563EB' },
-  entrega_pendente: { label: 'Entrega Pendente', cor: '#EA580C' },
-  entrega_parcial: { label: 'Entrega Parcial', cor: '#7C3AED' },
-  em_rota: { label: 'Em Rota', cor: '#2563EB' },
-  completo: { label: 'Completo', cor: '#16A34A' },
+  aguardando: { label: 'Aguardando', cor: '#374151' },
+  confirmado: { label: 'Confirmado', cor: '#374151' },
+  entrega_pendente: { label: 'Pendente', cor: '#F7941D' },
+  em_rota: { label: 'Em Rota', cor: '#3B82F6' },
+  entrega_parcial: { label: 'Parcial', cor: '#EAB308' },
+  completo: { label: 'Entregue', cor: '#9CA3AF' },
 };
 
-// Cor HSL deterministica por leva — mesma leva, mesma cor entre sessoes.
-// Sem leva (null) => cinza.
-export function getLevaColor(levaId: string | null): string {
-  if (!levaId) return '#9CA3AF';
-  let hash = 0;
-  for (let i = 0; i < levaId.length; i++) {
-    hash = (hash * 31 + levaId.charCodeAt(i)) | 0;
-  }
-  return `hsl(${Math.abs(hash) % 360}, 70%, 45%)`;
+const COR_DEFAULT = '#374151';
+const COR_SELECIONADO = '#10B981';
+
+const FILTRO_KEY = 'do_mapa_status_filtro';
+type FiltroStatus = { pendente: boolean; em_rota: boolean; parcial: boolean; entregue: boolean };
+const FILTRO_DEFAULT: FiltroStatus = {
+  pendente: true,
+  em_rota: true,
+  parcial: true,
+  entregue: false,
+};
+
+// Mapeia status -> grupo do chip de filtro. null = nao filtrado (sempre exibe).
+function grupoDoStatus(s: string): keyof FiltroStatus | null {
+  if (s === 'aguardando' || s === 'confirmado' || s === 'entrega_pendente') return 'pendente';
+  if (s === 'em_rota') return 'em_rota';
+  if (s === 'entrega_parcial') return 'parcial';
+  if (s === 'completo') return 'entregue';
+  return null;
 }
 
 function formatBRL(v: number): string {
@@ -68,28 +69,50 @@ function escapeHtml(s: string): string {
 }
 
 // Conteudo HTML do InfoWindow do pin.
-function montarConteudo(e: EntregaMapa): HTMLElement {
-  const st = STATUS_INFO[e.status] || { label: e.status, cor: '#6B7280' };
-  const itens = e.itens
-    .map(i => `${i.produto_nome} ${i.quantidade}${i.unidade === 'unidade' ? '' : i.unidade}`)
-    .join(', ');
+function montarConteudo(e: EntregaMapaItem, selecionado: boolean): HTMLElement {
+  const st = STATUS_INFO[e.status] || { label: e.status, cor: COR_DEFAULT };
   const div = document.createElement('div');
   div.innerHTML = `
-    <div style="font-family:sans-serif;max-width:240px">
-      <p style="margin:0;font-weight:bold;font-size:14px">${escapeHtml(e.cliente.nome || 'Cliente')}</p>
+    <div style="font-family:sans-serif;max-width:250px">
+      <p style="margin:0;font-weight:bold;font-size:14px">${escapeHtml(e.cliente_nome || 'Cliente')}</p>
       ${
-        e.cliente.telefone
-          ? `<p style="margin:2px 0;font-size:12px;color:#555">${escapeHtml(e.cliente.telefone)}</p>`
+        e.cliente_telefone
+          ? `<p style="margin:2px 0;font-size:12px;color:#555">${escapeHtml(e.cliente_telefone)}</p>`
           : ''
       }
-      <p style="margin:5px 0;font-size:12px;color:#333">${escapeHtml(itens) || '—'}</p>
+      <p style="margin:5px 0;font-size:12px;color:#333">${escapeHtml(e.itens_resumo || '—')}</p>
       <p style="margin:5px 0;font-size:13px;font-weight:bold">R$ ${formatBRL(e.total)}</p>
-      <span style="display:inline-block;background:${st.cor};color:#fff;font-size:11px;padding:2px 7px;border-radius:9px">${st.label}</span>
-      <div style="margin-top:8px">
-        <button type="button" style="background:#F7941D;color:#fff;border:none;border-radius:6px;padding:6px 12px;font-size:12px;font-weight:bold;cursor:pointer">Abrir pedido</button>
+      <span style="display:inline-block;background:${st.cor};color:#fff;font-size:11px;padding:2px 7px;border-radius:9px">${escapeHtml(st.label)}</span>
+      <div style="margin-top:10px;display:flex;gap:6px;flex-wrap:wrap">
+        <button data-action="toggle" type="button" style="background:${selecionado ? '#dc2626' : COR_SELECIONADO};color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:bold;cursor:pointer">${selecionado ? '✕ Deselecionar' : '✓ Selecionar'}</button>
+        <button data-action="open" type="button" style="background:#F7941D;color:#fff;border:none;border-radius:6px;padding:6px 10px;font-size:12px;font-weight:bold;cursor:pointer">Abrir Pedido</button>
       </div>
     </div>`;
   return div;
+}
+
+// Constroi um icone SVG do pin com cor por status, anel verde quando
+// selecionado e numero de parada (quando ordemRotaGerada esta presente).
+function buildMarkerIcon(g: any, cor: string, selecionado: boolean, numero: number | null): any {
+  const size = 36;
+  const cx = size / 2;
+  const cy = size / 2;
+  const r = 11;
+  const ring = selecionado
+    ? `<circle cx="${cx}" cy="${cy}" r="14.5" fill="none" stroke="${COR_SELECIONADO}" stroke-width="3"/>`
+    : '';
+  const circle = `<circle cx="${cx}" cy="${cy}" r="${r}" fill="${cor}" stroke="#ffffff" stroke-width="2"/>`;
+  let centro = '';
+  if (numero !== null) {
+    centro = `<text x="${cx}" y="${cy + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="12" font-weight="700" fill="#ffffff">${numero}</text>`;
+  } else if (selecionado) {
+    centro = `<path d="M ${cx - 4} ${cy} L ${cx - 1} ${cy + 3} L ${cx + 5} ${cy - 3}" fill="none" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>`;
+  }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${ring}${circle}${centro}</svg>`;
+  return {
+    url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+    anchor: new g.Point(cx, cy),
+  };
 }
 
 // Carrega o SDK do Google Maps uma unica vez (promessa em cache global).
@@ -110,25 +133,73 @@ function carregarGoogleMaps(apiKey: string): Promise<void> {
 }
 
 interface MapaEntregasProps {
-  data: string; // YYYY-MM-DD
-  onAbrirPedido: (orcamentoId: string) => void;
+  entregas: EntregaMapaItem[];
+  selecionadas: Set<string>;
+  onToggleSelecionada: (id: string) => void;
+  onAbrirPedido: (id: string) => void;
+  ordemRotaGerada?: string[];
 }
 
-export default function MapaEntregas({ data, onAbrirPedido }: MapaEntregasProps) {
-  const [entregas, setEntregas] = useState<EntregaMapa[]>([]);
-  const [excluidos, setExcluidos] = useState(0);
-  const [carregando, setCarregando] = useState(true);
-  const [erroFetch, setErroFetch] = useState<string | null>(null);
+export default function MapaEntregas({
+  entregas,
+  selecionadas,
+  onToggleSelecionada,
+  onAbrirPedido,
+  ordemRotaGerada,
+}: MapaEntregasProps) {
   const [mapsReady, setMapsReady] = useState(false);
   const [mapsErro, setMapsErro] = useState(false);
+  const [filtros, setFiltros] = useState<FiltroStatus>(FILTRO_DEFAULT);
+
+  // Hidrata filtros do localStorage no mount (uma vez).
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(FILTRO_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Partial<FiltroStatus>;
+        setFiltros({ ...FILTRO_DEFAULT, ...parsed });
+      }
+    } catch {
+      /* localStorage indisponivel — usa default */
+    }
+  }, []);
+
+  const setFiltroGrupo = (g: keyof FiltroStatus) => {
+    setFiltros(prev => {
+      const novo = { ...prev, [g]: !prev[g] };
+      try {
+        localStorage.setItem(FILTRO_KEY, JSON.stringify(novo));
+      } catch {
+        /* ignora falha de persistencia */
+      }
+      return novo;
+    });
+  };
 
   const mapDivRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<any>(null);
   const infoRef = useRef<any>(null);
   const markersRef = useRef<any[]>([]);
-  // Mantem a callback sempre atual sem re-disparar o efeito do mapa
+
+  // Refs com callbacks/state atuais — usadas dentro dos listeners dos pins
+  // pra evitar capturas obsoletas sem re-disparar o efeito do mapa.
+  const onToggleRef = useRef(onToggleSelecionada);
+  onToggleRef.current = onToggleSelecionada;
   const onAbrirRef = useRef(onAbrirPedido);
   onAbrirRef.current = onAbrirPedido;
+  const selecionadasRef = useRef(selecionadas);
+  selecionadasRef.current = selecionadas;
+
+  // Filtra entregas por filtros de status e lat/lng valido. Memo evita
+  // recriacao quando deps reais nao mudam.
+  const entregasVisiveis = useMemo(() => {
+    return entregas.filter(e => {
+      if (e.lat == null || e.lng == null) return false;
+      const g = grupoDoStatus(e.status);
+      if (g === null) return true;
+      return filtros[g];
+    });
+  }, [entregas, filtros]);
 
   // Carrega o SDK do Google Maps (uma vez)
   useEffect(() => {
@@ -149,36 +220,7 @@ export default function MapaEntregas({ data, onAbrirPedido }: MapaEntregasProps)
     };
   }, []);
 
-  // Busca as entregas da data
-  const carregar = useCallback(async () => {
-    setCarregando(true);
-    setErroFetch(null);
-    try {
-      const res = await fetch(`/api/entregas/mapa?data=${encodeURIComponent(data)}`, {
-        cache: 'no-store',
-      });
-      const json = await res.json();
-      if (!res.ok || json?.error) {
-        setErroFetch(json?.error || 'Erro ao carregar as entregas');
-        setEntregas([]);
-        setExcluidos(0);
-      } else {
-        setEntregas((json.entregas || []) as EntregaMapa[]);
-        setExcluidos(json.excluidos_sem_coords || 0);
-      }
-    } catch {
-      setErroFetch('Erro ao carregar as entregas');
-      setEntregas([]);
-      setExcluidos(0);
-    }
-    setCarregando(false);
-  }, [data]);
-
-  useEffect(() => {
-    carregar();
-  }, [carregar]);
-
-  // Renderiza o mapa e (re)desenha os pins quando as entregas mudam
+  // Renderiza o mapa e (re)desenha os pins quando entregas/selecao/ordem mudam
   useEffect(() => {
     if (!mapsReady || !mapDivRef.current) return;
     const g = (window as any).google.maps;
@@ -196,32 +238,46 @@ export default function MapaEntregas({ data, onAbrirPedido }: MapaEntregasProps)
     const map = mapRef.current;
     const info = infoRef.current;
 
-    // Remove os pins antigos (cobre tambem o caso de lista vazia)
     markersRef.current.forEach(m => m.setMap(null));
     markersRef.current = [];
-    if (entregas.length === 0) return;
+    if (entregasVisiveis.length === 0) {
+      info.close();
+      return;
+    }
+
+    const ordemIndex = new Map<string, number>();
+    if (ordemRotaGerada) {
+      ordemRotaGerada.forEach((id, idx) => {
+        ordemIndex.set(id, idx + 1);
+      });
+    }
 
     const bounds = new g.LatLngBounds();
-    for (const e of entregas) {
-      const pos = { lat: e.endereco.lat, lng: e.endereco.lng };
+    for (const e of entregasVisiveis) {
+      const pos = { lat: Number(e.lat), lng: Number(e.lng) };
+      const cor = STATUS_INFO[e.status]?.cor || COR_DEFAULT;
+      const selecionado = selecionadas.has(e.id);
+      const numero = ordemIndex.get(e.id) ?? null;
+
       const marker = new g.Marker({
         position: pos,
         map,
-        title: e.cliente.nome || e.codigo,
-        icon: {
-          path: g.SymbolPath.CIRCLE,
-          fillColor: getLevaColor(e.leva_id),
-          fillOpacity: 1,
-          strokeColor: '#ffffff',
-          strokeWeight: 2,
-          scale: 9,
-        },
+        title: e.cliente_nome || e.codigo,
+        icon: buildMarkerIcon(g, cor, selecionado, numero),
       });
       marker.addListener('click', () => {
-        const conteudo = montarConteudo(e);
-        const btn = conteudo.querySelector('button');
-        if (btn) {
-          btn.addEventListener('click', () => {
+        const selAtual = selecionadasRef.current.has(e.id);
+        const conteudo = montarConteudo(e, selAtual);
+        const btnToggle = conteudo.querySelector('[data-action="toggle"]');
+        const btnOpen = conteudo.querySelector('[data-action="open"]');
+        if (btnToggle) {
+          btnToggle.addEventListener('click', () => {
+            info.close();
+            onToggleRef.current(e.id);
+          });
+        }
+        if (btnOpen) {
+          btnOpen.addEventListener('click', () => {
             info.close();
             onAbrirRef.current(e.id);
           });
@@ -233,25 +289,47 @@ export default function MapaEntregas({ data, onAbrirPedido }: MapaEntregasProps)
       bounds.extend(pos);
     }
 
-    // Auto-fit nos pins (zoom fixo quando ha so uma entrega)
-    if (entregas.length === 1) {
-      map.setCenter({ lat: entregas[0].endereco.lat, lng: entregas[0].endereco.lng });
+    if (entregasVisiveis.length === 1) {
+      const u = entregasVisiveis[0];
+      map.setCenter({ lat: Number(u.lat), lng: Number(u.lng) });
       map.setZoom(15);
     } else {
       map.fitBounds(bounds);
     }
-  }, [mapsReady, entregas]);
+  }, [mapsReady, entregasVisiveis, selecionadas, ordemRotaGerada]);
 
   const semMapa = !MAPS_KEY || mapsErro;
 
   return (
     <div className="w-full">
-      {excluidos > 0 && !carregando && !erroFetch && entregas.length > 0 && (
-        <p className="mb-2 text-xs text-orange-700">
-          ⚠️ {excluidos} entrega{excluidos > 1 ? 's' : ''} sem endereço geocodado —{' '}
-          {excluidos > 1 ? 'não aparecem' : 'não aparece'} no mapa.
-        </p>
-      )}
+      <div className="mb-2 flex flex-wrap items-center gap-2">
+        <span className="mr-1 text-xs text-gray-500">Filtro:</span>
+        <FiltroChip
+          cor="#F7941D"
+          label="Pendente"
+          on={filtros.pendente}
+          onClick={() => setFiltroGrupo('pendente')}
+        />
+        <FiltroChip
+          cor="#3B82F6"
+          label="Em Rota"
+          on={filtros.em_rota}
+          onClick={() => setFiltroGrupo('em_rota')}
+        />
+        <FiltroChip
+          cor="#EAB308"
+          label="Parcial"
+          on={filtros.parcial}
+          onClick={() => setFiltroGrupo('parcial')}
+        />
+        <FiltroChip
+          cor="#9CA3AF"
+          label="Entregue"
+          on={filtros.entregue}
+          onClick={() => setFiltroGrupo('entregue')}
+        />
+      </div>
+
       <div className="relative h-[450px] w-full overflow-hidden rounded-xl border border-gray-200 md:h-[600px]">
         {semMapa ? (
           <div className="flex h-full items-center justify-center p-6 text-center">
@@ -262,34 +340,49 @@ export default function MapaEntregas({ data, onAbrirPedido }: MapaEntregasProps)
         ) : (
           <>
             <div ref={mapDivRef} className="h-full w-full" />
-            {carregando && (
+            {!mapsReady && (
               <div className="absolute inset-0 animate-pulse bg-gray-100" />
             )}
-            {!carregando && erroFetch && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 bg-white p-6 text-center">
-                <p className="text-sm text-red-600">{erroFetch}</p>
-                <button
-                  onClick={carregar}
-                  className="rounded-lg bg-[#F7941D] px-4 py-2 text-sm font-medium text-white hover:bg-[#E8850A]"
-                >
-                  Tentar de novo
-                </button>
-              </div>
-            )}
-            {!carregando && !erroFetch && entregas.length === 0 && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-white p-6 text-center">
-                <p className="text-sm text-gray-500">Nenhuma entrega geocodada pra esta data.</p>
-                {excluidos > 0 && (
-                  <p className="text-xs text-orange-700">
-                    {excluidos} entrega{excluidos > 1 ? 's' : ''} sem endereço geocodado —
-                    atualize o endereço do cliente pra incluí-las.
-                  </p>
-                )}
+            {mapsReady && entregasVisiveis.length === 0 && (
+              <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-white/90 p-6 text-center">
+                <p className="text-sm text-gray-500">
+                  Nenhuma entrega visível com os filtros atuais. Ajuste os filtros ou aguarde.
+                </p>
               </div>
             )}
           </>
         )}
       </div>
     </div>
+  );
+}
+
+function FiltroChip({
+  cor,
+  label,
+  on,
+  onClick,
+}: {
+  cor: string;
+  label: string;
+  on: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition ${
+        on
+          ? 'border-gray-300 bg-white text-gray-800 shadow-sm'
+          : 'border-gray-200 bg-gray-50 text-gray-400'
+      }`}
+    >
+      <span
+        className="inline-block h-2.5 w-2.5 rounded-full"
+        style={{ background: on ? cor : '#d1d5db' }}
+      />
+      {label}
+    </button>
   );
 }

@@ -2911,7 +2911,9 @@ export default function OrcamentoApp() {  // Auth state
 
             {vistaEntregas === 'mapa' ? (
               <MapaEntregas
-                data={dataEntregas || (() => { const d = new Date(); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })()}
+                entregas={[]}
+                selecionadas={new Set<string>()}
+                onToggleSelecionada={() => {}}
                 onAbrirPedido={abrirDetalhe}
               />
             ) : (
