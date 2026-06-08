@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted } from '@/lib/estoque-baixa';
+import { criarEnderecoCliente, type DadosEnderecoEntrada } from '@/lib/enderecos';
 
 export async function POST(request: NextRequest) {
     try {
@@ -26,9 +27,14 @@ export async function POST(request: NextRequest) {
                   data_entrega,
                   itens,
                   status_pagamento,
-    status,
-    forma_pagamento,
-          } = body;
+                  status,
+                  forma_pagamento,
+                  endereco_id: enderecoIdBody,
+                  endereco_novo: enderecoNovoBody,
+          } = body as Record<string, unknown> & {
+                  endereco_id?: string;
+                  endereco_novo?: DadosEnderecoEntrada;
+          };
 
       if (!cliente_nome || !subtotal || !itens || itens.length === 0) {
               return NextResponse.json(
@@ -64,6 +70,46 @@ export async function POST(request: NextRequest) {
               return NextResponse.json({ error: 'Erro ao salvar cliente' }, { status: 500 });
       }
 
+      // Resolve endereco_id do orcamento. Prioridade: endereco_id
+      // explicito > endereco_novo (cria via helper) > fallback no
+      // is_padrao do cliente (compat com UI legada que ainda nao
+      // envia nenhum dos dois). O fallback some quando a UI for
+      // atualizada (Step 3).
+      let enderecoIdFinal: string | null = null;
+      if (typeof enderecoIdBody === 'string' && enderecoIdBody.length > 0) {
+              const { data: end } = await supabaseAdmin
+                .from('enderecos_clientes')
+                .select('id, cliente_id')
+                .eq('id', enderecoIdBody)
+                .single();
+              if (!end || end.cliente_id !== cliente.id) {
+                      return NextResponse.json(
+                        { error: 'endereco_id invalido ou nao pertence ao cliente' },
+                        { status: 400 },
+                      );
+              }
+              enderecoIdFinal = end.id as string;
+      } else if (enderecoNovoBody && typeof enderecoNovoBody === 'object') {
+              const r = await criarEnderecoCliente(cliente.id as string, enderecoNovoBody);
+              if (!r.ok) {
+                      console.error('[POST orcamentos] criar endereco_novo falhou', r);
+                      return NextResponse.json(
+                        { error: 'Falha ao criar endereco novo' },
+                        { status: 500 },
+                      );
+              }
+              enderecoIdFinal = r.endereco.id;
+      } else {
+              // Fallback legado: pega o is_padrao do cliente.
+              const { data: padrao } = await supabaseAdmin
+                .from('enderecos_clientes')
+                .select('id')
+                .eq('cliente_id', cliente.id as string)
+                .eq('is_padrao', true)
+                .maybeSingle();
+              enderecoIdFinal = (padrao?.id as string | undefined) ?? null;
+      }
+
       // Gera codigo unico
       let codigo = gerarCodigoOrcamento();
           for (let i = 0; i < 3; i++) {
@@ -94,6 +140,7 @@ export async function POST(request: NextRequest) {
     if (forma_pagamento) insertData.forma_pagamento = forma_pagamento;
           if (data_entrega) { insertData.data_entrega = data_entrega; }
           if (data_retirada) { insertData.data_retirada = data_retirada; }
+          if (enderecoIdFinal) { insertData.endereco_id = enderecoIdFinal; }
 
       const { data: orcamento, error: orcError } = await supabaseAdmin
             .from('orcamentos')

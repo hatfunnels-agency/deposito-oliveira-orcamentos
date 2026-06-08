@@ -1,14 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { geocodeEnderecoAsync } from '@/lib/geocode';
+import { criarEnderecoCliente } from '@/lib/enderecos';
 
 export const dynamic = 'force-dynamic';
-
-// Campos de endereco aceitos no corpo da requisicao
-const CAMPOS_ENDERECO = [
-  'apelido', 'cep', 'rua', 'numero', 'complemento',
-  'bairro', 'cidade', 'estado', 'observacoes',
-] as const;
 
 // GET /api/clientes/[id]/enderecos
 // Lista os enderecos do cliente, com o padrao primeiro.
@@ -35,7 +29,9 @@ export async function GET(
 }
 
 // POST /api/clientes/[id]/enderecos
-// Cria um endereco para o cliente.
+// Cria um endereco para o cliente — delega pro helper compartilhado
+// src/lib/enderecos.ts (mesma rotina usada pelo POST /api/orcamentos
+// quando body.endereco_novo e passado).
 // Body: { apelido?, cep?, rua?, numero?, complemento?, bairro?, cidade?, estado?, observacoes?, is_padrao? }
 export async function POST(
   request: NextRequest,
@@ -43,50 +39,14 @@ export async function POST(
 ) {
   try {
     const body = await request.json();
-
-    // Confirma que o cliente existe
-    const { data: cliente, error: clienteErr } = await supabaseAdmin
-      .from('clientes')
-      .select('id')
-      .eq('id', params.id)
-      .single();
-    if (clienteErr || !cliente) {
-      return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 });
-    }
-
-    // O primeiro endereco do cliente vira o padrao automaticamente
-    const { count } = await supabaseAdmin
-      .from('enderecos_clientes')
-      .select('*', { count: 'exact', head: true })
-      .eq('cliente_id', params.id);
-    const isPadrao = (count || 0) === 0 || body.is_padrao === true;
-
-    // So pode haver um endereco padrao por cliente (unique index uk_enderecos_clientes_padrao):
-    // zera os demais antes de inserir o novo padrao.
-    if (isPadrao) {
-      await supabaseAdmin
-        .from('enderecos_clientes')
-        .update({ is_padrao: false })
-        .eq('cliente_id', params.id)
-        .eq('is_padrao', true);
-    }
-
-    const insert: Record<string, unknown> = { cliente_id: params.id, is_padrao: isPadrao };
-    for (const campo of CAMPOS_ENDERECO) {
-      if (body[campo] !== undefined) insert[campo] = body[campo];
-    }
-
-    const { data, error } = await supabaseAdmin
-      .from('enderecos_clientes')
-      .insert(insert)
-      .select('*')
-      .single();
-    if (error || !data) {
+    const r = await criarEnderecoCliente(params.id, body);
+    if (!r.ok) {
+      if (r.reason === 'cliente_nao_encontrado') {
+        return NextResponse.json({ error: 'Cliente nao encontrado' }, { status: 404 });
+      }
       return NextResponse.json({ error: 'Erro ao criar endereco' }, { status: 500 });
     }
-    // Geocoding em background — fire-and-forget, nao bloqueia a resposta
-    void geocodeEnderecoAsync(data.id as string);
-    return NextResponse.json(data);
+    return NextResponse.json(r.endereco);
   } catch (e) {
     console.error('Erro POST /api/clientes/[id]/enderecos', e);
     return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
