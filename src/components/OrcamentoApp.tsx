@@ -35,6 +35,10 @@ interface ItemOrcamento {
   avulso?: boolean;
   preco_custom?: number;
   obs?: string;
+  // Detalhamento por tipo de ferro pra item gerado pela calculadora de
+  // ferragem. Persiste em ferragem_consumo (Batch B). Opcional — itens
+  // normais e avulsos manuais nao tem.
+  detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }>;
 }
 
 interface OrcamentoItem {
@@ -816,7 +820,7 @@ export default function OrcamentoApp() {  // Auth state
     });
   };
 
-  const adicionarItensAvulsos = (itens: Array<{nome: string; quantidade: number; preco: number; preco_custo?: number; especificacoes?: string}>) => {
+  const adicionarItensAvulsos = (itens: Array<{nome: string; quantidade: number; preco: number; preco_custo?: number; especificacoes?: string; detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }>}>) => {
     itens.forEach(item => {
       const produtoAvulso: Produto = {
         id: 'ferro-' + Date.now() + '-' + Math.random().toString(36).slice(2,7),
@@ -830,7 +834,14 @@ export default function OrcamentoApp() {  // Auth state
         categoria: 'Ferro',
         codigo: '',
       };
-      const novoItem: ItemOrcamento = { produto: produtoAvulso, quantidade: item.quantidade, avulso: true, preco_custom: item.preco, obs: item.especificacoes };
+      const novoItem: ItemOrcamento = {
+        produto: produtoAvulso,
+        quantidade: item.quantidade,
+        avulso: true,
+        preco_custom: item.preco,
+        obs: item.especificacoes,
+        detalhamento_ferro: item.detalhamento_ferro,
+      };
       setItens(prev => [...prev, novoItem]);
     });
   };
@@ -1021,6 +1032,10 @@ export default function OrcamentoApp() {  // Auth state
           unidade: i.produto.unidade,
           preco_unitario: i.preco_custom ?? i.produto.preco,
           preco_custo: i.produto.preco_custo || 0,
+          // Detalhamento por tipo de ferro (Batch B Fase 2): so vai pra
+          // itens gerados pela calculadora de ferragem. Backend persiste
+          // em ferragem_consumo; payloads sem o campo seguem inalterados.
+          ...(i.detalhamento_ferro ? { detalhamento_ferro: i.detalhamento_ferro } : {}),
         })),
       };
 

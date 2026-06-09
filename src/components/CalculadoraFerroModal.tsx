@@ -1,12 +1,18 @@
 'use client';
 import { useState } from 'react';
 
+export interface DetalheFerro {
+  tipo_ferro: string;
+  metros: number;
+}
+
 interface ItemAvulso {
   nome: string;
   quantidade: number;
   preco: number;
   preco_custo: number;
   especificacoes?: string;
+  detalhamento_ferro?: DetalheFerro[];
 }
 
 interface Props {
@@ -78,11 +84,23 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
     const tipoPlural = quantidade > 1 ? TIPO_LABELS[tipo] + 's' : TIPO_LABELS[tipo];
     const barrasLabel = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
     const nome = quantidade + ' ' + tipoPlural + ' ' + metrosPorPeca + 'm ' + nomeMedida + ' ' + barrasLabel + ' | ' + metrosTotal + 'm';
+
+    // Detalhamento por tipo de ferro pra persistir em ferragem_consumo
+    // (Batch B Fase 2). ferro_10mm = metros_de_peca * num_barras.
+    // ferro_4_2mm_estribo = metros_de_peca * (perimetro_estribo / espacamento).
+    const compEstribo = FERRO_CUSTO.comprimento_estribo[medida] ?? 0.68;
+    const metrosEstribo = (metrosTotal * compEstribo) / FERRO_CUSTO.espacamento_estribo;
+    const detalhamento_ferro: DetalheFerro[] = [
+      { tipo_ferro: 'ferro_10mm', metros: Math.round(metrosTotal * barras * 100) / 100 },
+      { tipo_ferro: 'ferro_4_2mm_estribo', metros: Math.round(metrosEstribo * 100) / 100 },
+    ];
+
     onAdicionarItens([{
       nome,
       quantidade: metrosTotal,
       preco: precoPorMetro,
       preco_custo: custoPorMetro,
+      detalhamento_ferro,
     }]);
     onClose();
   };
