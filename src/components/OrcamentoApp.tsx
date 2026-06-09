@@ -2697,8 +2697,12 @@ export default function OrcamentoApp() {  // Auth state
                               onChange={e => {
                                 const val = e.target.value;
                                 setBuscaEndereco(val);
+                                // Bug 2: sempre sincroniza cepDestino com o input
+                                // (incluindo apagar pra ''). Sem isso, apagar o input
+                                // mantinha cepDestino antigo e o value caia no
+                                // fallback cepDestino, mostrando o CEP de volta.
                                 const cleaned = val.replace(/\D/g, '');
-                                if (cleaned.length === 8) setCepDestino(cleaned);
+                                setCepDestino(cleaned);
                                 if (debounceRef.current) clearTimeout(debounceRef.current);
                                 if (val.length >= 3 && !/^\d{8}$/.test(val.replace(/\D/g, ''))) {
                                   debounceRef.current = setTimeout(async () => {
