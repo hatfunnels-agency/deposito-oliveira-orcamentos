@@ -6,6 +6,7 @@ import CalculadoraFerroModal from './CalculadoraFerroModal';
 import DashboardTab from './DashboardTab';
 import ClienteProfile from './ClienteProfile';
 import MapaEntregas from './MapaEntregas';
+import { TAGS_VALIDAS } from '@/lib/tags';
 
 interface Produto {
   id: string;
@@ -217,6 +218,7 @@ interface ClienteListaItem {
   telefone: string;
   qtd_compras: number;
   ultima_compra: string | null;
+  total_gasto: number;
   tags: string[];
 }
 
@@ -412,6 +414,10 @@ export default function OrcamentoApp() {  // Auth state
   const [clientesTotal, setClientesTotal] = useState(0);
   const [clientesTotalPages, setClientesTotalPages] = useState(1);
   const [clientesLoading, setClientesLoading] = useState(false);
+  // Feature 2: filtros da aba Clientes
+  const [clientesTagsFiltro, setClientesTagsFiltro] = useState<Set<string>>(new Set());
+  const [clientesMinValor, setClientesMinValor] = useState('');
+  const [clientesMaxValor, setClientesMaxValor] = useState('');
   const [editandoId, setEditandoId] = useState<string | null>(null);
   // Feature 8 - Address detail fields
   const [numeroEndereco, setNumeroEndereco] = useState('');
@@ -667,6 +673,9 @@ export default function OrcamentoApp() {  // Auth state
     try {
       const params = new URLSearchParams({ page: String(clientesPagina), limit: '50' });
       if (clientesBusca.trim()) params.set('search', clientesBusca.trim());
+      if (clientesTagsFiltro.size > 0) params.set('tags', Array.from(clientesTagsFiltro).join(','));
+      if (clientesMinValor.trim()) params.set('minValor', clientesMinValor.trim());
+      if (clientesMaxValor.trim()) params.set('maxValor', clientesMaxValor.trim());
       const res = await fetch(`/api/clientes?${params}`, { cache: 'no-store' });
       const data = await res.json();
       setClientesLista((data.clientes || []) as ClienteListaItem[]);
@@ -678,7 +687,7 @@ export default function OrcamentoApp() {  // Auth state
       setClientesTotalPages(1);
     }
     setClientesLoading(false);
-  }, [clientesPagina, clientesBusca]);
+  }, [clientesPagina, clientesBusca, clientesTagsFiltro, clientesMinValor, clientesMaxValor]);
 
   // Busca com debounce de 300ms (tambem dispara ao abrir a aba / trocar pagina)
   useEffect(() => {
@@ -686,6 +695,11 @@ export default function OrcamentoApp() {  // Auth state
     const t = setTimeout(() => { carregarClientes(); }, 300);
     return () => clearTimeout(t);
   }, [abaAtiva, carregarClientes]);
+
+  // Reset pagina pra 1 quando filtros mudam (evita ficar em pagina vazia)
+  useEffect(() => {
+    setClientesPagina(1);
+  }, [clientesTagsFiltro, clientesMinValor, clientesMaxValor]);
 
   // Reset page to 1 when search/filter changes
   useEffect(() => {
@@ -3719,8 +3733,71 @@ export default function OrcamentoApp() {  // Auth state
               value={clientesBusca}
               onChange={e => { setClientesBusca(e.target.value); setClientesPagina(1); }}
               placeholder="Buscar cliente por nome ou telefone..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-4 focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
             />
+            {/* Feature 2: chips de tags + min/max valor */}
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
+              <span className="text-xs text-gray-500 mr-1">Tags:</span>
+              {TAGS_VALIDAS.map(tag => {
+                const ativa = clientesTagsFiltro.has(tag);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    onClick={() => {
+                      setClientesTagsFiltro(prev => {
+                        const novo = new Set(prev);
+                        if (novo.has(tag)) novo.delete(tag); else novo.add(tag);
+                        return novo;
+                      });
+                    }}
+                    className={`rounded-full border px-2.5 py-0.5 text-xs font-medium transition ${
+                      ativa
+                        ? 'border-[#F7941D] bg-[#FFF3E0] text-[#E8850A]'
+                        : 'border-gray-200 bg-white text-gray-500 hover:border-gray-300'
+                    }`}
+                  >
+                    {tag.replace(/_/g, ' ')}
+                  </button>
+                );
+              })}
+              {clientesTagsFiltro.size > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setClientesTagsFiltro(new Set())}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline ml-1"
+                >limpar</button>
+              )}
+            </div>
+            <div className="mb-4 flex flex-wrap items-center gap-2">
+              <span className="text-xs text-gray-500">Valor gasto:</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                value={clientesMinValor}
+                onChange={e => setClientesMinValor(e.target.value)}
+                placeholder="mín"
+                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              />
+              <span className="text-xs text-gray-400">—</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0"
+                value={clientesMaxValor}
+                onChange={e => setClientesMaxValor(e.target.value)}
+                placeholder="máx"
+                className="w-24 border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              />
+              {(clientesMinValor || clientesMaxValor) && (
+                <button
+                  type="button"
+                  onClick={() => { setClientesMinValor(''); setClientesMaxValor(''); }}
+                  className="text-xs text-gray-400 hover:text-gray-600 underline"
+                >limpar</button>
+              )}
+            </div>
             {clientesLoading ? (
               <p className="text-center text-gray-400 text-sm py-10">Carregando...</p>
             ) : clientesLista.length === 0 ? (
@@ -3740,13 +3817,14 @@ export default function OrcamentoApp() {  // Auth state
                         {c.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {c.tags.slice(0, 3).map(t => (
-                              <span key={t} className="text-[10px] bg-orange-100 text-orange-800 rounded-full px-1.5 py-0.5">{t}</span>
+                              <span key={t} className="text-[10px] bg-orange-100 text-orange-800 rounded-full px-1.5 py-0.5">{t.replace(/_/g, ' ')}</span>
                             ))}
                           </div>
                         )}
                       </div>
                       <div className="text-right shrink-0">
                         <p className="text-sm font-bold text-gray-700">{c.qtd_compras} compra{c.qtd_compras === 1 ? '' : 's'}</p>
+                        <p className="text-xs font-medium text-green-700">R$ {formatBRL(c.total_gasto || 0)}</p>
                         <p className="text-xs text-gray-500">{c.ultima_compra ? formatarDataBR(c.ultima_compra) : 'sem compras'}</p>
                       </div>
                     </button>

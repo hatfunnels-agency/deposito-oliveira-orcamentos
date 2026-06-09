@@ -46,6 +46,16 @@ export async function GET(request: NextRequest) {
     const search = (searchParams.get('search') || '').trim();
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'));
     const limit = Math.max(1, parseInt(searchParams.get('limit') || '50'));
+    // Feature 2: filtros opcionais. tags = CSV (modo OR — cliente match
+    // se tem qualquer uma das tags ativas). minValor/maxValor em reais.
+    const tagsFiltro = (searchParams.get('tags') || '')
+      .split(',')
+      .map(t => t.trim())
+      .filter(Boolean);
+    const minValorRaw = searchParams.get('minValor');
+    const maxValorRaw = searchParams.get('maxValor');
+    const minValor = minValorRaw !== null && minValorRaw !== '' ? Number(minValorRaw) : null;
+    const maxValor = maxValorRaw !== null && maxValorRaw !== '' ? Number(maxValorRaw) : null;
 
     // 1) Clientes que batem com a busca (linhas completas)
     let q = supabaseAdmin.from('clientes').select('*').limit(100000);
@@ -61,11 +71,13 @@ export async function GET(request: NextRequest) {
     }
     const clientes = clientesRaw || [];
 
-    // 2) Agregados de compras e tags em duas queries paralelas
+    // 2) Agregados de compras (qtd, ultima e total gasto em status=completo)
+    //    + tags em duas queries paralelas. total_gasto considera so completos
+    //    (venda concluida); qtd_compras conta tudo exceto orcamento/cancelado.
     const [comprasRes, tagsRes] = await Promise.all([
       supabaseAdmin
         .from('orcamentos')
-        .select('cliente_id, criado_em, data_entrega')
+        .select('cliente_id, criado_em, data_entrega, status, total')
         .not('status', 'in', '(orcamento,cancelado)')
         .limit(100000),
       supabaseAdmin
@@ -75,15 +87,18 @@ export async function GET(request: NextRequest) {
         .limit(100000),
     ]);
 
-    const compraStats = new Map<string, { qtd: number; ultima: string | null }>();
+    const compraStats = new Map<string, { qtd: number; ultima: string | null; totalGasto: number }>();
     for (const o of comprasRes.data || []) {
       const cid = o.cliente_id as string | null;
       if (!cid) continue;
       const data = (o.data_entrega as string | null) || (o.criado_em as string);
-      const cur = compraStats.get(cid) || { qtd: 0, ultima: null };
+      const cur = compraStats.get(cid) || { qtd: 0, ultima: null, totalGasto: 0 };
       cur.qtd += 1;
       if (data && (!cur.ultima || new Date(data).getTime() > new Date(cur.ultima).getTime())) {
         cur.ultima = data;
+      }
+      if (o.status === 'completo') {
+        cur.totalGasto += Number(o.total) || 0;
       }
       compraStats.set(cid, cur);
     }
@@ -99,29 +114,46 @@ export async function GET(request: NextRequest) {
 
     // 3) Enriquece cada cliente (obra_ativa some se a ultima compra > 30 dias)
     const enriquecidos = clientes.map(c => {
-      const stats = compraStats.get(c.id as string) || { qtd: 0, ultima: null };
+      const stats = compraStats.get(c.id as string) || { qtd: 0, ultima: null, totalGasto: 0 };
       let tags = tagsPorCliente.get(c.id as string) || [];
       if (!isObraAtivaActive(stats.ultima)) {
         tags = tags.filter(t => t !== 'obra_ativa');
       }
-      return { ...c, qtd_compras: stats.qtd, ultima_compra: stats.ultima, tags };
+      return {
+        ...c,
+        qtd_compras: stats.qtd,
+        ultima_compra: stats.ultima,
+        total_gasto: Math.round(stats.totalGasto * 100) / 100,
+        tags,
+      };
     });
 
-    // 4) Ordena por ultima_compra DESC, NULLS LAST
-    enriquecidos.sort((a, b) => {
+    // 4) Filtros (depois do enrich pra ter tags resolvidas + total_gasto)
+    const filtrados = enriquecidos.filter(c => {
+      if (tagsFiltro.length > 0) {
+        const matchTag = c.tags.some(t => tagsFiltro.includes(t));
+        if (!matchTag) return false;
+      }
+      if (minValor !== null && !Number.isNaN(minValor) && c.total_gasto < minValor) return false;
+      if (maxValor !== null && !Number.isNaN(maxValor) && c.total_gasto > maxValor) return false;
+      return true;
+    });
+
+    // 5) Ordena por ultima_compra DESC, NULLS LAST
+    filtrados.sort((a, b) => {
       if (!a.ultima_compra && !b.ultima_compra) return 0;
       if (!a.ultima_compra) return 1;
       if (!b.ultima_compra) return -1;
       return new Date(b.ultima_compra).getTime() - new Date(a.ultima_compra).getTime();
     });
 
-    // 5) Pagina em memória
-    const total = enriquecidos.length;
+    // 6) Pagina em memória
+    const total = filtrados.length;
     const total_pages = Math.max(1, Math.ceil(total / limit));
     const inicio = (page - 1) * limit;
 
     return NextResponse.json({
-      clientes: enriquecidos.slice(inicio, inicio + limit),
+      clientes: filtrados.slice(inicio, inicio + limit),
       total,
       page,
       total_pages,
