@@ -5,12 +5,12 @@ export const dynamic = 'force-dynamic';
 
 export async function GET() {
   try {
+    // 1) Produtos ativos. Ordem aqui nao importa — re-sortamos no final
+    //    por qtd_vendas DESC, nome ASC pra deixar mais vendidos no topo.
     const { data: produtos, error } = await supabaseAdmin
       .from('produtos')
       .select('*')
-      .eq('ativo', true)
-      .order('categoria')
-      .order('nome');
+      .eq('ativo', true);
 
     if (error) {
       console.error('Erro ao buscar produtos:', error);
@@ -26,7 +26,26 @@ export async function GET() {
                 produtoMap.set(p.id as string, p as Record<string, unknown>);
         }
 
-    
+    // Conta vendas por produto_id (excluindo orcamentos cancelados) pra
+    // sort por mais vendidos. INNER join via orcamentos!inner +
+    // .not status garante exclusao no PostgREST. Falha silenciosa: se
+    // a query quebrar, qtd_vendas fica 0 pra todos e o sort cai no
+    // alfabetico (sem regressao visivel).
+    const vendasPorProduto = new Map<string, number>();
+    try {
+      const { data: vendasRaw } = await supabaseAdmin
+        .from('orcamento_itens')
+        .select('produto_id, orcamentos!inner(status)')
+        .not('orcamentos.status', 'eq', 'cancelado')
+        .limit(100000);
+      for (const v of (vendasRaw || []) as Array<{ produto_id: string | null }>) {
+        if (!v.produto_id) continue;
+        vendasPorProduto.set(v.produto_id, (vendasPorProduto.get(v.produto_id) || 0) + 1);
+      }
+    } catch (e) {
+      console.error('Erro ao contar vendas por produto (sort cai no alfabetico):', e);
+    }
+
     const produtosFormatados = (produtos || []).map((p: Record<string, unknown>) => {
       const fatorConversao = Number(p.fator_conversao) || 1;
       let   estoqueAtual = Number(p.estoque_atual) || 0;
@@ -72,7 +91,14 @@ export async function GET() {
         estoque_compartilhado_com: p.estoque_compartilhado_com || null,
         tipo_estoque: tipoEstoque,
         total_vendido: totalVendido,
+        qtd_vendas: vendasPorProduto.get(p.id as string) || 0,
       };
+    });
+
+    // Sort por mais vendidos DESC, alfabetico ASC como tie-breaker.
+    produtosFormatados.sort((a, b) => {
+      if (b.qtd_vendas !== a.qtd_vendas) return b.qtd_vendas - a.qtd_vendas;
+      return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR');
     });
 
     return NextResponse.json({
