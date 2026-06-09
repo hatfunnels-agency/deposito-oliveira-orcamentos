@@ -131,7 +131,7 @@ export async function GET(request: NextRequest) {
     // 4) Filtros (depois do enrich pra ter tags resolvidas + total_gasto)
     const filtrados = enriquecidos.filter(c => {
       if (tagsFiltro.length > 0) {
-        const matchTag = c.tags.some(t => tagsFiltro.includes(t));
+        const matchTag = (c.tags as string[]).some((t: string) => tagsFiltro.includes(t));
         if (!matchTag) return false;
       }
       if (minValor !== null && !Number.isNaN(minValor) && c.total_gasto < minValor) return false;
