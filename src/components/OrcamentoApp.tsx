@@ -6,6 +6,8 @@ import CalculadoraFerroModal from './CalculadoraFerroModal';
 import DashboardTab from './DashboardTab';
 import ClienteProfile from './ClienteProfile';
 import MapaEntregas from './MapaEntregas';
+import Sidebar, { type AbaKey } from './Sidebar';
+import { Menu, LogOut } from 'lucide-react';
 import { TAGS_VALIDAS } from '@/lib/tags';
 
 interface Produto {
@@ -371,11 +373,12 @@ export default function OrcamentoApp() {  // Auth state
 
   const papelUsuario = userProfile?.papel ?? 'atendente';
   const nomeUsuario = userProfile?.nome ?? user?.email ?? '';
-  const abasVisiveis = papelUsuario === 'motorista'
-    ? ['entregas']
-    : papelUsuario === 'atendente'
-    ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'dashboard']
-    : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'dashboard'];
+  const abasVisiveis: readonly AbaKey[] =
+    papelUsuario === 'motorista'
+      ? ['entregas']
+      : papelUsuario === 'atendente'
+      ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas']
+      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'dashboard', 'ia'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -385,7 +388,8 @@ export default function OrcamentoApp() {  // Auth state
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
-  const [abaAtiva, setAbaAtiva] = useState<'produtos' | 'orcamento' | 'historico' | 'clientes' | 'ferragens' | 'entregas' | 'estoque' | 'ia' | 'dashboard'>('produtos');
+  const [abaAtiva, setAbaAtiva] = useState<AbaKey>('produtos');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
   const [carregandoIA, setCarregandoIA] = useState(false);
@@ -2200,42 +2204,56 @@ export default function OrcamentoApp() {  // Auth state
     );
   }
 
+  const quantidadeItens = itens.reduce((a, i) => a + i.quantidade, 0);
+
   return (
     <div className="min-h-screen bg-gray-50">
-      <header className="bg-[#E8850A] text-white shadow-lg print:hidden">
-        <div className="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
-          <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="Depósito Oliveira" className="h-10 w-auto" style={{borderRadius:'4px'}} />
-            <div>
-              <h1 className="text-2xl font-bold">Depósito Oliveira</h1>
-              <p className="text-white/80 text-sm">Sistema de Orçamentos</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <button onClick={() => setAbaAtiva('estoque')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">📦 Estoque</button>
-            <button onClick={() => setAbaAtiva('entregas')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">🚚 Entregas</button>
-            <button onClick={() => setAbaAtiva('historico')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">Histórico</button>
-            <button onClick={() => setAbaAtiva('ia')} className="bg-[#F7941D] text-white text-sm px-3 py-2 rounded-lg hover:bg-[#F7941D] transition">🤖 IA</button>
+      <Sidebar
+        abaAtiva={abaAtiva}
+        setAbaAtiva={setAbaAtiva}
+        abasVisiveis={abasVisiveis}
+        quantidadeItens={quantidadeItens}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+      />
 
-          </div>
-          <div className="flex items-center gap-2 ml-4 pl-4 border-l border-white/30">
-            {papelUsuario && <span className="text-xs bg-white/20 px-2 py-0.5 rounded-full capitalize">{papelUsuario}</span>}
-            <button onClick={handleSignOut} className="text-xs bg-white text-[#F7941D] font-semibold px-3 py-1.5 rounded-lg hover:bg-orange-50 transition">Sair</button>
-          </div>
-        </div>
-      </header>
+      <div className="md:ml-60 min-h-screen flex flex-col">
+        <header className="flex items-center justify-between border-b border-slate-200 bg-white p-4 print:hidden">
+          {/* Esquerda: hamburger so em mobile (logo ja esta no sidebar) */}
+          <button
+            type="button"
+            aria-label="Abrir menu"
+            onClick={() => setSidebarOpen(true)}
+            className="rounded-lg p-2 text-slate-700 hover:bg-slate-100 md:hidden"
+          >
+            <Menu size={22} />
+          </button>
+          <div className="hidden md:block" />
 
-      
-
-      <div className="max-w-6xl mx-auto px-4 pt-4 print:hidden">
-        <div className="flex border-b border-gray-200 mb-6 overflow-x-auto">
-          {(abasVisiveis as Array<'produtos' | 'orcamento' | 'historico' | 'clientes' | 'ferragens' | 'entregas' | 'estoque' | 'dashboard'>).map(aba => (
-            <button key={aba} onClick={() => setAbaAtiva(aba)}
-              className={`px-4 py-3 font-medium text-sm whitespace-nowrap capitalize ${abaAtiva === aba ? 'border-b-2 border-[#F7941D] text-[#F7941D]' : 'text-gray-500 hover:text-gray-700'}`}>
-              {aba === 'produtos' ? 'Catálogo' : aba === 'orcamento' ? `Orçamento (${itens.reduce((a, i) => a + i.quantidade, 0)})` : aba === 'historico' ? 'Histórico' : aba === 'clientes' ? '👤 Clientes' : aba === 'ferragens' ? '🔩 Ferragens' : aba === 'entregas' ? '🚚 Entregas' : aba === 'dashboard' ? '📊 Dashboard' : '📦 Estoque'}
+          {/* Direita: badge nome+role + logout */}
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-slate-600">
+              {nomeUsuario}
+              {papelUsuario && (
+                <>
+                  <span className="text-slate-400"> • </span>
+                  <span className="capitalize">{papelUsuario}</span>
+                </>
+              )}
+            </span>
+            <button
+              type="button"
+              aria-label="Sair"
+              title="Sair"
+              onClick={handleSignOut}
+              className="rounded-lg p-2 text-slate-700 hover:bg-slate-100"
+            >
+              <LogOut size={20} />
             </button>
-          ))}
-        </div>
+          </div>
+        </header>
+
+        <div className="max-w-6xl mx-auto w-full px-4 pt-4 print:hidden">
 
         {/* ===== CATALOGO TAB ===== */}
         {abaAtiva === 'produtos' && (
@@ -4763,6 +4781,7 @@ export default function OrcamentoApp() {  // Auth state
           onClose={() => setShowCalculadoraFerro(false)}
         />
       )}
+      </div>
     </div>
   );
 }
