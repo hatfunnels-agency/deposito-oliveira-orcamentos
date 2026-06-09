@@ -3,16 +3,16 @@ import { NextRequest, NextResponse } from 'next/server';
 // Routes that don't require authentication
 const PUBLIC_ROUTES = ['/login'];
 
-// API routes use service role key - don't protect them via middleware
+// API routes use service role key - don't protect them via proxy
 const API_PREFIX = '/api/';
 
 // Cookie name that Supabase uses for the session
 const SUPABASE_AUTH_COOKIE = 'sb-vfdoaocrafbcktnkhyvo-auth-token';
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
-  // Skip middleware for API routes (they use service role key)
+  // Skip proxy for API routes (they use service role key)
   if (pathname.startsWith(API_PREFIX)) {
     return NextResponse.next();
   }

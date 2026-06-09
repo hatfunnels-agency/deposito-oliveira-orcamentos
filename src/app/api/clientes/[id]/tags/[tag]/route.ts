@@ -7,9 +7,10 @@ export const dynamic = 'force-dynamic';
 // Remove uma tag especifica do cliente.
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string; tag: string } }
+  ctx: { params: Promise<{ id: string; tag: string }> }
 ) {
   try {
+    const params = await ctx.params;
     // Decodifica o segmento da URL (tags com underscore: obra_ativa, em_negociacao...)
     const tag = decodeURIComponent(params.tag);
 

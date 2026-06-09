@@ -5,9 +5,10 @@ import { aplicarBaixaItem, ehCommitted, reverterBaixaItem } from '@/lib/estoque-
 
 export async function GET(
     request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
   ) {
     try {
+          const params = await ctx.params;
           const { data, error } = await supabaseAdmin
             .from('orcamentos')
             .select(`
@@ -45,9 +46,10 @@ export async function GET(
 
 export async function PATCH(
     request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
   ) {
     try {
+          const params = await ctx.params;
           const body = await request.json();
           // Destructuring sem cast pra preservar `any` implicito (estilo
           // do codebase pre-Step 3). O cast `Record<string, unknown>`
@@ -347,9 +349,10 @@ export async function PATCH(
 
 export async function DELETE(
     request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
   ) {
     try {
+          const params = await ctx.params;
           const { data: orc, error: fetchError } = await supabaseAdmin
             .from('orcamentos').select('id, status').eq('id', params.id).single();
 

@@ -6,9 +6,10 @@ export const dynamic = 'force-dynamic';
 // GET /api/produtos/[id] - Product details + last 20 movements
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const { data: produto, error } = await supabaseAdmin
       .from('produtos')
       .select('*')
@@ -39,9 +40,10 @@ export async function GET(
 // PUT /api/produtos/[id] - Edit product (not stock directly)
 export async function PUT(
   request: Request,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const body = await request.json();
 
     const updateData: Record<string, unknown> = {

@@ -10,9 +10,10 @@ export const dynamic = 'force-dynamic';
 // e o item continua reservado para entrega — so volta a ficar "a entregar".
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     // 1) Carrega a entrega parcial + seus itens
     const { data: entrega, error: entregaErr } = await supabaseAdmin
       .from('entregas_parciais')

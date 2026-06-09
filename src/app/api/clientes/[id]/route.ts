@@ -10,9 +10,10 @@ export const dynamic = 'force-dynamic';
 // tags e compras, mais os agregados total_compras/qtd_compras/ultima_compra.
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     // 1 query principal + 3 auxiliares, todas em paralelo
     const [clienteRes, enderecosRes, tagsRes, comprasRes] = await Promise.all([
       supabaseAdmin
@@ -128,9 +129,10 @@ const MAX_NOTAS = 2000;
 // Atualiza um cliente. Aceita os campos legados e os 3 novos campos do CRM.
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const body = (await request.json()) as PatchClienteBody;
 
     // ---- Validacoes (ANTES de qualquer chamada ao Supabase) ----
