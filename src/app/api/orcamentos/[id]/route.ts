@@ -27,7 +27,7 @@ export async function GET(
                                                                                                                 ),
                                                                                         orcamento_itens (
                                                                                                   id, produto_id, produto_nome, quantidade, quantidade_entregue, unidade,
-                                                                                                            preco_unitario, subtotal
+                                                                                                            preco_unitario, preco_custo, subtotal
                                                                                                                     )
                                                                                                                           `)
             .eq('id', params.id)

@@ -45,6 +45,7 @@ interface OrcamentoItem {
   quantidade_entregue?: number;
   unidade: string;
   preco_unitario: number;
+  preco_custo?: number;
   subtotal: number;
 }
 
@@ -1586,7 +1587,8 @@ export default function OrcamentoApp() {  // Auth state
     setStatusPagamentoForm(detalhe.status_pagamento || 'pendente');
     setFormaPagamentoForm(detalhe.forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
-      // Itens avulsos (ferro) têm produto_id null — restaurar como avulso
+      // Itens avulsos (ferro) têm produto_id null — restaurar como avulso.
+      // preco_custo vem do snapshot gravado na criacao (CLAUDE.md "Opcao B").
       if (oi.produto_id === null) {
         return {
           produto: {
@@ -1596,7 +1598,7 @@ export default function OrcamentoApp() {  // Auth state
             estoque: 999,
             unidade: oi.unidade || 'm',
             categoria: 'Ferro',
-            preco_custo: 0,
+            preco_custo: oi.preco_custo ?? 0,
             estoque_minimo: 0,
             abaixo_minimo: false,
           },
@@ -1605,7 +1607,9 @@ export default function OrcamentoApp() {  // Auth state
           preco_custom: oi.preco_unitario,
         };
       }
-      // Produto normal: busca por nome para dados atualizados
+      // Produto normal: prefere snapshot do orcamento (preco real no
+      // momento da venda); fallback pro custo atual do produto pra
+      // pedidos antigos pre-snapshot. Alinha com CLAUDE.md Opcao B.
       const matchProduto = produtos.find(p => p.nome === oi.produto_nome);
       return {
         produto: {
@@ -1615,7 +1619,7 @@ export default function OrcamentoApp() {  // Auth state
           estoque: matchProduto?.estoque ?? 999,
           unidade: oi.unidade || matchProduto?.unidade || 'un',
           categoria: matchProduto?.categoria || 'Geral',
-          preco_custo: matchProduto?.preco_custo ?? 0,
+          preco_custo: oi.preco_custo ?? matchProduto?.preco_custo ?? 0,
           estoque_minimo: matchProduto?.estoque_minimo ?? 0,
           abaixo_minimo: matchProduto?.abaixo_minimo ?? false,
         },
