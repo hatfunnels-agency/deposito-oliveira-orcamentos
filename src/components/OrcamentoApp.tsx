@@ -1062,6 +1062,8 @@ export default function OrcamentoApp() {  // Auth state
         }
       }
 
+      // Captura ANTES do resetarFormulario (que limpa editandoId)
+      const eraEdicao = !!editandoId;
       let savedId: string | null = null;
       if (editandoId) {
         const res = await fetch(`/api/orcamentos/${editandoId}`, {
@@ -1088,9 +1090,12 @@ export default function OrcamentoApp() {  // Auth state
       }
       setSalvandoOrcamento(false);
       if (savedId) {
-        // Abre direto o modal de detalhe completo (gestao, whatsapp, imprimir funcionam la)
         carregarHistorico();
-        abrirDetalhe(savedId);
+        // Em criacao: abre o modal de detalhe pra atalhos (gestao,
+        // whatsapp, imprimir). Em edicao: o user ja sabe qual pedido
+        // editou — nao reabre o modal sobreposto sem ele pedir
+        // (workaround antigo de clicar Cancelar Edicao some).
+        if (!eraEdicao) abrirDetalhe(savedId);
       }
     } catch (e) {
       console.error('Erro ao salvar orcamento', e);
