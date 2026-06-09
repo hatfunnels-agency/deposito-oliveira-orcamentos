@@ -862,7 +862,28 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
                 >
                   {cliente?.nome || 'Cliente'}
                 </h1>
-                <p className="text-sm text-gray-500">{formatarTelefone(cliente?.telefone)}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  <p className="text-sm text-gray-500">{formatarTelefone(cliente?.telefone)}</p>
+                  {cliente?.telefone && (() => {
+                    const digits = cliente.telefone.replace(/\D/g, '');
+                    if (!digits) return null;
+                    const comDDI = digits.startsWith('55') ? digits : `55${digits}`;
+                    const primeiroNome = (cliente.nome || '').trim().split(/\s+/)[0] || '';
+                    const texto = primeiroNome ? `Olá ${primeiroNome}` : 'Olá';
+                    const href = `https://wa.me/${comDDI}?text=${encodeURIComponent(texto)}`;
+                    return (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title="Abrir conversa no WhatsApp"
+                        className="inline-flex items-center gap-1 rounded-full bg-[#25D366] px-2.5 py-0.5 text-xs font-semibold text-white hover:bg-[#1DA851] transition"
+                      >
+                        📱 WhatsApp
+                      </a>
+                    );
+                  })()}
+                </div>
               </>
             )}
           </div>
