@@ -252,6 +252,20 @@ function formatarEnderecoUI(e: {
   return e.is_padrao ? `${base} (padrão)` : base;
 }
 
+// Tabela de parcelas no cartao. 2x e 3x dividem o valor a vista (sem
+// acrescimo, "3x sem juros"). 4x-6x dividem o valor com acrescimo. 1x
+// no cartao some — PIX/dinheiro ja cobre "a vista". Helper usado pelo
+// PDF de impressao, preview do form, e modal de detalhe do pedido.
+function montarParcelasCartao(valorAVista: number, acrescimo: number) {
+  const valorComAcrescimo = valorAVista * (1 + acrescimo);
+  return {
+    valorAVista,
+    valorComAcrescimo,
+    semJuros: [2, 3].map(n => ({ n, valor: valorAVista / n })),
+    comAcrescimo: [4, 5, 6].map(n => ({ n, valor: valorComAcrescimo / n })),
+  };
+}
+
 function formatBRL(value: number): string {
   return value.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -308,7 +322,6 @@ const STATUS_PAGAMENTO_COLORS: Record<string, string> = {
   pagamento_na_entrega: 'bg-blue-100 text-blue-800',
 };
 const ACRESCIMO_CARTAO = 0.08;
-const MAX_PARCELAS = 6;
 const CAPACIDADE_CAMINHAO_M3 = 10;
 
 // Detecta itens de ferragem montados (que precisam ir para o ferreiro).
@@ -1224,8 +1237,10 @@ export default function OrcamentoApp() {  // Auth state
     const formaPagImp = d ? (d as any).forma_pagamento as string | null : null;
     const statusPagImp = d ? (d as any).status_pagamento as string | null : null;
     const formaPagLabelImp: Record<string,string> = {dinheiro:'Dinheiro',pix:'PIX',debito:'Débito',credito:'Crédito',boleto:'Boleto',pagamento_na_entrega:'Pagamento na Entrega'};
-    const valorCartaoImp = tot * (1 + ACRESCIMO_CARTAO);
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.parc{color:#666;font-size:12px;margin-top:6px}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><strong>&#128181; À vista: R$ ${formatBRL(tot)}</strong> &nbsp;|&nbsp; <strong>&#128179; Cartão (+8%): R$ ${formatBRL(valorCartaoImp)}</strong><div class="parc">${Array.from({length:MAX_PARCELAS},(_,i)=>i+1).map(n=>n+'x R$ '+formatBRL(valorCartaoImp/n)).join(' | ')}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const parcelasImp = montarParcelasCartao(tot, ACRESCIMO_CARTAO);
+    const semJurosImp = parcelasImp.semJuros.map(p => p.n + 'x R$ ' + formatBRL(p.valor)).join('  |  ');
+    const comAcrescimoImp = parcelasImp.comAcrescimo.map(p => p.n + 'x R$ ' + formatBRL(p.valor)).join('  |  ');
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.pagto-row{margin:4px 0;font-size:13px}.pagto-row b{color:#333}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><div class="pagto-row"><b>&#128181; À vista (PIX/dinheiro):</b> R$ ${formatBRL(tot)}</div><div class="pagto-row"><b>&#128179; Cartão até 3x sem juros:</b> ${semJurosImp}</div><div class="pagto-row"><b>&#128179; Cartão 4x-6x (+8%):</b> ${comAcrescimoImp}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -2852,12 +2867,16 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
               {/* Card pricing */}
               {(() => {
-                const valorCartao = totalFinal * (1 + ACRESCIMO_CARTAO);
+                const p = montarParcelasCartao(totalFinal, ACRESCIMO_CARTAO);
                 return (
                   <div className="mt-2 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
-                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista:</span><span className="font-bold text-gray-800">R$ {formatBRL(total)}</span></div>
-                    <div className="flex justify-between text-gray-600 mb-1"><span>💳 No cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
-                    <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista (PIX/dinheiro):</span><span className="font-bold text-gray-800">R$ {formatBRL(p.valorAVista)}</span></div>
+                    <div className="text-gray-600 mb-1"><span className="block font-medium">💳 Cartão até 3x sem juros:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-200 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                    </div>
+                    <div className="text-gray-600"><span className="block font-medium">💳 Cartão 4x-6x (+8%):</span>
+                      <div className="flex flex-wrap gap-1 mt-1">{p.comAcrescimo.map(par => (<span key={par.n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                    </div>
                   </div>
                 );
               })()}
@@ -4166,13 +4185,16 @@ export default function OrcamentoApp() {  // Auth state
                 )}
                 {/* Card pricing - details modal */}
                 {(() => {
-                  const totalDetalhe = orcamentoDetalhe.total;
-                  const valorCartao = totalDetalhe * (1 + ACRESCIMO_CARTAO);
+                  const p = montarParcelasCartao(orcamentoDetalhe.total, ACRESCIMO_CARTAO);
                   return (
                     <div className="mt-1 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm">
-                      <div className="flex justify-between mb-1"><span className="text-gray-600">💵 À vista:</span><span className="font-bold">R$ {formatBRL(totalDetalhe)}</span></div>
-                      <div className="flex justify-between mb-1"><span className="text-gray-600">💳 Cartão (+8%):</span><span className="font-bold text-orange-600">R$ {formatBRL(valorCartao)}</span></div>
-                      <div className="flex flex-wrap gap-1 mt-1">{Array.from({length: MAX_PARCELAS}, (_, i) => i + 1).map(n => (<span key={n} className="text-xs bg-white border border-orange-300 rounded px-2 py-0.5 text-orange-700">{n}x R$ {formatBRL(valorCartao / n)}</span>))}</div>
+                      <div className="flex justify-between mb-1"><span className="text-gray-600">💵 À vista (PIX/dinheiro):</span><span className="font-bold">R$ {formatBRL(p.valorAVista)}</span></div>
+                      <div className="mb-1"><span className="text-gray-600 block font-medium">💳 Cartão até 3x sem juros:</span>
+                        <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-300 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                      </div>
+                      <div><span className="text-gray-600 block font-medium">💳 Cartão 4x-6x (+8%):</span>
+                        <div className="flex flex-wrap gap-1 mt-1">{p.comAcrescimo.map(par => (<span key={par.n} className="text-xs bg-white border border-orange-300 rounded px-2 py-0.5 text-orange-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                      </div>
                     </div>
                   );
                 })()}
