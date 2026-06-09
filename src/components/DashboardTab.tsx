@@ -588,8 +588,185 @@ export default function DashboardTab() {
               </div>
             </div>
           </div>
+
+          {/* Batch B Fase 2: widgets de tracking de ferragem + export CSV */}
+          <MetrosFerroWidget />
+          <ExportarPedidosWidget />
         </>
       )}
+    </div>
+  );
+}
+
+// ============================================================
+// Widgets do Batch B (Fase 2)
+// ============================================================
+
+// YYYY-MM-DD local (evita off-by-one do toISOString em fuso de Sao Paulo).
+function isoLocal(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+interface MetrosFerroResponse {
+  inicio: string;
+  fim: string;
+  total_pedidos: number;
+  agregados: Array<{
+    tipo_ferro: string;
+    metros_total: number;
+    pedidos_count: number;
+    valor_total_itens_ferragem: number;
+  }>;
+}
+
+const FERRO_LABEL: Record<string, string> = {
+  ferro_10mm: 'Ferro 10mm (barras)',
+  ferro_4_2mm_estribo: 'Ferro 4,2mm (estribos)',
+};
+
+function MetrosFerroWidget() {
+  const hoje = new Date();
+  const primeiroDia = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const [inicio, setInicio] = useState(isoLocal(primeiroDia));
+  const [fim, setFim] = useState(isoLocal(hoje));
+  const [loading, setLoading] = useState(false);
+  const [erro, setErro] = useState<string | null>(null);
+  const [resp, setResp] = useState<MetrosFerroResponse | null>(null);
+
+  useEffect(() => {
+    if (!inicio || !fim) return;
+    setLoading(true);
+    setErro(null);
+    fetch(`/api/relatorios/metros-ferro?inicio=${encodeURIComponent(inicio)}&fim=${encodeURIComponent(fim)}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then((d: MetrosFerroResponse | { error?: string }) => {
+        if ('error' in d && d.error) {
+          setErro(d.error);
+          setResp(null);
+        } else {
+          setResp(d as MetrosFerroResponse);
+        }
+      })
+      .catch(() => setErro('Falha ao carregar'))
+      .finally(() => setLoading(false));
+  }, [inicio, fim]);
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="text-sm font-bold text-gray-800 mb-3">🔩 Metros de Ferro Vendidos no Período</h3>
+      <div className="flex flex-wrap gap-3 items-end mb-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Início</label>
+          <input type="date" value={inicio} onChange={e => setInicio(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Fim</label>
+          <input type="date" value={fim} onChange={e => setFim(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+        </div>
+      </div>
+      {erro && <p className="text-sm text-red-600">{erro}</p>}
+      {loading && <p className="text-sm text-gray-400">Carregando...</p>}
+      {!loading && !erro && resp && (
+        resp.agregados.length === 0 ? (
+          <p className="text-sm text-gray-400">Nenhuma venda de ferragem no período.</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs">
+              <thead><tr className="border-b border-gray-100">
+                <th className="text-left py-2 pr-4 text-gray-500 font-medium">Tipo de Ferro</th>
+                <th className="text-right py-2 pr-4 text-gray-500 font-medium">Metros Total</th>
+                <th className="text-right py-2 pr-4 text-gray-500 font-medium">Pedidos</th>
+                <th className="text-right py-2 text-gray-500 font-medium">Valor Itens</th>
+              </tr></thead>
+              <tbody>
+                {resp.agregados.map(a => (
+                  <tr key={a.tipo_ferro} className="border-b border-gray-50">
+                    <td className="py-2 pr-4 text-gray-700">{FERRO_LABEL[a.tipo_ferro] || a.tipo_ferro}</td>
+                    <td className="py-2 pr-4 text-right font-semibold text-gray-800">{a.metros_total.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} m</td>
+                    <td className="py-2 pr-4 text-right text-gray-600">{a.pedidos_count}</td>
+                    <td className="py-2 text-right text-gray-600">{fmt(a.valor_total_itens_ferragem)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
+interface ProdutoLista {
+  id: string;
+  nome: string;
+}
+
+function ExportarPedidosWidget() {
+  const hoje = new Date();
+  const primeiroDia = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const [inicio, setInicio] = useState(isoLocal(primeiroDia));
+  const [fim, setFim] = useState(isoLocal(hoje));
+  const [statusFiltro, setStatusFiltro] = useState('');
+  const [produtoId, setProdutoId] = useState('');
+  const [produtos, setProdutos] = useState<ProdutoLista[]>([]);
+
+  useEffect(() => {
+    fetch('/api/produtos', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => setProdutos((d.produtos || []) as ProdutoLista[]))
+      .catch(() => setProdutos([]));
+  }, []);
+
+  const baixar = () => {
+    const p = new URLSearchParams({ inicio, fim });
+    if (statusFiltro) p.set('status', statusFiltro);
+    if (produtoId) p.set('produto_id', produtoId);
+    window.location.href = `/api/relatorios/export-pedidos?${p.toString()}`;
+  };
+
+  return (
+    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <h3 className="text-sm font-bold text-gray-800 mb-3">📥 Exportar Pedidos (CSV)</h3>
+      <div className="flex flex-wrap gap-3 items-end mb-4">
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Início</label>
+          <input type="date" value={inicio} onChange={e => setInicio(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Fim</label>
+          <input type="date" value={fim} onChange={e => setFim(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Status</label>
+          <select value={statusFiltro} onChange={e => setStatusFiltro(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white">
+            <option value="">Todos (exceto cancelados)</option>
+            <option value="orcamento">Orçamento</option>
+            <option value="entrega_pendente">Entrega Pendente</option>
+            <option value="retirada_pendente">Retirada Pendente</option>
+            <option value="entrega_parcial">Entrega Parcial</option>
+            <option value="em_rota">Em Rota</option>
+            <option value="completo">Completo</option>
+            <option value="ocorrencia">Ocorrência</option>
+            <option value="cancelado">Cancelado</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-gray-600 mb-1">Produto (opcional)</label>
+          <select value={produtoId} onChange={e => setProdutoId(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white">
+            <option value="">Todos os produtos</option>
+            {produtos.map(p => (
+              <option key={p.id} value={p.id}>{p.nome}</option>
+            ))}
+          </select>
+        </div>
+        <button onClick={baixar} disabled={!inicio || !fim} className="bg-[#F7941D] hover:bg-[#e8851a] text-white px-5 py-2 rounded-lg text-sm font-semibold transition-colors disabled:opacity-50">
+          📥 Baixar CSV
+        </button>
+      </div>
+      <p className="text-xs text-gray-500">Default exclui pedidos cancelados. Use o filtro Status pra incluir.</p>
     </div>
   );
 }

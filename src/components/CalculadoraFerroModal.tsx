@@ -1,12 +1,18 @@
 'use client';
 import { useState } from 'react';
 
+export interface DetalheFerro {
+  tipo_ferro: string;
+  metros: number;
+}
+
 interface ItemAvulso {
   nome: string;
   quantidade: number;
   preco: number;
   preco_custo: number;
   especificacoes?: string;
+  detalhamento_ferro?: DetalheFerro[];
 }
 
 interface Props {
@@ -25,10 +31,12 @@ function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): num
   return medida === 'especial' ? 25 : 20;
 }
 
-// Constantes de custo do fornecedor (CMV)
+// Constantes de custo do fornecedor (CMV). Nota: `estribo_4mm_por_metro`
+// e nome legado da constante; o estribo real e ferro 4,2mm (convencao do
+// schema ferragem_consumo usa 'ferro_4_2mm_estribo').
 const FERRO_CUSTO = {
   barra_10mm_por_metro: 2.942,    // R$35,30 / 12m
-  estribo_4mm_por_metro: 0.748,   // R$8,98 / 12m
+  estribo_4mm_por_metro: 0.748,   // R$8,98 / 12m (ferro 4,2mm)
   espacamento_estribo: 0.30,      // 30cm entre estribos
   comprimento_estribo: {
     '9x15': 0.58,   // 2*(0.09+0.15)+0.10
@@ -76,11 +84,23 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
     const tipoPlural = quantidade > 1 ? TIPO_LABELS[tipo] + 's' : TIPO_LABELS[tipo];
     const barrasLabel = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
     const nome = quantidade + ' ' + tipoPlural + ' ' + metrosPorPeca + 'm ' + nomeMedida + ' ' + barrasLabel + ' | ' + metrosTotal + 'm';
+
+    // Detalhamento por tipo de ferro pra persistir em ferragem_consumo
+    // (Batch B Fase 2). ferro_10mm = metros_de_peca * num_barras.
+    // ferro_4_2mm_estribo = metros_de_peca * (perimetro_estribo / espacamento).
+    const compEstribo = FERRO_CUSTO.comprimento_estribo[medida] ?? 0.68;
+    const metrosEstribo = (metrosTotal * compEstribo) / FERRO_CUSTO.espacamento_estribo;
+    const detalhamento_ferro: DetalheFerro[] = [
+      { tipo_ferro: 'ferro_10mm', metros: Math.round(metrosTotal * barras * 100) / 100 },
+      { tipo_ferro: 'ferro_4_2mm_estribo', metros: Math.round(metrosEstribo * 100) / 100 },
+    ];
+
     onAdicionarItens([{
       nome,
       quantidade: metrosTotal,
       preco: precoPorMetro,
       preco_custo: custoPorMetro,
+      detalhamento_ferro,
     }]);
     onClose();
   };
