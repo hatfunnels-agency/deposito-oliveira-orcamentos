@@ -218,13 +218,39 @@ export async function POST(request: NextRequest) {
               };
       });
 
-      const { error: itensError } = await supabaseAdmin
+      const { data: itensInseridos, error: itensError } = await supabaseAdmin
             .from('orcamento_itens')
-            .insert(itensToInsert);
+            .insert(itensToInsert)
+            .select('id');
 
       if (itensError) {
         console.error('Erro ao criar itens:', itensError);
         return NextResponse.json({ error: 'Erro ao criar itens do orçamento' }, { status: 500 });
+      }
+
+      // Detalhamento de ferragem (Batch B Fase 1): pra cada item que veio
+      // com body.detalhamento_ferro = [{tipo_ferro, metros}, ...], insere
+      // em ferragem_consumo. Aceita opcional — payloads sem o campo
+      // (incluindo todos os fluxos pre-Batch B) seguem inalterados.
+      const ferragemRows: Array<{ orcamento_item_id: string; tipo_ferro: string; metros: number }> = [];
+      for (let i = 0; i < itens.length; i++) {
+        const det = (itens[i] as { detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }> }).detalhamento_ferro;
+        const insertedId = itensInseridos?.[i]?.id as string | undefined;
+        if (!insertedId || !det || !Array.isArray(det) || det.length === 0) continue;
+        for (const d of det) {
+          if (!d.tipo_ferro || typeof d.metros !== 'number' || d.metros <= 0) continue;
+          ferragemRows.push({
+            orcamento_item_id: insertedId,
+            tipo_ferro: String(d.tipo_ferro),
+            metros: Number(d.metros),
+          });
+        }
+      }
+      if (ferragemRows.length > 0) {
+        const { error: fcErr } = await supabaseAdmin.from('ferragem_consumo').insert(ferragemRows);
+        if (fcErr) {
+          console.error('[ferragem_consumo POST] insert falhou (orcamento ja criado):', fcErr);
+        }
       }
 
       // Baixa de estoque quando o orcamento nasce ja committed (49pp do

@@ -298,6 +298,12 @@ export async function PATCH(
             // Substituicao atomica: so apaga os itens antigos depois de ter o payload
             // novo pronto, e restaura o snapshot se o insert falhar. Evita que uma
             // edicao deixe o orcamento sem itens ou acumule orfaos.
+            //
+            // ferragem_consumo nao precisa de DELETE explicito aqui: a FK em
+            // orcamento_item_id tem ON DELETE CASCADE, entao o delete em
+            // orcamento_itens abaixo ja apaga os filhos automaticamente. Re-
+            // insercao acontece depois do insert dos novos itens (Batch B
+            // Fase 1).
             const { error: delItensErr } = await supabaseAdmin
               .from('orcamento_itens')
               .delete()
@@ -307,9 +313,10 @@ export async function PATCH(
               return NextResponse.json({ error: 'Erro ao atualizar itens do orcamento' }, { status: 500 });
             }
 
-            const { error: insItensErr } = await supabaseAdmin
+            const { data: itensInseridos, error: insItensErr } = await supabaseAdmin
               .from('orcamento_itens')
-              .insert(itensToInsert);
+              .insert(itensToInsert)
+              .select('id');
             if (insItensErr) {
               console.error('Erro ao inserir novos itens do orcamento:', insItensErr);
               // Rollback manual: restaura os itens antigos para nao deixar o orcamento vazio
@@ -317,6 +324,31 @@ export async function PATCH(
                 await supabaseAdmin.from('orcamento_itens').insert(itensAntigos);
               }
               return NextResponse.json({ error: 'Erro ao salvar itens do orcamento' }, { status: 500 });
+            }
+
+            // Re-insere ferragem_consumo a partir do detalhamento_ferro do
+            // payload (Batch B Fase 1). Aceita opcional — items sem o
+            // campo nao geram linhas. Mapeia por indice (insert preserva
+            // ordem). Falha so e logada (orcamento ja foi salvo).
+            const ferragemRows: Array<{ orcamento_item_id: string; tipo_ferro: string; metros: number }> = [];
+            for (let i = 0; i < itens.length; i++) {
+              const det = (itens[i] as { detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }> }).detalhamento_ferro;
+              const insertedId = itensInseridos?.[i]?.id as string | undefined;
+              if (!insertedId || !det || !Array.isArray(det) || det.length === 0) continue;
+              for (const d of det) {
+                if (!d.tipo_ferro || typeof d.metros !== 'number' || d.metros <= 0) continue;
+                ferragemRows.push({
+                  orcamento_item_id: insertedId,
+                  tipo_ferro: String(d.tipo_ferro),
+                  metros: Number(d.metros),
+                });
+              }
+            }
+            if (ferragemRows.length > 0) {
+              const { error: fcErr } = await supabaseAdmin.from('ferragem_consumo').insert(ferragemRows);
+              if (fcErr) {
+                console.error('[ferragem_consumo PATCH] insert falhou (orcamento ja atualizado):', fcErr);
+              }
             }
       }
 
