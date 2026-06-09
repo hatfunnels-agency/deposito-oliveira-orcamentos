@@ -9,9 +9,10 @@ export const dynamic = 'force-dynamic';
 // Lista as tags do cliente (mais recentes primeiro).
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const { data, error } = await supabaseAdmin
       .from('cliente_tags')
       .select('tag, data_aplicacao, origem')
@@ -39,9 +40,10 @@ export async function GET(
 // Aplica uma tag da taxonomia fixa ao cliente.
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const body = (await request.json()) as { tag?: unknown; origem?: unknown };
     const tag = body.tag;
 

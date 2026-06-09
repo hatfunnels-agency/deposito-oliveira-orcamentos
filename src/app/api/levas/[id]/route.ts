@@ -20,9 +20,10 @@ const recalcularVolume = async (levaId: string) => {
 
 export async function PATCH(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    ctx: { params: Promise<{ id: string }> }
   ) {
     try {
+      const params = await ctx.params;
       const body = await request.json();
       const { action, orcamento_ids, orcamento_id, status, motorista_id, data } = body;
 
@@ -79,9 +80,10 @@ export async function PATCH(
 
 export async function DELETE(
     request: NextRequest,
-    { params }: { params: { id: string } }
+    ctx: { params: Promise<{ id: string }> }
   ) {
     try {
+      const params = await ctx.params;
       await supabaseAdmin.from('orcamentos').update({ leva_id: null }).eq('leva_id', params.id);
       const { error } = await supabaseAdmin.from('levas_entrega').delete().eq('id', params.id);
       if (error) return NextResponse.json({ error: 'Erro ao excluir leva' }, { status: 500 });

@@ -17,9 +17,10 @@ const CAMPOS_GEO = ['rua', 'numero', 'complemento', 'bairro', 'cidade', 'estado'
 // Atualiza um endereco. Aceita os campos de endereco e is_padrao.
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { id: string; enderecoId: string } }
+  ctx: { params: Promise<{ id: string; enderecoId: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const body = await request.json();
 
     // Garante que o endereco existe e pertence ao cliente da rota
@@ -93,9 +94,10 @@ export async function PATCH(
 // Remove um endereco. Se era o padrao, promove o mais antigo restante.
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string; enderecoId: string } }
+  ctx: { params: Promise<{ id: string; enderecoId: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const { data: atual, error: buscaErr } = await supabaseAdmin
       .from('enderecos_clientes')
       .select('id, cliente_id, is_padrao')

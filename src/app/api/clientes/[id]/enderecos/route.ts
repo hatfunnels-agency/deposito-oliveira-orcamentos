@@ -8,9 +8,10 @@ export const dynamic = 'force-dynamic';
 // Lista os enderecos do cliente, com o padrao primeiro.
 export async function GET(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const { data, error } = await supabaseAdmin
       .from('enderecos_clientes')
       .select('*')
@@ -35,9 +36,10 @@ export async function GET(
 // Body: { apelido?, cep?, rua?, numero?, complemento?, bairro?, cidade?, estado?, observacoes?, is_padrao? }
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  ctx: { params: Promise<{ id: string }> }
 ) {
   try {
+    const params = await ctx.params;
     const body = await request.json();
     const r = await criarEnderecoCliente(params.id, body);
     if (!r.ok) {
