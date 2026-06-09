@@ -978,6 +978,13 @@ export default function OrcamentoApp() {  // Auth state
     setApelidoEndereco('');
   };
 
+  // Cancelar edicao: limpa form + volta pra aba Historico (mesmo destino
+  // do "salvar em edicao" pra o user nao ficar olhando form em branco).
+  const cancelarEdicao = () => {
+    resetarFormulario();
+    setAbaAtiva('historico');
+  };
+
   const salvarEGerarOrcamento = async () => {
     setSalvandoOrcamento(true);
     setOrcamentoSalvo(null);
@@ -1092,11 +1099,16 @@ export default function OrcamentoApp() {  // Auth state
       setSalvandoOrcamento(false);
       if (savedId) {
         carregarHistorico();
-        // Em criacao: abre o modal de detalhe pra atalhos (gestao,
-        // whatsapp, imprimir). Em edicao: o user ja sabe qual pedido
-        // editou — nao reabre o modal sobreposto sem ele pedir
-        // (workaround antigo de clicar Cancelar Edicao some).
-        if (!eraEdicao) abrirDetalhe(savedId);
+        if (!eraEdicao) {
+          // Criacao: abre o modal de detalhe pra atalhos (gestao,
+          // whatsapp, imprimir).
+          abrirDetalhe(savedId);
+        } else {
+          // Edicao: form ja foi limpo pelo resetarFormulario; muda pra
+          // aba Historico pra o user nao ficar olhando form em branco
+          // (complemento do c7c32f0).
+          setAbaAtiva('historico');
+        }
       }
     } catch (e) {
       console.error('Erro ao salvar orcamento', e);
@@ -2515,7 +2527,7 @@ export default function OrcamentoApp() {  // Auth state
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
-                    <button onClick={resetarFormulario}
+                    <button onClick={cancelarEdicao}
                       className="text-xs text-yellow-700 underline">Cancelar edição</button>
                   </div>
                 )}
@@ -2910,7 +2922,7 @@ export default function OrcamentoApp() {  // Auth state
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
-                  <button type="button" onClick={resetarFormulario} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
+                  <button type="button" onClick={cancelarEdicao} className="text-yellow-700 hover:text-yellow-900 font-bold ml-2">✕ Cancelar</button>
                 </div>
               )}
                             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
