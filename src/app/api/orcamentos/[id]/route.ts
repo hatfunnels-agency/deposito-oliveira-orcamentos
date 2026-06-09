@@ -59,8 +59,7 @@ export async function PATCH(
                   status, observacoes, tipo_entrega, valor_frete, subtotal, total,
                   data_entrega, data_retirada, fonte, itens, forma_pagamento, status_pagamento,
                   ferragem_status,
-                  cliente_nome, cliente_telefone, cliente_cep, cliente_endereco,
-                  cliente_numero, cliente_complemento, cliente_recebedor,
+                  cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
                   endereco_id: enderecoIdBody,
           } = body;
@@ -155,18 +154,16 @@ export async function PATCH(
             }
       }
 
-      // Update client info
+      // Update client info — endereco vive em enderecos_clientes (Step 4);
+      // nao mais sobrescreve clientes.cep/endereco/numero/complemento aqui.
+      // Recebedor permanece em clientes.* (atributo per-cliente).
       if (cliente_nome && cliente_telefone) {
               const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
               const clienteData: Record<string, unknown> = {
                         nome: cliente_nome,
                         telefone: telefoneLimpo,
-                        cep: cliente_cep || null,
-                        endereco: cliente_endereco || null,
                         atualizado_em: new Date().toISOString(),
               };
-              if (cliente_numero !== undefined) clienteData.numero = cliente_numero;
-              if (cliente_complemento !== undefined) clienteData.complemento = cliente_complemento;
               if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
 
             const { data: cliente } = await supabaseAdmin

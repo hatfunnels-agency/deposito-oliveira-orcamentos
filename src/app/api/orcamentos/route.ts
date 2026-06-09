@@ -16,10 +16,6 @@ export async function POST(request: NextRequest) {
           const {
                   cliente_nome,
                   cliente_telefone,
-                  cliente_cep,
-                  cliente_endereco,
-                  cliente_numero,
-                  cliente_complemento,
                   cliente_recebedor,
                   tipo_entrega,
                   valor_frete = 0,
