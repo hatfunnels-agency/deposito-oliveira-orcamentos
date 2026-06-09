@@ -382,6 +382,9 @@ function EnderecosSecao({
                   value={form.apelido}
                   onChange={e => setForm(f => ({ ...f, apelido: e.target.value }))}
                   placeholder="Casa, Obra Alphaville..."
+                  autoComplete="off"
+                  data-lpignore="true"
+                  data-1p-ignore="true"
                   className={INPUT_CLS}
                 />
               </Campo>
@@ -393,6 +396,7 @@ function EnderecosSecao({
                     onBlur={buscarCep}
                     placeholder="00000-000"
                     inputMode="numeric"
+                    autoComplete="postal-code"
                     className={INPUT_CLS}
                   />
                   {buscandoCep && (
@@ -404,6 +408,7 @@ function EnderecosSecao({
                 <input
                   value={form.rua}
                   onChange={e => setForm(f => ({ ...f, rua: e.target.value }))}
+                  autoComplete="address-line1"
                   className={INPUT_CLS}
                 />
               </Campo>
@@ -412,6 +417,7 @@ function EnderecosSecao({
                   <input
                     value={form.numero}
                     onChange={e => setForm(f => ({ ...f, numero: e.target.value }))}
+                    autoComplete="address-line2"
                     className={INPUT_CLS}
                   />
                 </Campo>
@@ -419,6 +425,7 @@ function EnderecosSecao({
                   <input
                     value={form.complemento}
                     onChange={e => setForm(f => ({ ...f, complemento: e.target.value }))}
+                    autoComplete="off"
                     className={INPUT_CLS}
                   />
                 </Campo>
@@ -427,6 +434,7 @@ function EnderecosSecao({
                 <input
                   value={form.bairro}
                   onChange={e => setForm(f => ({ ...f, bairro: e.target.value }))}
+                  autoComplete="address-level3"
                   className={INPUT_CLS}
                 />
               </Campo>
@@ -435,6 +443,7 @@ function EnderecosSecao({
                   <input
                     value={form.cidade}
                     onChange={e => setForm(f => ({ ...f, cidade: e.target.value }))}
+                    autoComplete="address-level2"
                     className={INPUT_CLS}
                   />
                 </Campo>
@@ -443,6 +452,7 @@ function EnderecosSecao({
                     value={form.estado}
                     onChange={e => setForm(f => ({ ...f, estado: e.target.value.toUpperCase() }))}
                     maxLength={2}
+                    autoComplete="address-level1"
                     className={INPUT_CLS}
                   />
                 </Campo>

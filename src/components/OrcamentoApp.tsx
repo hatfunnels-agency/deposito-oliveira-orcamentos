@@ -2646,31 +2646,39 @@ export default function OrcamentoApp() {  // Auth state
                           <div className="grid grid-cols-2 gap-2">
                             <input type="text" placeholder="Apelido (ex: Obra, Casa)" value={enderecoNovoForm.apelido}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, apelido: ev.target.value }))}
+                              autoComplete="off" data-lpignore="true" data-1p-ignore="true"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                             <input type="text" placeholder="CEP" value={enderecoNovoForm.cep}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, cep: ev.target.value }))}
+                              autoComplete="postal-code"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           </div>
                           <input type="text" placeholder="Rua *" value={enderecoNovoForm.rua}
                             onChange={ev => setEnderecoNovoForm(f => ({ ...f, rua: ev.target.value }))}
+                            autoComplete="address-line1"
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           <div className="grid grid-cols-2 gap-2">
                             <input type="text" placeholder="Número *" value={enderecoNovoForm.numero}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, numero: ev.target.value }))}
+                              autoComplete="address-line2"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                             <input type="text" placeholder="Complemento" value={enderecoNovoForm.complemento}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, complemento: ev.target.value }))}
+                              autoComplete="off"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           </div>
                           <input type="text" placeholder="Bairro" value={enderecoNovoForm.bairro}
                             onChange={ev => setEnderecoNovoForm(f => ({ ...f, bairro: ev.target.value }))}
+                            autoComplete="address-level3"
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           <div className="grid grid-cols-3 gap-2">
                             <input type="text" placeholder="Cidade" value={enderecoNovoForm.cidade}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, cidade: ev.target.value }))}
+                              autoComplete="address-level2"
                               className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                             <input type="text" placeholder="UF" maxLength={2} value={enderecoNovoForm.estado}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, estado: ev.target.value.toUpperCase() }))}
+                              autoComplete="address-level1"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           </div>
                         </div>
@@ -2686,6 +2694,7 @@ export default function OrcamentoApp() {  // Auth state
                           {/* Apelido opcional */}
                           <input type="text" placeholder="Apelido (ex: Obra, Casa) — opcional" value={apelidoEndereco}
                             onChange={e => setApelidoEndereco(e.target.value)}
+                            autoComplete="off" data-lpignore="true" data-1p-ignore="true"
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
 
                           {/* Busca smart — preenche os separados via CEP ou Google Places */}
@@ -2720,6 +2729,7 @@ export default function OrcamentoApp() {  // Auth state
                                 }
                               }}
                               onKeyDown={e => e.key === 'Enter' && buscarEnderecoSmart(buscaEndereco || cepDestino)}
+                              autoComplete="postal-code"
                               className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
                             />
                             {mostrandoSugestoes && sugestoesEndereco.length > 0 && (
@@ -2769,24 +2779,30 @@ export default function OrcamentoApp() {  // Auth state
                               espelhado em cepDestino (state ja usado pela busca). */}
                           <input type="text" placeholder="Rua *" value={ruaDestino}
                             onChange={e => setRuaDestino(e.target.value)}
+                            autoComplete="address-line1"
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           <div className="grid grid-cols-2 gap-2">
                             <input type="text" placeholder="Número *" value={numeroEndereco}
                               onChange={e => setNumeroEndereco(e.target.value)}
+                              autoComplete="address-line2"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                             <input type="text" placeholder="Complemento (opcional)" value={complementoEndereco}
                               onChange={e => setComplementoEndereco(e.target.value)}
+                              autoComplete="off"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           </div>
                           <input type="text" placeholder="Bairro" value={bairroDestino}
                             onChange={e => setBairroDestino(e.target.value)}
+                            autoComplete="address-level3"
                             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           <div className="grid grid-cols-3 gap-2">
                             <input type="text" placeholder="Cidade" value={cidadeDestino}
                               onChange={e => setCidadeDestino(e.target.value)}
+                              autoComplete="address-level2"
                               className="col-span-2 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                             <input type="text" placeholder="UF" maxLength={2} value={estadoDestino}
                               onChange={e => setEstadoDestino(e.target.value.toUpperCase())}
+                              autoComplete="address-level1"
                               className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                           </div>
                         </>
