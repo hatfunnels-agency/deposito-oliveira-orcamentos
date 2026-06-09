@@ -964,13 +964,15 @@ export default function OrcamentoApp() {  // Auth state
     setSalvandoOrcamento(true);
     setOrcamentoSalvo(null);
     try {
+      // Endereco agora vive exclusivamente em enderecos_clientes via
+      // endereco_id ou endereco_novo (resolvidos logo abaixo). Os campos
+      // cliente_cep/endereco/numero/complemento legacy nao sao mais
+      // enviados — backend ja parou de usa-los no Step 4. States internos
+      // (cepDestino, enderecoViaCEP, etc.) ficam, alimentam o form e o
+      // payload endereco_novo.
       const payload: Record<string, unknown> = {
         cliente_nome: nomeCliente || 'Cliente',
         cliente_telefone: whatsappCliente || '00000000000',
-        cliente_cep: cepDestino || null,
-        cliente_endereco: enderecoViaCEP || null,
-        cliente_numero: numeroEndereco || null,
-        cliente_complemento: complementoEndereco || null,
         cliente_recebedor: recebedor || null,
         observacoes: observacoes || null,
         tipo_entrega: tipoEntrega,
