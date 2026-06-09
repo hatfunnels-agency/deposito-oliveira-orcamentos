@@ -3893,7 +3893,11 @@ export default function OrcamentoApp() {  // Auth state
         )}
 
             {/* ===== DASHBOARD TAB ===== */}
-        {abaAtiva === 'dashboard' && <DashboardTab />}
+        {abaAtiva === 'dashboard' && (
+          <div className="px-4 pt-4 pb-8">
+            <DashboardTab />
+          </div>
+        )}
 
         {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
