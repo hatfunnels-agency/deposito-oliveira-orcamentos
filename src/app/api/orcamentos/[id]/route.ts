@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted, reverterBaixaItem } from '@/lib/estoque-baixa';
 import { aplicarBaixaFerro, reverterBaixaFerro } from '@/lib/baixa-ferro';
+import { criarEnderecoCliente } from '@/lib/enderecos';
 
 export async function GET(
     request: NextRequest,
@@ -65,6 +66,7 @@ export async function PATCH(
                   cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
                   endereco_id: enderecoIdBody,
+                  endereco_novo: enderecoNovoBody,
           } = body;
 
       // Resolve previousStatus AGORA (antes do UPDATE) pra logica de
@@ -86,22 +88,38 @@ export async function PATCH(
               ferroBaixadoAtual = Boolean(orcAtual?.ferro_baixado);
       }
 
-      // Valida ownership do endereco_id quando o caller pede pra
-      // trocar. Nao permite vincular o orcamento a um endereco de
-      // outro cliente. Permite enderecoIdBody=null pra desvincular.
+      // Resolve endereco_id final quando o caller pede pra trocar.
+      // Aceita 3 formas (simetrico ao POST): endereco_id explicito (com
+      // ownership check), endereco_id=null pra desvincular, ou
+      // endereco_novo (cria via helper e vincula). Precedencia:
+      // endereco_id > endereco_novo. Fetch do orc original e
+      // compartilhado entre os 2 caminhos + validacao do Fix 2 abaixo.
+      let orcOriginal:
+        | { cliente_id: string | null; tipo_entrega: string | null; endereco_id: string | null }
+        | null = null;
+      const fetchOrcOriginal = async () => {
+              if (orcOriginal) return orcOriginal;
+              const { data } = await supabaseAdmin
+                .from('orcamentos')
+                .select('cliente_id, tipo_entrega, endereco_id')
+                .eq('id', params.id)
+                .single();
+              orcOriginal = (data as typeof orcOriginal) ?? null;
+              return orcOriginal;
+      };
+
       let enderecoIdValidado: string | null | undefined = undefined;
-      if (enderecoIdBody !== undefined) {
+      const querMexerEndereco =
+        enderecoIdBody !== undefined ||
+        (enderecoNovoBody && typeof enderecoNovoBody === 'object');
+      if (querMexerEndereco) {
+              const orc = await fetchOrcOriginal();
+              if (!orc?.cliente_id) {
+                      return NextResponse.json({ error: 'Orcamento sem cliente' }, { status: 400 });
+              }
               if (enderecoIdBody === null) {
                       enderecoIdValidado = null;
               } else if (typeof enderecoIdBody === 'string' && enderecoIdBody.length > 0) {
-                      const { data: orc } = await supabaseAdmin
-                        .from('orcamentos')
-                        .select('cliente_id')
-                        .eq('id', params.id)
-                        .single();
-                      if (!orc?.cliente_id) {
-                              return NextResponse.json({ error: 'Orcamento sem cliente' }, { status: 400 });
-                      }
                       const { data: end } = await supabaseAdmin
                         .from('enderecos_clientes')
                         .select('id, cliente_id')
@@ -114,6 +132,36 @@ export async function PATCH(
                               );
                       }
                       enderecoIdValidado = end.id as string;
+              } else if (enderecoNovoBody && typeof enderecoNovoBody === 'object') {
+                      const r = await criarEnderecoCliente(orc.cliente_id as string, enderecoNovoBody);
+                      if (!r.ok) {
+                              console.error('[PATCH orcamentos] criar endereco_novo falhou', r);
+                              return NextResponse.json(
+                                { error: 'Falha ao criar endereco novo' },
+                                { status: 500 },
+                              );
+                      }
+                      enderecoIdValidado = r.endereco.id;
+              }
+      }
+
+      // Fix 2: bloqueia PATCH que deixaria o pedido em estado invalido —
+      // tipo_entrega='entrega' sem endereco_id. So valida se ESTE PATCH
+      // mexeu em tipo_entrega ou endereco (caso contrario assume que o
+      // estado anterior era valido OU e legacy; nao revalida).
+      if (tipo_entrega !== undefined || enderecoIdValidado !== undefined) {
+              const orc = await fetchOrcOriginal();
+              const tipoFinal = tipo_entrega !== undefined
+                ? tipo_entrega
+                : (orc?.tipo_entrega ?? null);
+              const enderecoFinal = enderecoIdValidado !== undefined
+                ? enderecoIdValidado
+                : (orc?.endereco_id ?? null);
+              if (tipoFinal === 'entrega' && !enderecoFinal) {
+                      return NextResponse.json(
+                        { error: 'endereco_id ou endereco_novo e obrigatorio para tipo_entrega=entrega' },
+                        { status: 400 },
+                      );
               }
       }
 

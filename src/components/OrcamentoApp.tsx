@@ -459,6 +459,9 @@ export default function OrcamentoApp() {  // Auth state
   const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
   const [modoEndereco, setModoEndereco] = useState<'existente' | 'novo'>('existente');
   const [enderecoNovoForm, setEnderecoNovoForm] = useState<EnderecoNovoForm>(ENDERECO_NOVO_VAZIO);
+  // enderecoResolvido espelha a logica de salvarEGerarOrcamento — true
+  // quando algum dos 4 caminhos consegue resolver um endereco pro PATCH/
+  // POST (Fix 3 do bug ORD-4Z9EPS8/ORD-CCDQAIB).
   // Campos separados pra o form de cliente novo / sem enderecos cadastrados.
   // Substituem o enderecoViaCEP concatenado da UI legacy (Step 4 Tarefa 2).
   const [ruaDestino, setRuaDestino] = useState('');
@@ -466,6 +469,28 @@ export default function OrcamentoApp() {  // Auth state
   const [cidadeDestino, setCidadeDestino] = useState('');
   const [estadoDestino, setEstadoDestino] = useState('');
   const [apelidoEndereco, setApelidoEndereco] = useState('');
+
+  // Espelha a logica de salvarEGerarOrcamento: true quando o submit
+  // vai conseguir resolver um endereco. Pra tipo_entrega='entrega'
+  // bloqueia o botao Salvar quando nao resolveria — evita criar pedido
+  // com endereco_id NULL (Fix 3 do bug ORD-4Z9EPS8/ORD-CCDQAIB).
+  // Retirada nao precisa de endereco — sempre true.
+  const enderecoResolvido = useMemo(() => {
+    if (tipoEntrega !== 'entrega') return true;
+    if (enderecoIdSelecionado && modoEndereco === 'existente') return true;
+    if (
+      enderecosDoCliente.length > 0 &&
+      modoEndereco === 'novo' &&
+      enderecoNovoForm.rua.trim() &&
+      enderecoNovoForm.numero.trim()
+    ) return true;
+    if (ruaDestino.trim() && numeroEndereco.trim()) return true;
+    return false;
+  }, [
+    tipoEntrega, enderecoIdSelecionado, modoEndereco, enderecosDoCliente,
+    enderecoNovoForm, ruaDestino, numeroEndereco,
+  ]);
+
   // Sub-picker pra trocar endereco no modal de detalhe (Tarefa 6).
   // State separado do picker do form pra nao colidir quando ambos abertos.
   const [mostrarTrocaEndereco, setMostrarTrocaEndereco] = useState(false);
@@ -3170,7 +3195,12 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 ) : null;
               })()}
-                            <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento}
+                            {!enderecoResolvido && tipoEntrega === 'entrega' && (
+                              <div className="text-sm text-red-600 mb-2">
+                                Informe o endereço de entrega antes de salvar.
+                              </div>
+                            )}
+                            <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento || !enderecoResolvido}
                   className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
                 </button>
