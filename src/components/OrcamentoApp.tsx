@@ -27,6 +27,7 @@ interface Produto {
   estoque_compartilhado_com?: string | null;
   tipo_estoque?: 'estocavel' | 'sob_demanda';
   total_vendido?: number;
+  ultima_atualizacao_custo?: string | null;
 }
 
 interface ItemOrcamento {
@@ -571,6 +572,14 @@ export default function OrcamentoApp() {  // Auth state
   const [movimentacoes, setMovimentacoes] = useState<Array<{id:string;tipo:string;quantidade:number;estoque_anterior:number;estoque_novo:number;observacoes:string;criado_em:string}>>([]);
   const [salvandoEstoque, setSalvandoEstoque] = useState(false);
   const [filtroEstoqueBaixo, setFiltroEstoqueBaixo] = useState(false);
+  // Batch B Fase 3: edicao inline de preco_custo + modal historico
+  const [editandoCustoId, setEditandoCustoId] = useState<string | null>(null);
+  const [editandoCustoValor, setEditandoCustoValor] = useState('');
+  const [salvandoCustoId, setSalvandoCustoId] = useState<string | null>(null);
+  const [toastEstoque, setToastEstoque] = useState<{ tipo: 'sucesso' | 'erro'; msg: string } | null>(null);
+  const [historicoCustosOpenId, setHistoricoCustosOpenId] = useState<string | null>(null);
+  const [historicoCustosLista, setHistoricoCustosLista] = useState<Array<{ id: string; custo_anterior: number; custo_novo: number; criado_em: string; usuario_nome: string | null }>>([]);
+  const [historicoCustosLoading, setHistoricoCustosLoading] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   const [excluindoProdutoId, setExcluindoProdutoId] = useState<string | null>(null);
   // Feature 3 - Logo base64 for print
@@ -2169,6 +2178,74 @@ export default function OrcamentoApp() {  // Auth state
       carregarProdutos();
     } catch (e) { console.error(e); }
     setSalvandoEstoque(false);
+  };
+
+  // === Edicao inline de preco_custo (Batch B Fase 3) ===
+  const iniciarEdicaoCusto = (p: Produto) => {
+    setEditandoCustoId(p.id);
+    // Formato brasileiro: virgula decimal
+    setEditandoCustoValor(String(p.preco_custo ?? 0).replace('.', ','));
+  };
+  const cancelarEdicaoCusto = () => {
+    setEditandoCustoId(null);
+    setEditandoCustoValor('');
+  };
+  const salvarCusto = async (p: Produto) => {
+    // Parse BR (aceita "11,92" e "11.92"). Valida >= 0.
+    const normalizado = editandoCustoValor.replace(',', '.').trim();
+    const novo = parseFloat(normalizado);
+    if (!Number.isFinite(novo) || novo < 0) {
+      setToastEstoque({ tipo: 'erro', msg: 'Custo invalido (informe valor >= 0)' });
+      return;
+    }
+    // No-op se o valor nao mudou
+    if (novo === Number(p.preco_custo || 0)) {
+      cancelarEdicaoCusto();
+      return;
+    }
+    setSalvandoCustoId(p.id);
+    try {
+      const res = await fetch(`/api/produtos/${p.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preco_custo: novo, usuario_id: user?.id ?? null }),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) {
+        setToastEstoque({ tipo: 'erro', msg: data?.error || 'Falha ao salvar' });
+      } else {
+        setToastEstoque({ tipo: 'sucesso', msg: 'Custo atualizado' });
+        cancelarEdicaoCusto();
+        carregarProdutos();
+      }
+    } catch (e) {
+      console.error(e);
+      setToastEstoque({ tipo: 'erro', msg: 'Erro de rede ao salvar' });
+    }
+    setSalvandoCustoId(null);
+  };
+
+  // Toast auto-some em 2.5s
+  useEffect(() => {
+    if (!toastEstoque) return;
+    const t = setTimeout(() => setToastEstoque(null), 2500);
+    return () => clearTimeout(t);
+  }, [toastEstoque]);
+
+  // === Modal historico de custos (Batch B Fase 3) ===
+  const abrirHistoricoCustos = async (p: Produto) => {
+    setHistoricoCustosOpenId(p.id);
+    setHistoricoCustosLista([]);
+    setHistoricoCustosLoading(true);
+    try {
+      const res = await fetch(`/api/produtos/${p.id}/historico-custos`, { cache: 'no-store' });
+      const data = await res.json();
+      setHistoricoCustosLista(data?.historico || []);
+    } catch (e) {
+      console.error('Erro ao carregar historico de custos', e);
+    }
+    setHistoricoCustosLoading(false);
   };
 
   const abrirEditProduto = (p: Produto) => {
@@ -3963,12 +4040,46 @@ export default function OrcamentoApp() {  // Auth state
                         <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}</p></td>
                         <td className="px-2 py-3 text-center">{p.tipo_estoque === 'sob_demanda' ? (<><span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>{(p.total_vendido ?? 0) > 0 && <p className="text-xs text-gray-400 mt-0.5">{p.total_vendido} vendidos</p>}</>) : (<><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque} {p.unidade}</span><p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p></>)}</td>
                         <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
-                        <td className="px-2 py-3 text-right text-gray-500">R$ {formatBRL(p.preco_custo || 0)}</td>
+                        <td className="px-2 py-3 text-right">
+                          {editandoCustoId === p.id ? (
+                            <div className="flex items-center justify-end gap-1">
+                              <span className="text-xs text-gray-400">R$</span>
+                              <input
+                                type="text"
+                                autoFocus
+                                inputMode="decimal"
+                                value={editandoCustoValor}
+                                onChange={ev => setEditandoCustoValor(ev.target.value)}
+                                onBlur={() => salvarCusto(p)}
+                                onKeyDown={ev => {
+                                  if (ev.key === 'Enter') { ev.preventDefault(); (ev.target as HTMLInputElement).blur(); }
+                                  else if (ev.key === 'Escape') { ev.preventDefault(); cancelarEdicaoCusto(); }
+                                }}
+                                disabled={salvandoCustoId === p.id}
+                                className="w-24 border border-[#F7941D] rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-[#F7941D] disabled:opacity-50"
+                              />
+                              {salvandoCustoId === p.id && <span className="text-xs text-gray-400">…</span>}
+                            </div>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => iniciarEdicaoCusto(p)}
+                              title="Clique pra editar"
+                              className="text-gray-500 hover:text-[#F7941D] hover:bg-orange-50 px-2 py-0.5 rounded"
+                            >R$ {formatBRL(p.preco_custo || 0)}</button>
+                          )}
+                          {p.ultima_atualizacao_custo && (
+                            <p className="text-[10px] text-gray-400 mt-0.5">
+                              atualizado em {new Date(p.ultima_atualizacao_custo).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
+                            </p>
+                          )}
+                        </td>
                         <td className="px-2 py-3 text-right"><span className={`text-xs font-bold ${Number(margem) >= 30 ? 'text-green-600' : Number(margem) >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{margem}%</span></td>
                         <td className="px-2 py-3 text-center"><div className="flex gap-1 justify-center flex-wrap">
-                          <button onClick={() => abrirEditProduto(p)} className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">✏️</button>
-                          <button onClick={() => { setProdutoSelecionado(p); setEntradaQtd(''); setEntradaObs(''); setMostrarEntrada(true); }} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">📥</button>
-                          <button onClick={() => abrirHistoricoProduto(p)} className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-1 rounded hover:bg-[#FFF3E0]">📊</button>
+                          <button onClick={() => abrirEditProduto(p)} title="Editar produto" className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">✏️</button>
+                          <button onClick={() => { setProdutoSelecionado(p); setEntradaQtd(''); setEntradaObs(''); setMostrarEntrada(true); }} title="Registrar entrada" className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">📥</button>
+                          <button onClick={() => abrirHistoricoCustos(p)} title="Histórico de custos" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100">📜</button>
+                          <button onClick={() => abrirHistoricoProduto(p)} title="Histórico de movimentações" className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-1 rounded hover:bg-[#FFF3E0]">📊</button>
                         </div></td>
                       </tr>
                     );
@@ -3979,6 +4090,62 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         </div>
       )}
+
+      {/* Batch B Fase 3: Modal Historico de Custos */}
+      {historicoCustosOpenId && (() => {
+        const produto = produtos.find(p => p.id === historicoCustosOpenId);
+        return (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setHistoricoCustosOpenId(null); setHistoricoCustosLista([]); }}>
+            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+              <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+                <div>
+                  <h3 className="font-bold text-gray-800">📜 Histórico de Custos</h3>
+                  {produto && <p className="text-xs text-gray-500">{produto.nome}</p>}
+                </div>
+                <button onClick={() => { setHistoricoCustosOpenId(null); setHistoricoCustosLista([]); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
+              </div>
+              <div className="p-4">
+                {historicoCustosLoading ? (
+                  <p className="text-center text-sm text-gray-400 py-8">Carregando…</p>
+                ) : historicoCustosLista.length === 0 ? (
+                  <p className="text-center text-sm text-gray-400 py-8">Nenhuma alteração de custo registrada ainda.</p>
+                ) : (
+                  <table className="w-full text-xs">
+                    <thead><tr className="border-b border-gray-100 text-gray-500">
+                      <th className="text-left py-2 pr-2 font-medium">Data</th>
+                      <th className="text-right py-2 pr-2 font-medium">De</th>
+                      <th className="text-right py-2 pr-2 font-medium">Pra</th>
+                      <th className="text-left py-2 font-medium">Por</th>
+                    </tr></thead>
+                    <tbody>
+                      {historicoCustosLista.map(h => {
+                        const delta = h.custo_novo - h.custo_anterior;
+                        const cor = delta > 0 ? 'text-red-600' : delta < 0 ? 'text-green-600' : 'text-gray-500';
+                        return (
+                          <tr key={h.id} className="border-b border-gray-50">
+                            <td className="py-2 pr-2 text-gray-700">{new Date(h.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
+                            <td className="py-2 pr-2 text-right text-gray-500">R$ {formatBRL(h.custo_anterior)}</td>
+                            <td className={`py-2 pr-2 text-right font-semibold ${cor}`}>R$ {formatBRL(h.custo_novo)}</td>
+                            <td className="py-2 text-gray-600">{h.usuario_nome || '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Toast da aba Estoque (edicao inline de custo) */}
+      {toastEstoque && (
+        <div className={`fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-lg ${toastEstoque.tipo === 'sucesso' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toastEstoque.msg}
+        </div>
+      )}
+
       {/* Modal Detalhe do Orcamento (Bug 6 fix - edit button restored) */}
       {mostrarDetalhe && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }}>

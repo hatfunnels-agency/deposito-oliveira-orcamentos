@@ -46,6 +46,25 @@ export async function GET() {
       console.error('Erro ao contar vendas por produto (sort cai no alfabetico):', e);
     }
 
+    // Ultima atualizacao de preco_custo por produto (Batch B Fase 3).
+    // Pega MAX(criado_em) por produto_id da historico_custos. Falha
+    // silenciosa: ultima_atualizacao_custo fica null pra todos.
+    const ultimaAtualizacaoCustoPorProduto = new Map<string, string>();
+    try {
+      const { data: histRaw } = await supabaseAdmin
+        .from('historico_custos')
+        .select('produto_id, criado_em')
+        .limit(100000);
+      for (const h of (histRaw || []) as Array<{ produto_id: string; criado_em: string }>) {
+        const atual = ultimaAtualizacaoCustoPorProduto.get(h.produto_id);
+        if (!atual || h.criado_em > atual) {
+          ultimaAtualizacaoCustoPorProduto.set(h.produto_id, h.criado_em);
+        }
+      }
+    } catch (e) {
+      console.error('Erro ao agregar historico_custos (ultima_atualizacao_custo fica null):', e);
+    }
+
     const produtosFormatados = (produtos || []).map((p: Record<string, unknown>) => {
       const fatorConversao = Number(p.fator_conversao) || 1;
       let   estoqueAtual = Number(p.estoque_atual) || 0;
@@ -92,6 +111,7 @@ export async function GET() {
         tipo_estoque: tipoEstoque,
         total_vendido: totalVendido,
         qtd_vendas: vendasPorProduto.get(p.id as string) || 0,
+        ultima_atualizacao_custo: ultimaAtualizacaoCustoPorProduto.get(p.id as string) || null,
       };
     });
 
