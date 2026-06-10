@@ -28,6 +28,11 @@ interface Produto {
   tipo_estoque?: 'estocavel' | 'sob_demanda';
   total_vendido?: number;
   ultima_atualizacao_custo?: string | null;
+  // Batch C — controle de estoque de ferro
+  tipo_ferro?: string | null;
+  baixa_estoque_em_produto_id?: string | null;
+  baixa_estoque_fator?: number | null;
+  metros_reservados?: number;
 }
 
 interface ItemOrcamento {
@@ -4037,8 +4042,37 @@ export default function OrcamentoApp() {  // Auth state
                     const estoqueColor = p.estoque <= 0 ? 'text-red-700 bg-red-50' : p.abaixo_minimo ? 'text-red-600 bg-red-50' : p.estoque <= p.estoque_minimo * 2 ? 'text-yellow-700 bg-yellow-50' : 'text-green-700 bg-green-50';
                     return (
                       <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}</p></td>
-                        <td className="px-2 py-3 text-center">{p.tipo_estoque === 'sob_demanda' ? (<><span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>{(p.total_vendido ?? 0) > 0 && <p className="text-xs text-gray-400 mt-0.5">{p.total_vendido} vendidos</p>}</>) : (<><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque} {p.unidade}</span><p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p></>)}</td>
+                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}{p.baixa_estoque_em_produto_id ? (() => {
+                          const proxy = produtos.find(x => x.id === p.baixa_estoque_em_produto_id);
+                          const fator = p.baixa_estoque_fator;
+                          return ` · ↓ Baixa estoque de ${proxy?.nome || p.baixa_estoque_em_produto_id}${fator && fator !== 1 ? ` (fator ${fator})` : ''}`;
+                        })() : ''}</p></td>
+                        <td className="px-2 py-3 text-center">{p.tipo_ferro ? (() => {
+                          // Batch C: produtos de ferro mostram disponivel/reservado
+                          // e alertam estouro (estoque - reservados < 0).
+                          const reservados = p.metros_reservados ?? 0;
+                          const disponivel = p.estoque - reservados;
+                          const insuficiente = disponivel < 0;
+                          const atencao = !insuficiente && disponivel < p.estoque_minimo;
+                          const corFerro = insuficiente
+                            ? 'text-red-700 bg-red-50'
+                            : atencao
+                              ? 'text-yellow-700 bg-yellow-50'
+                              : 'text-green-700 bg-green-50';
+                          return (
+                            <div>
+                              <span
+                                className={`text-xs font-bold px-2 py-1 rounded-full ${corFerro}`}
+                                title={insuficiente ? 'Estoque insuficiente pros orçamentos rascunho' : ''}
+                              >
+                                {insuficiente && '⚠️ '}{p.estoque}{p.unidade} disponíveis
+                              </span>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {reservados}{p.unidade} reservados{p.estoque_minimo > 0 ? ` · min: ${p.estoque_minimo}${p.unidade}` : ''}
+                              </p>
+                            </div>
+                          );
+                        })() : p.tipo_estoque === 'sob_demanda' ? (<><span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>{(p.total_vendido ?? 0) > 0 && <p className="text-xs text-gray-400 mt-0.5">{p.total_vendido} vendidos</p>}</>) : (<><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque} {p.unidade}</span><p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p></>)}</td>
                         <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
                         <td className="px-2 py-3 text-right">
                           {editandoCustoId === p.id ? (
