@@ -92,18 +92,28 @@ export async function PATCH(
       // Aceita 3 formas (simetrico ao POST): endereco_id explicito (com
       // ownership check), endereco_id=null pra desvincular, ou
       // endereco_novo (cria via helper e vincula). Precedencia:
-      // endereco_id > endereco_novo. Fetch do orc.cliente_id e
-      // compartilhado entre os 2 caminhos.
+      // endereco_id > endereco_novo. Fetch do orc original e
+      // compartilhado entre os 2 caminhos + validacao do Fix 2 abaixo.
+      let orcOriginal:
+        | { cliente_id: string | null; tipo_entrega: string | null; endereco_id: string | null }
+        | null = null;
+      const fetchOrcOriginal = async () => {
+              if (orcOriginal) return orcOriginal;
+              const { data } = await supabaseAdmin
+                .from('orcamentos')
+                .select('cliente_id, tipo_entrega, endereco_id')
+                .eq('id', params.id)
+                .single();
+              orcOriginal = (data as typeof orcOriginal) ?? null;
+              return orcOriginal;
+      };
+
       let enderecoIdValidado: string | null | undefined = undefined;
       const querMexerEndereco =
         enderecoIdBody !== undefined ||
         (enderecoNovoBody && typeof enderecoNovoBody === 'object');
       if (querMexerEndereco) {
-              const { data: orc } = await supabaseAdmin
-                .from('orcamentos')
-                .select('cliente_id')
-                .eq('id', params.id)
-                .single();
+              const orc = await fetchOrcOriginal();
               if (!orc?.cliente_id) {
                       return NextResponse.json({ error: 'Orcamento sem cliente' }, { status: 400 });
               }
@@ -132,6 +142,26 @@ export async function PATCH(
                               );
                       }
                       enderecoIdValidado = r.endereco.id;
+              }
+      }
+
+      // Fix 2: bloqueia PATCH que deixaria o pedido em estado invalido —
+      // tipo_entrega='entrega' sem endereco_id. So valida se ESTE PATCH
+      // mexeu em tipo_entrega ou endereco (caso contrario assume que o
+      // estado anterior era valido OU e legacy; nao revalida).
+      if (tipo_entrega !== undefined || enderecoIdValidado !== undefined) {
+              const orc = await fetchOrcOriginal();
+              const tipoFinal = tipo_entrega !== undefined
+                ? tipo_entrega
+                : (orc?.tipo_entrega ?? null);
+              const enderecoFinal = enderecoIdValidado !== undefined
+                ? enderecoIdValidado
+                : (orc?.endereco_id ?? null);
+              if (tipoFinal === 'entrega' && !enderecoFinal) {
+                      return NextResponse.json(
+                        { error: 'endereco_id ou endereco_novo e obrigatorio para tipo_entrega=entrega' },
+                        { status: 400 },
+                      );
               }
       }
 
