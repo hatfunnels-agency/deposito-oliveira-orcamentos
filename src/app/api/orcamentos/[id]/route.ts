@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted, reverterBaixaItem } from '@/lib/estoque-baixa';
+import { aplicarBaixaFerro, reverterBaixaFerro } from '@/lib/baixa-ferro';
 
 export async function GET(
     request: NextRequest,
@@ -69,14 +70,20 @@ export async function PATCH(
       // Resolve previousStatus AGORA (antes do UPDATE) pra logica de
       // baixa/devolucao saber qual era o estado anterior. Usa body
       // _previous_status se cliente mandou; senao busca do banco.
+      // Tambem traz ferro_baixado (idempotencia do Batch C) na mesma
+      // query — zero round-trip extra.
       let previousStatusResolvido: string | undefined = body._previous_status;
-      if (status && previousStatusResolvido === undefined) {
+      let ferroBaixadoAtual = false;
+      if (status) {
               const { data: orcAtual } = await supabaseAdmin
                 .from('orcamentos')
-                .select('status')
+                .select('status, ferro_baixado')
                 .eq('id', params.id)
                 .single();
-              previousStatusResolvido = (orcAtual?.status as string | undefined) ?? undefined;
+              if (previousStatusResolvido === undefined) {
+                      previousStatusResolvido = (orcAtual?.status as string | undefined) ?? undefined;
+              }
+              ferroBaixadoAtual = Boolean(orcAtual?.ferro_baixado);
       }
 
       // Valida ownership do endereco_id quando o caller pede pra
@@ -266,6 +273,42 @@ export async function PATCH(
                               } catch (e) {
                                       console.error('[PATCH orcamentos] excecao na devolucao', item.produto_nome, e);
                               }
+                      }
+            }
+
+            // Batch C: baixa/reversao de FERRO. Fluxo SEPARADO do
+            // aplicarBaixaItem acima — cobre 2 caminhos que o helper
+            // existente nao trata: (a) itens avulsos da calculadora via
+            // ferragem_consumo e (b) produtos com baixa_estoque_em_
+            // produto_id (proxy). Idempotencia via orcamentos.
+            // ferro_baixado — caller seta a flag depois do sucesso.
+            if (ehCommitted(status) && !ferroBaixadoAtual) {
+                      try {
+                              const r = await aplicarBaixaFerro(params.id);
+                              if (r.ok) {
+                                      await supabaseAdmin
+                                        .from('orcamentos')
+                                        .update({ ferro_baixado: true })
+                                        .eq('id', params.id);
+                              } else {
+                                      console.error('[PATCH orcamentos] aplicarBaixaFerro falhou', r.erro);
+                              }
+                      } catch (e) {
+                              console.error('[PATCH orcamentos] excecao em aplicarBaixaFerro', e);
+                      }
+            } else if (status === 'cancelado' && ferroBaixadoAtual) {
+                      try {
+                              const r = await reverterBaixaFerro(params.id);
+                              if (r.ok) {
+                                      await supabaseAdmin
+                                        .from('orcamentos')
+                                        .update({ ferro_baixado: false })
+                                        .eq('id', params.id);
+                              } else {
+                                      console.error('[PATCH orcamentos] reverterBaixaFerro falhou', r.erro);
+                              }
+                      } catch (e) {
+                              console.error('[PATCH orcamentos] excecao em reverterBaixaFerro', e);
                       }
             }
       }
