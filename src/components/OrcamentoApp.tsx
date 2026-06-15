@@ -1124,8 +1124,6 @@ export default function OrcamentoApp() {  // Auth state
         }
       }
 
-      // Captura ANTES do resetarFormulario (que limpa editandoId)
-      const eraEdicao = !!editandoId;
       let savedId: string | null = null;
       if (editandoId) {
         const res = await fetch(`/api/orcamentos/${editandoId}`, {
@@ -1152,17 +1150,12 @@ export default function OrcamentoApp() {  // Auth state
       }
       setSalvandoOrcamento(false);
       if (savedId) {
+        // Criacao OU edicao: abre o modal de detalhe pra os atalhos de
+        // gestao (WhatsApp, imprimir, status). Fluxo unificado pedido
+        // pelo Roger — o atalho de WhatsApp pos-edicao economiza um
+        // clique vs ir pra aba Historico e buscar o pedido manualmente.
         carregarHistorico();
-        if (!eraEdicao) {
-          // Criacao: abre o modal de detalhe pra atalhos (gestao,
-          // whatsapp, imprimir).
-          abrirDetalhe(savedId);
-        } else {
-          // Edicao: form ja foi limpo pelo resetarFormulario; muda pra
-          // aba Historico pra o user nao ficar olhando form em branco
-          // (complemento do c7c32f0).
-          setAbaAtiva('historico');
-        }
+        abrirDetalhe(savedId);
       }
     } catch (e) {
       console.error('Erro ao salvar orcamento', e);
