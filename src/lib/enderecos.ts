@@ -75,12 +75,46 @@ export async function criarEnderecoCliente(
     return { ok: false, reason: 'cliente_nao_encontrado' };
   }
 
-  // Primeiro endereco do cliente vira padrao automatico
-  const { count } = await supabaseAdmin
+  // Carrega enderecos existentes do cliente — usado tanto pro dedup
+  // (evita cadastrar o MESMO endereco a cada compra) quanto pra regra
+  // do primeiro endereco virar padrao.
+  const { data: existentes } = await supabaseAdmin
     .from('enderecos_clientes')
-    .select('*', { count: 'exact', head: true })
+    .select('*')
     .eq('cliente_id', cliente_id);
-  const isPadrao = (count || 0) === 0 || dados.is_padrao === true;
+  const lista = existentes || [];
+
+  // Dedup: se ja existe um endereco igual (mesma rua/numero/complemento/
+  // bairro/cidade/estado/cep, normalizados), reusa em vez de duplicar.
+  // Corrige o bug de cada compra recadastrar o mesmo endereco.
+  const norm = (v: unknown) => String(v ?? '').trim().toLowerCase().replace(/\s+/g, ' ');
+  const normCep = (v: unknown) => String(v ?? '').replace(/\D/g, '');
+  const chave = (e: Record<string, unknown>) =>
+    [norm(e.rua), norm(e.numero), norm(e.complemento), norm(e.bairro), norm(e.cidade), norm(e.estado), normCep(e.cep)].join('|');
+  const alvo = chave(dados as unknown as Record<string, unknown>);
+  const existente = lista.find((e) => chave(e as Record<string, unknown>) === alvo);
+  if (existente) {
+    // Se o caller pediu este endereco como padrao e ele ainda nao e,
+    // promove o existente (respeitando o unique index de 1 padrao/cliente).
+    if (dados.is_padrao === true && !existente.is_padrao) {
+      await supabaseAdmin
+        .from('enderecos_clientes')
+        .update({ is_padrao: false })
+        .eq('cliente_id', cliente_id)
+        .eq('is_padrao', true);
+      const { data: promovido } = await supabaseAdmin
+        .from('enderecos_clientes')
+        .update({ is_padrao: true })
+        .eq('id', existente.id)
+        .select('*')
+        .single();
+      if (promovido) return { ok: true, endereco: promovido as EnderecoCriado };
+    }
+    return { ok: true, endereco: existente as EnderecoCriado };
+  }
+
+  // Primeiro endereco do cliente vira padrao automatico
+  const isPadrao = lista.length === 0 || dados.is_padrao === true;
 
   // Unique index uk_enderecos_clientes_padrao: zera o padrao anterior
   // antes de inserir o novo padrao.

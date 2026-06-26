@@ -67,6 +67,7 @@ export async function PUT(
     if (body.preco_custo !== undefined) updateData.preco_custo = body.preco_custo;
     if (body.estoque_minimo !== undefined) updateData.estoque_minimo = body.estoque_minimo;
     if (body.fator_conversao !== undefined) updateData.fator_conversao = body.fator_conversao;
+    if (body.tipo_estoque !== undefined) updateData.tipo_estoque = body.tipo_estoque;
     if (body.ativo !== undefined) updateData.ativo = body.ativo;
 
     // Pre-fetch do preco_custo atual quando o caller pede pra mudar.

@@ -249,6 +249,7 @@ export async function POST(request: Request) {
         estoque_atual: body.estoque_inicial || 0,
         estoque_minimo: body.estoque_minimo || 0,
         fator_conversao: body.fator_conversao || 1.0,
+        tipo_estoque: body.tipo_estoque || 'estocavel',
         ativo: true,
       })
       .select()
