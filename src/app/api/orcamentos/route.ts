@@ -290,6 +290,25 @@ export async function POST(request: NextRequest) {
               console.log('[GHL Sync] Falha (nao bloqueante):', e);
       }
 
+      // Conversao offline Google Ads (non-blocking) — pedidos que JA NASCEM
+      // confirmados (venda de balcao lancada direto como retirada/entrega).
+      // Mesmo conjunto de status do PATCH; o gclid/dedupe sao resolvidos na
+      // rota /api/google-ads/conversion.
+      const STATUS_CONVERSAO_GADS = ['entrega_pendente', 'retirada_pendente', 'entrega_parcial', 'em_rota', 'completo'];
+      if (STATUS_CONVERSAO_GADS.includes(String(insertData.status))) {
+              try {
+                      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+                      fetch(`${appUrl}/api/google-ads/conversion`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ orcamento_id: orcamento.id }),
+                                cache: 'no-store',
+                      }).catch(e => console.log('[GAds Conv] Falha (nao bloqueante):', e));
+              } catch (e) {
+                      console.log('[GAds Conv] Falha (nao bloqueante):', e);
+              }
+      }
+
       return NextResponse.json({
               success: true,
               codigo: orcamento.codigo,

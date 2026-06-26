@@ -463,6 +463,31 @@ export async function PATCH(
               console.log('[GHL Sync] Falha (nao bloqueante):', e);
       }
 
+      // Conversao offline Google Ads — dispara quando o pedido ENTRA num
+      // status de venda confirmada (Entrega Pendente em diante; exclui
+      // ocorrencia e cancelado). So na transicao de-fora-pra-dentro pra
+      // evitar reenvio a cada PATCH subsequente; o order_id (codigo) no
+      // upload ainda garante dedupe no proprio Google como rede de seguranca.
+      // Mesmo padrao awaited+try/catch do GHL sync (Next 14.2 sem after()).
+      const STATUS_CONVERSAO_GADS = ['entrega_pendente', 'retirada_pendente', 'entrega_parcial', 'em_rota', 'completo'];
+      const entrouEmConversao =
+              status !== undefined &&
+              STATUS_CONVERSAO_GADS.includes(status) &&
+              !STATUS_CONVERSAO_GADS.includes(previousStatusResolvido ?? '');
+      if (entrouEmConversao) {
+              try {
+                      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+                      await fetch(`${appUrl}/api/google-ads/conversion`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ orcamento_id: params.id }),
+                                cache: 'no-store',
+                      });
+              } catch (e) {
+                      console.log('[GAds Conv] Falha (nao bloqueante):', e);
+              }
+      }
+
       return NextResponse.json(data);
     } catch (error) {
           console.error('Erro ao atualizar orcamento:', error);
