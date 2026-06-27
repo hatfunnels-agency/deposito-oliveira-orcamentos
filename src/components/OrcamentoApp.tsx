@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
+import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import DashboardTab from './DashboardTab';
 import ClienteProfile from './ClienteProfile';
 import MapaEntregas from './MapaEntregas';
@@ -397,6 +398,7 @@ export default function OrcamentoApp() {  // Auth state
   const [itens, setItens] = useState<ItemOrcamento[]>([]);
   // === CALCULADORA DE FERRO STATES ===
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
+  const [showCalculadoraMadeira, setShowCalculadoraMadeira] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<AbaKey>('produtos');
@@ -882,6 +884,22 @@ export default function OrcamentoApp() {  // Auth state
         detalhamento_ferro: item.detalhamento_ferro,
       };
       setItens(prev => [...prev, novoItem]);
+    });
+  };
+
+  // Calculadora de Madeira: adiciona um produto do catalogo (vendido por
+  // metro) ja com a metragem TOTAL calculada (qtd de pecas x comprimento).
+  // Mantem produto_id real -> preco/custo do catalogo e baixa de estoque
+  // funcionam normalmente. Soma na linha existente do mesmo produto.
+  const adicionarMadeiraCalculada = (produtoId: string, metrosTotal: number) => {
+    const produto = produtos.find(p => p.id === produtoId);
+    if (!produto || metrosTotal <= 0) return;
+    setItens(prev => {
+      const existing = prev.find(i => i.produto.id === produto.id);
+      if (existing) return prev.map(i => i.produto.id === produto.id
+        ? { ...i, quantidade: Math.round((i.quantidade + metrosTotal) * 100) / 100 }
+        : i);
+      return [...prev, { produto, quantidade: metrosTotal }];
     });
   };
 
@@ -2579,6 +2597,12 @@ export default function OrcamentoApp() {  // Auth state
                 className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-700 transition-colors font-medium text-sm"
               >
                 <span>&#x1F527;</span> Calculadora de Ferro
+              </button>
+              <button
+                onClick={() => setShowCalculadoraMadeira(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-amber-700 text-white rounded-lg hover:bg-amber-800 transition-colors font-medium text-sm"
+              >
+                <span>&#x1FAB5;</span> Calculadora de Madeira
               </button>
               <button
                 onClick={() => { setPdvNome(''); setPdvTelefone(''); setPdvItens([]); setPdvStatusPagamento('pago'); setPdvFormaPagamento('pix'); setPdvBusca(''); setMostrarPDV(true); }}
@@ -5043,6 +5067,13 @@ export default function OrcamentoApp() {  // Auth state
         <CalculadoraFerroModal
           onAdicionarItens={adicionarItensAvulsos}
           onClose={() => setShowCalculadoraFerro(false)}
+        />
+      )}
+      {showCalculadoraMadeira && (
+        <CalculadoraMadeiraModal
+          produtos={produtos.filter(p => p.unidade === 'metro' && p.categoria !== 'Ferro')}
+          onAdicionar={adicionarMadeiraCalculada}
+          onClose={() => setShowCalculadoraMadeira(false)}
         />
       )}
       </div>
