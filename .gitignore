@@ -1,1 +1,11 @@
 .claude/
+
+# dependencias e build
+node_modules/
+.next/
+next-env.d.ts
+
+# pastas auxiliares (nao fazem parte do app)
+mcp-gmn/
+historico/
+brand-guidelines/
