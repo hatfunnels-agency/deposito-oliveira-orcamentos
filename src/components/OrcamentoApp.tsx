@@ -636,7 +636,7 @@ export default function OrcamentoApp() {  // Auth state
   const [mostrarPDV, setMostrarPDV] = useState(false);
   const [pdvNome, setPdvNome] = useState('');
   const [pdvTelefone, setPdvTelefone] = useState('');
-  const [pdvItens, setPdvItens] = useState<Array<{ produto: Produto; quantidade: number }>>([]);
+  const [pdvItens, setPdvItens] = useState<Array<{ produto: Produto; quantidade: number; preco_custom?: number }>>([]);
   const [pdvStatusPagamento, setPdvStatusPagamento] = useState<'pago' | 'pendente'>('pago');
   const [pdvFormaPagamento, setPdvFormaPagamento] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
   const [pdvBusca, setPdvBusca] = useState('');
@@ -1427,7 +1427,7 @@ export default function OrcamentoApp() {  // Auth state
     if (pdvItens.length === 0) { alert('Adicione pelo menos um produto'); return; }
     setSalvandoPDV(true);
     try {
-      const subtotal = pdvItens.reduce((s, i) => s + i.produto.preco * i.quantidade, 0);
+      const subtotal = pdvItens.reduce((s, i) => s + (i.preco_custom ?? i.produto.preco) * i.quantidade, 0);
       const payload = {
         cliente_nome: pdvNome.trim(),
         cliente_telefone: pdvTelefone.replace(/\D/g, '') || '',
@@ -1445,7 +1445,7 @@ export default function OrcamentoApp() {  // Auth state
           produto_nome: i.produto.nome,
           quantidade: i.quantidade,
           unidade: i.produto.unidade,
-          preco_unitario: i.produto.preco,
+          preco_unitario: i.preco_custom ?? i.produto.preco,
           preco_custo: i.produto.preco_custo || 0,
         })),
       };
@@ -4595,7 +4595,7 @@ export default function OrcamentoApp() {  // Auth state
 
       {/* Modal PDV — Venda Rápida (balcão) */}
       {mostrarPDV && (() => {
-        const pdvSubtotal = pdvItens.reduce((s, i) => s + i.produto.preco * i.quantidade, 0);
+        const pdvSubtotal = pdvItens.reduce((s, i) => s + (i.preco_custom ?? i.produto.preco) * i.quantidade, 0);
         const pdvFiltrados = produtos.filter(p => p.nome.toLowerCase().includes(pdvBusca.toLowerCase()));
         const ajustarQtd = (produtoId: string, delta: number) => {
           setPdvItens(prev => {
@@ -4605,6 +4605,17 @@ export default function OrcamentoApp() {  // Auth state
             if (nova <= 0) return prev.filter(i => i.produto.id !== produtoId);
             return prev.map(i => i.produto.id === produtoId ? { ...i, quantidade: nova } : i);
           });
+        };
+        // Preco unitario editavel (ex: saco de agregado a R$5 na retirada).
+        // Grava em preco_custom; valor igual ao catalogo limpa o override.
+        const ajustarPreco = (produtoId: string, preco: number | null) => {
+          setPdvItens(prev => prev.map(i => {
+            if (i.produto.id !== produtoId) return i;
+            const limpo: { produto: Produto; quantidade: number; preco_custom?: number } = { ...i };
+            if (preco === null || preco === i.produto.preco) delete limpo.preco_custom;
+            else limpo.preco_custom = preco;
+            return limpo;
+          }));
         };
         return (
           <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => !salvandoPDV && setMostrarPDV(false)}>
@@ -4652,7 +4663,18 @@ export default function OrcamentoApp() {  // Auth state
                     <div key={item.produto.id} className="flex items-center justify-between p-2">
                       <div className="flex-1 min-w-0 mr-2">
                         <p className="text-sm font-medium text-gray-800 truncate">{item.produto.nome}</p>
-                        <p className="text-xs text-gray-500">R$ {formatBRL(item.produto.preco)} × {item.quantidade} = R$ {formatBRL(item.produto.preco * item.quantidade)}</p>
+                        <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                          <span className="text-xs text-gray-500">R$</span>
+                          <input
+                            type="number" min={0} step={0.01}
+                            value={item.preco_custom ?? item.produto.preco}
+                            onChange={e => { const v = parseFloat(e.target.value); ajustarPreco(item.produto.id, isNaN(v) ? null : v); }}
+                            className="w-20 text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#F7941D] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                          <span className="text-xs text-gray-500 whitespace-nowrap">× {item.quantidade} = R$ {formatBRL((item.preco_custom ?? item.produto.preco) * item.quantidade)}</span>
+                          {item.preco_custom != null && item.preco_custom !== item.produto.preco && (
+                            <span className="text-[10px] text-[#F7941D] font-semibold whitespace-nowrap">✎ alterado</span>
+                          )}
+                        </div>
                       </div>
                       <div className="flex items-center gap-1">
                         <button type="button" onClick={() => ajustarQtd(item.produto.id, -1)} className="bg-gray-200 text-gray-700 w-7 h-7 rounded font-bold">−</button>
