@@ -925,6 +925,22 @@ export default function OrcamentoApp() {  // Auth state
     });
   };
 
+  // Preco unitario editavel por item. Grava em preco_custom (ja respeitado
+  // em subtotal, envio e mensagem via `preco_custom ?? produto.preco`).
+  // Passar null/valor igual ao preco do catalogo limpa o override.
+  const setPrecoCustom = (produtoId: string, preco: number | null) => {
+    setItens(prev => prev.map(i => {
+      if (i.produto.id !== produtoId) return i;
+      const limpo: ItemOrcamento = { ...i };
+      if (preco === null || preco === i.produto.preco) {
+        delete limpo.preco_custom;
+        return limpo;
+      }
+      limpo.preco_custom = preco;
+      return limpo;
+    }));
+  };
+
   const getQuantidade = (produtoId: string) => itens.find(i => i.produto.id === produtoId)?.quantidade || 0;
 
   const subtotal = itens.reduce((acc, item) => acc + ((item.preco_custom ?? item.produto.preco) * item.quantidade), 0);
@@ -1688,11 +1704,12 @@ export default function OrcamentoApp() {  // Auth state
       // momento da venda); fallback pro custo atual do produto pra
       // pedidos antigos pre-snapshot. Alinha com CLAUDE.md Opcao B.
       const matchProduto = produtos.find(p => p.nome === oi.produto_nome);
+      const precoCatalogo = matchProduto?.preco ?? oi.preco_unitario;
       return {
         produto: {
           id: matchProduto?.id || String(oi.produto_id || ('item-' + idx)),
           nome: oi.produto_nome,
-          preco: matchProduto?.preco ?? oi.preco_unitario,
+          preco: precoCatalogo,
           estoque: matchProduto?.estoque ?? 999,
           unidade: oi.unidade || matchProduto?.unidade || 'un',
           categoria: matchProduto?.categoria || 'Geral',
@@ -1701,6 +1718,10 @@ export default function OrcamentoApp() {  // Auth state
           abaixo_minimo: matchProduto?.abaixo_minimo ?? false,
         },
         quantidade: oi.quantidade,
+        // Preserva preco editado manualmente na venda: se o preco salvo
+        // difere do catalogo atual, restaura como override pra nao reverter
+        // silenciosamente ao reabrir o pedido pra edicao.
+        ...(oi.preco_unitario !== precoCatalogo ? { preco_custom: oi.preco_unitario } : {}),
       };
     });
     setItens(cartItems);
@@ -2774,7 +2795,18 @@ export default function OrcamentoApp() {  // Auth state
                       <div key={item.produto.id} className="flex items-center gap-3 p-4 border-b border-gray-50 last:border-0">
                         <div className="flex-1">
                           <p className="font-medium text-gray-800 text-sm">{item.produto.nome}</p>
-                          <p className="text-xs text-gray-500">R$ {formatBRL(item.preco_custom ?? item.produto.preco)}/{item.produto.unidade}</p>
+                          <div className="flex items-center gap-1 mt-0.5">
+                            <span className="text-xs text-gray-500">R$</span>
+                            <input
+                              type="number" min={0} step={0.01}
+                              value={item.preco_custom ?? item.produto.preco}
+                              onChange={e => { const v = parseFloat(e.target.value); setPrecoCustom(item.produto.id, isNaN(v) ? null : v); }}
+                              className="w-20 text-xs border border-gray-200 rounded px-1.5 py-1 text-gray-700 focus:outline-none focus:ring-1 focus:ring-[#F7941D] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                            <span className="text-xs text-gray-500">/{item.produto.unidade}</span>
+                            {item.preco_custom != null && item.preco_custom !== item.produto.preco && (
+                              <span className="text-[10px] text-[#F7941D] font-semibold whitespace-nowrap">✎ alterado</span>
+                            )}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <button onClick={() => removerItem(item.produto.id)} className="w-7 h-7 bg-red-100 text-red-600 rounded font-bold hover:bg-red-200 transition text-sm">-</button>
