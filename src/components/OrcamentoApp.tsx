@@ -355,6 +355,120 @@ function ehItemFerro(item: { produto_nome?: string | null; produto_id?: string |
   return false;
 }
 
+// === Impressao da ordem de producao de ferragem (folha do ferreiro) ===
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, c => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]));
+}
+
+// A calculadora embute espacamento e observacao no nome do item, separados
+// por " • ". Aqui separamos pra destacar cada parte na folha do ferreiro.
+function parseNomeFerro(nome: string): { main: string; estribo: string | null; obs: string | null } {
+  const parts = (nome || '').split(' • ');
+  let estribo: string | null = null;
+  let obs: string | null = null;
+  const mainParts: string[] = [];
+  for (const p of parts) {
+    const t = p.trim();
+    if (/^estribo/i.test(t)) estribo = t.replace(/^estribo\s*/i, '').trim();
+    else if (/^obs:/i.test(t)) obs = t.replace(/^obs:\s*/i, '').trim();
+    else if (t) mainParts.push(t);
+  }
+  return { main: mainParts.join(' • '), estribo, obs };
+}
+
+function imprimirOrdensFerragem(pedidos: Array<Record<string, unknown>>): void {
+  if (!pedidos || pedidos.length === 0) return;
+  const win = window.open('', '_blank');
+  if (!win) { alert('Permita pop-ups para imprimir a ordem de produção.'); return; }
+
+  const ordens = pedidos.map(f => {
+    const cliente = (f.clientes as Record<string, unknown>) || {};
+    const itens = (f.orcamento_itens as Array<Record<string, unknown>>) || [];
+    const itensFerro = itens.filter(it => ehItemFerro({
+      produto_nome: it.produto_nome as string | null,
+      produto_id: it.produto_id as string | number | null | undefined,
+    }));
+    const lista = itensFerro.length > 0 ? itensFerro : itens;
+    const totalPecas = lista.reduce((acc, it) => acc + (Number(it.quantidade) || 0), 0);
+    const prazoRaw = (f.data_entrega || f.data_retirada) as string | null;
+    const prazo = prazoRaw ? new Date(prazoRaw + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    const tipoPrazo = (f.tipo_entrega as string) === 'retirada' ? 'Retirada' : 'Entrega';
+
+    const linhas = lista.map(it => {
+      const { main, estribo, obs } = parseNomeFerro((it.produto_nome as string) || '');
+      const qtd = Number(it.quantidade) || 0;
+      const unidade = (it.unidade as string) || '';
+      return `<tr>
+        <td class="chk"></td>
+        <td class="desc">
+          <div class="main">${escapeHtml(main)}</div>
+          ${estribo ? `<span class="tag estribo">Estribo ${escapeHtml(estribo)}</span>` : '<span class="tag alerta">SEM ESPAÇAMENTO — CONFERIR</span>'}
+          ${obs ? `<span class="tag obs">Obs: ${escapeHtml(obs)}</span>` : ''}
+        </td>
+        <td class="qtd">${qtd % 1 === 0 ? qtd : qtd.toFixed(2)} ${escapeHtml(unidade)}</td>
+      </tr>`;
+    }).join('');
+
+    return `<section class="ordem">
+      <div class="cab">
+        <div class="cab-cli">
+          <div class="codigo">${escapeHtml((f.codigo as string) || '')}</div>
+          <div class="cliente">${escapeHtml((cliente.nome as string) || 'Cliente')}</div>
+          <div class="tel">${escapeHtml((cliente.telefone as string) || '')}</div>
+        </div>
+        <div class="prazo">
+          <div class="prazo-label">${tipoPrazo}</div>
+          <div class="prazo-data">${prazo}</div>
+        </div>
+      </div>
+      <table>
+        <thead><tr><th class="chk">Feito</th><th>Peça a produzir</th><th class="qtd">Metros</th></tr></thead>
+        <tbody>${linhas}</tbody>
+      </table>
+      <div class="rodape">${lista.length} tipo(s) de peça • ${totalPecas % 1 === 0 ? totalPecas : totalPecas.toFixed(2)}m no total</div>
+    </section>`;
+  }).join('');
+
+  const geradoEm = new Date().toLocaleString('pt-BR');
+  const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    <title>Ordem de Produção — Ferragem</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color:#000; margin:0; padding:16px; }
+      .top { display:flex; justify-content:space-between; align-items:baseline; border-bottom:3px solid #000; padding-bottom:8px; margin-bottom:16px; }
+      .top h1 { font-size:20px; margin:0; }
+      .top .data { font-size:12px; }
+      .ordem { border:2px solid #000; border-radius:8px; padding:12px 14px; margin-bottom:14px; page-break-inside:avoid; }
+      .cab { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:10px; }
+      .codigo { font-family:monospace; font-size:13px; font-weight:bold; }
+      .cliente { font-size:19px; font-weight:bold; line-height:1.1; }
+      .tel { font-size:12px; }
+      .prazo { text-align:center; border:2px solid #000; border-radius:6px; padding:4px 12px; white-space:nowrap; }
+      .prazo-label { font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
+      .prazo-data { font-size:18px; font-weight:bold; }
+      table { width:100%; border-collapse:collapse; }
+      th, td { border-bottom:1px solid #999; text-align:left; padding:8px 6px; vertical-align:top; }
+      th { font-size:11px; text-transform:uppercase; border-bottom:2px solid #000; }
+      th.chk, td.chk { width:44px; text-align:center; }
+      td.chk::before { content:''; display:inline-block; width:22px; height:22px; border:2px solid #000; border-radius:3px; margin-top:2px; }
+      th.qtd, td.qtd { width:96px; text-align:right; font-weight:bold; white-space:nowrap; }
+      .main { font-size:15px; font-weight:600; }
+      .tag { display:inline-block; font-size:13px; font-weight:bold; margin-top:4px; margin-right:6px; padding:2px 8px; border-radius:4px; }
+      .tag.estribo { background:#000; color:#fff; }
+      .tag.obs { border:2px solid #000; }
+      .tag.alerta { background:#000; color:#fff; }
+      .rodape { margin-top:8px; font-size:12px; text-align:right; color:#333; }
+      @media print { body { padding:0; } }
+    </style></head><body>
+    <div class="top"><h1>🔨 Ordem de Produção — Ferragem</h1><div class="data">Gerado em ${geradoEm}<br>${pedidos.length} pedido(s)</div></div>
+    ${ordens}
+    <script>window.onload=function(){window.focus();window.print();};</script>
+  </body></html>`;
+
+  win.document.write(html);
+  win.document.close();
+}
+
 
 export default function OrcamentoApp() {  // Auth state
   const [user, setUser] = useState<any>(null);
@@ -3388,9 +3502,14 @@ export default function OrcamentoApp() {  // Auth state
             <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-orange-700">{'\ud83d\udce6'} Pedidos com Ferragem ({ferragens.length})</h2>
-                <button onClick={carregarFerragens} disabled={loadingFerragens} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1 rounded hover:bg-orange-50 border border-orange-200">
-                  {loadingFerragens ? 'Carregando...' : 'Atualizar'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => imprimirOrdensFerragem(ferragens)} disabled={ferragens.length === 0} className="text-xs text-white bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded disabled:opacity-40 font-semibold">
+                    \ud83d\udda8\ufe0f Imprimir todas
+                  </button>
+                  <button onClick={carregarFerragens} disabled={loadingFerragens} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1 rounded hover:bg-orange-50 border border-orange-200">
+                    {loadingFerragens ? 'Carregando...' : 'Atualizar'}
+                  </button>
+                </div>
               </div>
               {loadingFerragens && <p className="text-sm text-gray-400 text-center py-4">Carregando...</p>}
               {!loadingFerragens && ferragens.length === 0 && (
@@ -3437,6 +3556,12 @@ export default function OrcamentoApp() {  // Auth state
                         >
                           {passandoAoFerreiro === f.id ? 'Passando...' : 'Passar ao Ferreiro'}
                         </button>
+                        <button
+                          onClick={() => imprimirOrdensFerragem([f])}
+                          className="w-full mt-1 bg-white border border-orange-300 text-orange-700 text-xs font-bold py-1.5 rounded-lg hover:bg-orange-100 transition"
+                        >
+                          🖨️ Imprimir ordem
+                        </button>
                       </div>
                     );
                   })}
@@ -3448,9 +3573,14 @@ export default function OrcamentoApp() {  // Auth state
             <div className="bg-white rounded-xl shadow-sm border border-yellow-200 p-4">
               <div className="flex items-center justify-between mb-3">
                 <h2 className="font-bold text-yellow-700">{'\ud83d\udd28'} Ferragem em Produção ({ferragensProducao.length})</h2>
-                <button onClick={carregarFerragensProducao} disabled={loadingFerragensProducao} className="text-xs text-yellow-700 hover:text-yellow-900 px-2 py-1 rounded hover:bg-yellow-50 border border-yellow-200">
-                  {loadingFerragensProducao ? 'Carregando...' : 'Atualizar'}
-                </button>
+                <div className="flex items-center gap-2">
+                  <button onClick={() => imprimirOrdensFerragem(ferragensProducao)} disabled={ferragensProducao.length === 0} className="text-xs text-white bg-yellow-600 hover:bg-yellow-700 px-2 py-1 rounded disabled:opacity-40 font-semibold">
+                    🖨️ Imprimir todas
+                  </button>
+                  <button onClick={carregarFerragensProducao} disabled={loadingFerragensProducao} className="text-xs text-yellow-700 hover:text-yellow-900 px-2 py-1 rounded hover:bg-yellow-50 border border-yellow-200">
+                    {loadingFerragensProducao ? 'Carregando...' : 'Atualizar'}
+                  </button>
+                </div>
               </div>
               {loadingFerragensProducao && <p className="text-sm text-gray-400 text-center py-4">Carregando...</p>}
               {!loadingFerragensProducao && ferragensProducao.length === 0 && (
@@ -3496,6 +3626,12 @@ export default function OrcamentoApp() {  // Auth state
                           className="w-full bg-green-600 text-white text-xs font-bold py-1.5 rounded-lg hover:bg-green-700 transition disabled:opacity-50"
                         >
                           {marcandoPronta === f.id ? 'Marcando...' : '✅ Marcar como Pronta'}
+                        </button>
+                        <button
+                          onClick={() => imprimirOrdensFerragem([f])}
+                          className="w-full mt-1 bg-white border border-yellow-400 text-yellow-800 text-xs font-bold py-1.5 rounded-lg hover:bg-yellow-100 transition"
+                        >
+                          🖨️ Imprimir ordem
                         </button>
                         <button
                           onClick={() => voltarFerragemPendente(f.id as string)}

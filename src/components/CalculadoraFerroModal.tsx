@@ -20,24 +20,39 @@ interface Props {
   onClose: () => void;
 }
 
-// Tabela de precos (nao acumulativo):
-// 4 barras: 9x15=R$20/m | 9x20=R$20/m | especial=R$25/m
-// 6 barras: R$36/m (independente de medida)
-// 8 barras: R$42/m (independente de medida)
-function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): number {
-  if (barras === 6) return 36;
-  if (barras === 8) return 42;
+// Espacamento do estribo: opcoes em cm. 25cm e o padrao. Quanto mais
+// fechado, mais estribos por metro -> mais aco e mais mao de obra, por
+// isso ha acrescimo no preco ao cliente.
+type Espacamento = '10' | '15' | '20' | '25';
+const ESPACAMENTO_M: Record<Espacamento, number> = {
+  '10': 0.10, '15': 0.15, '20': 0.20, '25': 0.25,
+};
+// Acrescimo no preco/metro (R$) por estribo mais fechado que o padrao de 25cm.
+const ESPACAMENTO_ACRESCIMO: Record<Espacamento, number> = {
+  '25': 0, '20': 2, '15': 4, '10': 8,
+};
+
+// Tabela de precos base (espacamento padrao 25cm; acrescimo do estribo
+// somado por cima). Nao acumulativo entre medida/barras:
+// 4 barras: 9x15=R$25/m | 9x20=R$25/m | especial=R$30/m
+// 6 barras: R$38/m (independente de medida)
+// 8 barras: R$45/m (independente de medida)
+function precoBaseTier(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): number {
+  if (barras === 6) return 38;
+  if (barras === 8) return 45;
   // 4 barras: depende da medida
-  return medida === 'especial' ? 25 : 20;
+  return medida === 'especial' ? 30 : 25;
+}
+function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8, espacamento: Espacamento): number {
+  return precoBaseTier(medida, barras) + ESPACAMENTO_ACRESCIMO[espacamento];
 }
 
 // Constantes de custo do fornecedor (CMV). Nota: `estribo_4mm_por_metro`
 // e nome legado da constante; o estribo real e ferro 4,2mm (convencao do
 // schema ferragem_consumo usa 'ferro_4_2mm_estribo').
 const FERRO_CUSTO = {
-  barra_10mm_por_metro: 2.942,    // R$35,30 / 12m
-  estribo_4mm_por_metro: 0.748,   // R$8,98 / 12m (ferro 4,2mm)
-  espacamento_estribo: 0.30,      // 30cm entre estribos
+  barra_10mm_por_metro: 3.045,    // R$36,54 / 12m
+  estribo_4mm_por_metro: 0.745,   // R$8,94 / 12m (ferro 4,2mm)
   comprimento_estribo: {
     '9x15': 0.58,   // 2*(0.09+0.15)+0.10
     '9x20': 0.68,   // 2*(0.09+0.20)+0.10
@@ -45,9 +60,9 @@ const FERRO_CUSTO = {
   } as Record<string, number>,
 };
 
-function calcularCustoPorMetro(barras: number, medida: string): number {
+function calcularCustoPorMetro(barras: number, medida: string, espacamentoM: number): number {
   const custoBarras = barras * FERRO_CUSTO.barra_10mm_por_metro;
-  const estriboPorMetro = 1 / FERRO_CUSTO.espacamento_estribo;
+  const estriboPorMetro = 1 / espacamentoM;
   const compEstribo = FERRO_CUSTO.comprimento_estribo[medida] ?? 0.68;
   const custoEstribos = estriboPorMetro * compEstribo * FERRO_CUSTO.estribo_4mm_por_metro;
   return custoBarras + custoEstribos;
@@ -69,10 +84,12 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
   const [medidaEspecial, setMedidaEspecial] = useState('');
   const [quantidade, setQuantidade] = useState<number>(1);
   const [metrosPorPeca, setMetrosPorPeca] = useState<number>(0);
+  const [espacamento, setEspacamento] = useState<Espacamento>('25');
   const [obs, setObs] = useState('');
 
-  const precoPorMetro = calcPreco(medida, barras);
-  const custoPorMetro = calcularCustoPorMetro(barras, medida);
+  const espacamentoM = ESPACAMENTO_M[espacamento];
+  const precoPorMetro = calcPreco(medida, barras, espacamento);
+  const custoPorMetro = calcularCustoPorMetro(barras, medida, espacamentoM);
   const metrosTotal = quantidade * metrosPorPeca;
   const totalValor = metrosTotal * precoPorMetro;
   const totalCusto = metrosTotal * custoPorMetro;
@@ -83,13 +100,19 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
     const nomeMedida = medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial');
     const tipoPlural = quantidade > 1 ? TIPO_LABELS[tipo] + 's' : TIPO_LABELS[tipo];
     const barrasLabel = medida === 'especial' ? barras + ' barras (especial)' : barras + ' barras';
-    const nome = quantidade + ' ' + tipoPlural + ' ' + metrosPorPeca + 'm ' + nomeMedida + ' ' + barrasLabel + ' | ' + metrosTotal + 'm';
+    const obsLimpa = obs.trim();
+    // Espacamento e observacao ficam embutidos no nome pra sobreviver a
+    // persistencia (orcamento_itens nao tem colunas proprias) e aparecer
+    // nos cards e na impressao do ferreiro.
+    const nome = quantidade + ' ' + tipoPlural + ' ' + metrosPorPeca + 'm ' + nomeMedida + ' ' + barrasLabel
+      + ' • Estribo ' + espacamento + 'cm | ' + metrosTotal + 'm'
+      + (obsLimpa ? ' • Obs: ' + obsLimpa : '');
 
     // Detalhamento por tipo de ferro pra persistir em ferragem_consumo
     // (Batch B Fase 2). ferro_10mm = metros_de_peca * num_barras.
     // ferro_4_2mm_estribo = metros_de_peca * (perimetro_estribo / espacamento).
     const compEstribo = FERRO_CUSTO.comprimento_estribo[medida] ?? 0.68;
-    const metrosEstribo = (metrosTotal * compEstribo) / FERRO_CUSTO.espacamento_estribo;
+    const metrosEstribo = (metrosTotal * compEstribo) / espacamentoM;
     const detalhamento_ferro: DetalheFerro[] = [
       { tipo_ferro: 'ferro_10mm', metros: Math.round(metrosTotal * barras * 100) / 100 },
       { tipo_ferro: 'ferro_4_2mm_estribo', metros: Math.round(metrosEstribo * 100) / 100 },
@@ -100,6 +123,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
       quantidade: metrosTotal,
       preco: precoPorMetro,
       preco_custo: custoPorMetro,
+      especificacoes: obsLimpa || undefined,
       detalhamento_ferro,
     }]);
     onClose();
@@ -136,15 +160,15 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => setMedida('9x15')} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (medida === '9x15' ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">9×15</div>
-                  <div className="text-xs opacity-75">R$20/m</div>
+                  <div className="text-xs opacity-75">R$25/m</div>
                 </button>
                 <button onClick={() => setMedida('9x20')} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (medida === '9x20' ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">9×20</div>
-                  <div className="text-xs opacity-75">R$20/m</div>
+                  <div className="text-xs opacity-75">R$25/m</div>
                 </button>
                 <button onClick={() => setMedida('especial')} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (medida === 'especial' ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">Especial</div>
-                  <div className="text-xs opacity-75">R$25/m</div>
+                  <div className="text-xs opacity-75">R$30/m</div>
                 </button>
               </div>
               {medida === 'especial' && (
@@ -157,17 +181,37 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => setBarras(4)} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (barras === 4 ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">4 Barras</div>
-                  <div className="text-xs opacity-75">{medida === 'especial' ? 'R$25/m' : 'R$20/m'}</div>
+                  <div className="text-xs opacity-75">{medida === 'especial' ? 'R$30/m' : 'R$25/m'}</div>
                 </button>
                 <button onClick={() => setBarras(6)} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (barras === 6 ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">6 Barras</div>
-                  <div className="text-xs opacity-75">R$36/m</div>
+                  <div className="text-xs opacity-75">R$38/m</div>
                 </button>
                 <button onClick={() => setBarras(8)} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (barras === 8 ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">8 Barras</div>
-                  <div className="text-xs opacity-75">R$42/m</div>
+                  <div className="text-xs opacity-75">R$45/m</div>
                 </button>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Espaçamento do estribo</label>
+              <div className="grid grid-cols-4 gap-2">
+                {(['25', '20', '15', '10'] as Espacamento[]).map(e => (
+                  <button
+                    key={e}
+                    onClick={() => setEspacamento(e)}
+                    className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " +
+                      (espacamento === e ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}
+                  >
+                    <div className="font-bold">{e}cm</div>
+                    <div className="text-xs opacity-75">{ESPACAMENTO_ACRESCIMO[e] === 0 ? 'padrão' : '+R$' + ESPACAMENTO_ACRESCIMO[e]}</div>
+                  </button>
+                ))}
+              </div>
+              {espacamento !== '25' && (
+                <p className="mt-2 text-xs text-orange-600">Estribo mais fechado que 25cm: +R${ESPACAMENTO_ACRESCIMO[espacamento]}/m no preço.</p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
@@ -204,7 +248,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               <div className="flex justify-between items-center text-sm text-gray-600 mb-1">
                 <span>Item</span>
                 <span className="font-semibold text-right text-xs max-w-[200px]">
-                  {TIPO_LABELS[tipo]} {medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial')} — {barras} barras
+                  {TIPO_LABELS[tipo]} {medida === '9x15' ? '9×15' : medida === '9x20' ? '9×20' : (medidaEspecial || 'Especial')} — {barras} barras — estribo {espacamento}cm
                 </span>
               </div>
               <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg border-t border-orange-200 pt-2 mt-1">
