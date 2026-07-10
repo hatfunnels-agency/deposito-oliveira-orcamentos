@@ -391,7 +391,13 @@ function imprimirOrdensFerragem(pedidos: Array<Record<string, unknown>>): void {
     const lista = itensFerro.length > 0 ? itensFerro : itens;
     const totalPecas = lista.reduce((acc, it) => acc + (Number(it.quantidade) || 0), 0);
     const prazoRaw = (f.data_entrega || f.data_retirada) as string | null;
-    const prazo = prazoRaw ? new Date(prazoRaw + 'T00:00:00').toLocaleDateString('pt-BR') : '—';
+    let prazo = '—';
+    if (prazoRaw) {
+      const d = new Date(prazoRaw + 'T00:00:00');
+      const curta = d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+      const dow = d.toLocaleDateString('pt-BR', { weekday: 'long' });
+      prazo = curta + ' - ' + dow.charAt(0).toUpperCase() + dow.slice(1);
+    }
     const tipoPrazo = (f.tipo_entrega as string) === 'retirada' ? 'Retirada' : 'Entrega';
 
     const linhas = lista.map(it => {
@@ -443,9 +449,9 @@ function imprimirOrdensFerragem(pedidos: Array<Record<string, unknown>>): void {
       .codigo { font-family:monospace; font-size:13px; font-weight:bold; }
       .cliente { font-size:19px; font-weight:bold; line-height:1.1; }
       .tel { font-size:12px; }
-      .prazo { text-align:center; border:2px solid #000; border-radius:6px; padding:4px 12px; white-space:nowrap; }
+      .prazo { text-align:center; border:2px solid #000; border-radius:6px; padding:4px 12px; min-width:140px; }
       .prazo-label { font-size:10px; text-transform:uppercase; letter-spacing:.5px; }
-      .prazo-data { font-size:18px; font-weight:bold; }
+      .prazo-data { font-size:15px; font-weight:bold; }
       table { width:100%; border-collapse:collapse; }
       th, td { border-bottom:1px solid #999; text-align:left; padding:8px 6px; vertical-align:top; }
       th { font-size:11px; text-transform:uppercase; border-bottom:2px solid #000; }
@@ -3504,7 +3510,7 @@ export default function OrcamentoApp() {  // Auth state
                 <h2 className="font-bold text-orange-700">{'\ud83d\udce6'} Pedidos com Ferragem ({ferragens.length})</h2>
                 <div className="flex items-center gap-2">
                   <button onClick={() => imprimirOrdensFerragem(ferragens)} disabled={ferragens.length === 0} className="text-xs text-white bg-orange-500 hover:bg-orange-600 px-2 py-1 rounded disabled:opacity-40 font-semibold">
-                    \ud83d\udda8\ufe0f Imprimir todas
+                    🖨️ Imprimir todas
                   </button>
                   <button onClick={carregarFerragens} disabled={loadingFerragens} className="text-xs text-orange-600 hover:text-orange-800 px-2 py-1 rounded hover:bg-orange-50 border border-orange-200">
                     {loadingFerragens ? 'Carregando...' : 'Atualizar'}

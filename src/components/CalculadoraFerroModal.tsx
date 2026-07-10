@@ -28,8 +28,9 @@ const ESPACAMENTO_M: Record<Espacamento, number> = {
   '10': 0.10, '15': 0.15, '20': 0.20, '25': 0.25,
 };
 // Acrescimo no preco/metro (R$) por estribo mais fechado que o padrao de 25cm.
+// Valor fixo pequeno por faixa — so pra nao vender abaixo do custo do aco extra.
 const ESPACAMENTO_ACRESCIMO: Record<Espacamento, number> = {
-  '25': 0, '20': 2, '15': 4, '10': 8,
+  '25': 0, '20': 1, '15': 2, '10': 4,
 };
 
 // Tabela de precos base (espacamento padrao 25cm; acrescimo do estribo
@@ -131,8 +132,8 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl w-full max-w-md shadow-xl">
-        <div className="p-6">
+      <div className="bg-white rounded-xl w-full max-w-md shadow-xl max-h-[90vh] flex flex-col">
+        <div className="p-6 overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-xl font-bold text-gray-800">Calculadora de Ferro</h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
@@ -263,8 +264,9 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               )}
             </div>
           </div>
+        </div>
 
-          <div className="mt-5 flex gap-3">
+        <div className="px-6 py-4 border-t border-gray-100 flex gap-3 shrink-0">
             <button onClick={onClose} className="flex-1 px-4 py-2 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium">
               Cancelar
             </button>
@@ -272,7 +274,6 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               Adicionar ao Orçamento
             </button>
           </div>
-        </div>
       </div>
     </div>
   );
