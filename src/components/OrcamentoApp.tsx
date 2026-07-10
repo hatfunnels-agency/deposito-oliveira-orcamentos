@@ -889,9 +889,15 @@ export default function OrcamentoApp() {  // Auth state
     setPaginaHistorico(1);
   }, [buscaHistorico, filtroStatus, filtroDataDe, filtroDataAte]);
 
-  const categorias = ['Todas', ...Array.from(new Set(produtos.map(p => p.categoria)))];
+  // Produtos vendidos por metro (exceto ferro) entram no orcamento pela
+  // Calculadora de Madeira — ficam fora do catalogo direto pra evitar
+  // confusao, mas seguem visiveis/editaveis na aba Estoque.
+  const ehProdutoCalculadoraMadeira = (p: Produto) => p.unidade === 'metro' && p.categoria !== 'Ferro';
+
+  const categorias = ['Todas', ...Array.from(new Set(produtos.filter(p => !ehProdutoCalculadoraMadeira(p)).map(p => p.categoria)))];
 
   const produtosFiltrados = produtos.filter(p => {
+    if (ehProdutoCalculadoraMadeira(p)) return false;
     const matchBusca = p.nome.toLowerCase().includes(busca.toLowerCase());
     const matchCategoria = categoriaSelecionada === 'Todas' || p.categoria === categoriaSelecionada;
     return matchBusca && matchCategoria;
@@ -1007,20 +1013,36 @@ export default function OrcamentoApp() {  // Auth state
     });
   };
 
-  // Calculadora de Madeira: adiciona um produto do catalogo (vendido por
-  // metro) ja com a metragem TOTAL calculada (qtd de pecas x comprimento).
-  // Mantem produto_id real -> preco/custo do catalogo e baixa de estoque
-  // funcionam normalmente. Soma na linha existente do mesmo produto.
-  const adicionarMadeiraCalculada = (produtoId: string, metrosTotal: number) => {
+  // Calculadora de Madeira: adiciona um item AVULSO (igual as ferragens) com
+  // o detalhe do corte embutido no nome — "3x Viga Cambara 5x11 de 7m" — pra
+  // o deposito saber as medidas a cortar. O detalhe sobrevive a persistencia
+  // (orcamento_itens nao tem coluna propria) e aparece no pedido e nas
+  // impressoes. Cada corte vira uma linha propria (id sintetico unico), entao
+  // dois cortes do mesmo produto nao se fundem. Custo = snapshot do catalogo
+  // (CMV via "Opcao B"); madeira e sob_demanda, logo nao mexe em estoque.
+  const adicionarMadeiraCalculada = (produtoId: string, qtdPecas: number, metrosPorPeca: number, metrosTotal: number) => {
     const produto = produtos.find(p => p.id === produtoId);
     if (!produto || metrosTotal <= 0) return;
-    setItens(prev => {
-      const existing = prev.find(i => i.produto.id === produto.id);
-      if (existing) return prev.map(i => i.produto.id === produto.id
-        ? { ...i, quantidade: Math.round((i.quantidade + metrosTotal) * 100) / 100 }
-        : i);
-      return [...prev, { produto, quantidade: metrosTotal }];
-    });
+    const comprimentoLabel = String(metrosPorPeca).replace('.', ',');
+    const nome = `${qtdPecas}× ${produto.nome} de ${comprimentoLabel}m`;
+    const itemMadeira: Produto = {
+      id: 'madeira-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
+      nome,
+      preco: produto.preco,
+      preco_custo: produto.preco_custo || 0,
+      estoque: 0,
+      estoque_minimo: 0,
+      abaixo_minimo: false,
+      unidade: produto.unidade,
+      categoria: produto.categoria,
+      codigo: '',
+    };
+    setItens(prev => [...prev, {
+      produto: itemMadeira,
+      quantidade: metrosTotal,
+      avulso: true,
+      preco_custom: produto.preco,
+    }]);
   };
 
   const removerItem = (produtoId: string) => {
@@ -5267,7 +5289,7 @@ export default function OrcamentoApp() {  // Auth state
       )}
       {showCalculadoraMadeira && (
         <CalculadoraMadeiraModal
-          produtos={produtos.filter(p => p.unidade === 'metro' && p.categoria !== 'Ferro')}
+          produtos={produtos.filter(ehProdutoCalculadoraMadeira)}
           onAdicionar={adicionarMadeiraCalculada}
           onClose={() => setShowCalculadoraMadeira(false)}
         />

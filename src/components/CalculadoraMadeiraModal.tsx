@@ -15,7 +15,7 @@ interface ProdutoMadeira {
 
 interface Props {
   produtos: ProdutoMadeira[];
-  onAdicionar: (produtoId: string, metrosTotal: number) => void;
+  onAdicionar: (produtoId: string, qtdPecas: number, metrosPorPeca: number, metrosTotal: number) => void;
   onClose: () => void;
 }
 
@@ -46,7 +46,7 @@ export default function CalculadoraMadeiraModal({ produtos, onAdicionar, onClose
 
   const handleAdicionar = () => {
     if (!produtoSelecionado || metrosTotal <= 0) return;
-    onAdicionar(produtoSelecionado.id, metrosTotal);
+    onAdicionar(produtoSelecionado.id, quantidade, metrosPorPeca, metrosTotal);
     onClose();
   };
 
