@@ -35,14 +35,14 @@ const ESPACAMENTO_ACRESCIMO: Record<Espacamento, number> = {
 
 // Tabela de precos base (espacamento padrao 25cm; acrescimo do estribo
 // somado por cima). Nao acumulativo entre medida/barras:
-// 4 barras: 9x15=R$23/m | 9x20=R$23/m | especial=R$30/m
+// 4 barras: 9x15=R$23/m | 9x20=R$23/m | especial=R$28/m
 // 6 barras: R$38/m (independente de medida)
 // 8 barras: R$45/m (independente de medida)
 function precoBaseTier(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): number {
   if (barras === 6) return 38;
   if (barras === 8) return 45;
   // 4 barras: depende da medida
-  return medida === 'especial' ? 30 : 23;
+  return medida === 'especial' ? 28 : 23;
 }
 function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8, espacamento: Espacamento): number {
   return precoBaseTier(medida, barras) + ESPACAMENTO_ACRESCIMO[espacamento];
@@ -169,7 +169,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                 </button>
                 <button onClick={() => setMedida('especial')} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (medida === 'especial' ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">Especial</div>
-                  <div className="text-xs opacity-75">R$30/m</div>
+                  <div className="text-xs opacity-75">R$28/m</div>
                 </button>
               </div>
               {medida === 'especial' && (
@@ -182,7 +182,7 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
               <div className="grid grid-cols-3 gap-2">
                 <button onClick={() => setBarras(4)} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (barras === 4 ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">4 Barras</div>
-                  <div className="text-xs opacity-75">{medida === 'especial' ? 'R$30/m' : 'R$23/m'}</div>
+                  <div className="text-xs opacity-75">{medida === 'especial' ? 'R$28/m' : 'R$23/m'}</div>
                 </button>
                 <button onClick={() => setBarras(6)} className={"p-3 rounded-lg border-2 text-sm font-medium transition-colors " + (barras === 6 ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
                   <div className="font-bold">6 Barras</div>
