@@ -229,6 +229,22 @@ export async function PATCH(
       return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
     }
 
+    // Espelha contexto/data-de-follow-up pro GHL (non-blocking) quando esses
+    // campos mudam — alimenta os workflows de mensagem automatica.
+    if (body.notas_contexto !== undefined || body.data_followup !== undefined) {
+      try {
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+        fetch(`${appUrl}/api/ghl/sync-cliente`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cliente_id: params.id }),
+          cache: 'no-store',
+        }).catch(e => console.log('[GHL Sync Cliente] falha (nao bloqueante):', e));
+      } catch (e) {
+        console.log('[GHL Sync Cliente] falha (nao bloqueante):', e);
+      }
+    }
+
     return NextResponse.json(data[0]);
   } catch (e) {
     console.error('Erro PATCH /api/clientes/[id]', e);

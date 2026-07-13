@@ -30,6 +30,20 @@ export async function DELETE(
       return NextResponse.json({ error: 'Cliente não tem essa tag' }, { status: 404 });
     }
 
+    // Remove a tag tambem no GHL (non-blocking) pra os workflows nao dispararem
+    // por uma tag ja retirada no app.
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+      fetch(`${appUrl}/api/ghl/sync-cliente`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cliente_id: params.id, remover_tags: [tag] }),
+        cache: 'no-store',
+      }).catch(e => console.log('[GHL Sync Cliente] falha (nao bloqueante):', e));
+    } catch (e) {
+      console.log('[GHL Sync Cliente] falha (nao bloqueante):', e);
+    }
+
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error('Erro DELETE /api/clientes/[id]/tags/[tag]', e);

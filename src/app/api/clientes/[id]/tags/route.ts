@@ -87,6 +87,20 @@ export async function POST(
       return NextResponse.json({ error: 'Erro ao adicionar tag' }, { status: 500 });
     }
 
+    // Espelha a tag pro GHL (non-blocking) — alimenta os gatilhos de
+    // reativacao (obra_ativa) e supressao (inadimplente/vip) nos workflows.
+    try {
+      const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+      fetch(`${appUrl}/api/ghl/sync-cliente`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cliente_id: params.id }),
+        cache: 'no-store',
+      }).catch(e => console.log('[GHL Sync Cliente] falha (nao bloqueante):', e));
+    } catch (e) {
+      console.log('[GHL Sync Cliente] falha (nao bloqueante):', e);
+    }
+
     return NextResponse.json(data);
   } catch (e) {
     console.error('Erro POST /api/clientes/[id]/tags', e);
