@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
+import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
 import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
 import ClienteProfile from './ClienteProfile';
@@ -47,6 +48,11 @@ interface ItemOrcamento {
   // ferragem. Persiste em ferragem_consumo (Batch B). Opcional — itens
   // normais e avulsos manuais nao tem.
   detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }>;
+  // Batch D — laje. A linha tem id sintetico (pra dois ambientes com o mesmo
+  // kit nao se fundirem numa linha so), mas guarda o produto_id real aqui pra
+  // nao perder preco/CMV e a baixa de estoque dos casados.
+  produto_id_real?: string;
+  laje_detalhes?: DetalhesLaje;
 }
 
 interface OrcamentoItem {
@@ -59,6 +65,9 @@ interface OrcamentoItem {
   preco_unitario: number;
   preco_custo?: number;
   subtotal: number;
+  // Batch D — dados tecnicos do ambiente (so em itens de kit de laje). Vem do
+  // GET como array (relacao 1-N no Postgrest), na pratica 0 ou 1 registro.
+  laje_detalhes?: DetalhesLaje[] | null;
 }
 
 interface EntregaParcial {
@@ -536,6 +545,7 @@ export default function OrcamentoApp() {  // Auth state
   // === CALCULADORA DE FERRO STATES ===
   const [showCalculadoraFerro, setShowCalculadoraFerro] = useState(false);
   const [showCalculadoraMadeira, setShowCalculadoraMadeira] = useState(false);
+  const [showCalculadoraLaje, setShowCalculadoraLaje] = useState(false);
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<AbaKey>('produtos');
@@ -913,7 +923,11 @@ export default function OrcamentoApp() {  // Auth state
   // Produtos vendidos por metro (exceto ferro) entram no orcamento pela
   // Calculadora de Madeira — ficam fora do catalogo direto pra evitar
   // confusao, mas seguem visiveis/editaveis na aba Estoque.
-  const ehProdutoCalculadoraMadeira = (p: Produto) => p.unidade === 'metro' && p.categoria !== 'Ferro';
+  // Produtos vendidos por metro que sao da calculadora de madeira. Laje fica
+  // de fora: "Mt. Linear Viga H8/H12" tambem sao vendidas por metro, mas
+  // pertencem ao segmento de laje e tem seu proprio lugar (Batch D).
+  const ehProdutoCalculadoraMadeira = (p: Produto) =>
+    p.unidade === 'metro' && p.categoria !== 'Ferro' && p.categoria !== 'Laje';
 
   const categorias = ['Todas', ...Array.from(new Set(produtos.filter(p => !ehProdutoCalculadoraMadeira(p)).map(p => p.categoria)))];
 
@@ -1064,6 +1078,33 @@ export default function OrcamentoApp() {  // Auth state
       avulso: true,
       preco_custom: produto.preco,
     }]);
+  };
+
+  // Calculadora de Laje (Batch D): a calculadora ja resolveu os produtos do
+  // catalogo, entao cada linha vira um item com id sintetico (dois ambientes
+  // com o mesmo kit nao se fundem) mas com produto_id_real preservado — assim
+  // preco, CMV e baixa de estoque seguem o fluxo normal. O kit e sob_demanda
+  // (nao baixa estoque); cimento/areia/pedra sao estocaveis e baixam certo.
+  const adicionarLajeCalculada = (linhas: LinhaLaje[]) => {
+    const novos: ItemOrcamento[] = linhas.map((l, idx) => ({
+      produto: {
+        id: 'laje-' + Date.now() + '-' + idx + '-' + Math.random().toString(36).slice(2, 7),
+        nome: l.nome,
+        preco: l.preco,
+        preco_custo: l.preco_custo,
+        estoque: 0,
+        estoque_minimo: 0,
+        abaixo_minimo: false,
+        unidade: l.unidade,
+        categoria: 'Laje',
+        codigo: '',
+      },
+      quantidade: l.quantidade,
+      preco_custom: l.preco,
+      produto_id_real: l.produto_id,
+      laje_detalhes: l.laje_detalhes,
+    }));
+    setItens(prev => [...prev, ...novos]);
   };
 
   const removerItem = (produtoId: string) => {
@@ -1264,7 +1305,9 @@ export default function OrcamentoApp() {  // Auth state
         forma_pagamento: formaPagamentoForm || null,
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
-          produto_id: i.avulso ? null : i.produto.id,
+          // Laje usa id sintetico na UI mas persiste o produto_id real
+          // (produto_id_real) — ver adicionarLajeCalculada.
+          produto_id: i.produto_id_real ?? (i.avulso ? null : i.produto.id),
           produto_nome: i.produto.nome,
           quantidade: i.quantidade,
           unidade: i.produto.unidade,
@@ -1274,6 +1317,9 @@ export default function OrcamentoApp() {  // Auth state
           // itens gerados pela calculadora de ferragem. Backend persiste
           // em ferragem_consumo; payloads sem o campo seguem inalterados.
           ...(i.detalhamento_ferro ? { detalhamento_ferro: i.detalhamento_ferro } : {}),
+          // Dados tecnicos do ambiente (Batch D): so vao nos itens de kit de
+          // laje. Backend persiste em laje_detalhes e imprime pra fabrica.
+          ...(i.laje_detalhes ? { laje_detalhes: i.laje_detalhes } : {}),
         })),
       };
 
@@ -1485,6 +1531,35 @@ export default function OrcamentoApp() {  // Auth state
     const itensHtml = d
       ? d.orcamento_itens.map(i => `<tr><td style="padding:5px 7px;border-bottom:1px solid #eee">${i.produto_nome}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:center">${i.quantidade}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:center">${i.unidade}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:right">R$ ${formatBRL(i.preco_unitario)}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:right">R$ ${formatBRL(i.subtotal)}</td></tr>`).join('')
       : itens.map(i => `<tr><td style="padding:5px 7px;border-bottom:1px solid #eee">${i.produto.nome}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:center">${i.quantidade}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:center">${i.produto.unidade}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:right">R$ ${formatBRL(i.produto.preco)}</td><td style="padding:5px 7px;border-bottom:1px solid #eee;text-align:right">R$ ${formatBRL(i.produto.preco * i.quantidade)}</td></tr>`).join('');
+    // Bloco DADOS PARA A FABRICA (Batch D): so aparece se o pedido tem kit de
+    // laje. Funciona tanto pro orcamento salvo (laje_detalhes vem do GET) como
+    // pro carrinho ainda nao salvo (laje_detalhes esta no proprio item).
+    const lajesImp: Array<{ nome: string; det: DetalhesLaje }> = d
+      ? d.orcamento_itens.flatMap(i => {
+          const det = i.laje_detalhes?.[0];
+          return det ? [{ nome: i.produto_nome, det }] : [];
+        })
+      : itens.flatMap(i => (i.laje_detalhes ? [{ nome: i.produto.nome, det: i.laje_detalhes }] : []));
+    const num = (v: number) => String(v).replace('.', ',');
+    const blocoFabrica = lajesImp.length === 0 ? '' :
+      `<div class="fabrica"><div class="fabrica-t">&#127981; DADOS PARA A FÁBRICA</div>` +
+      lajesImp.map(({ nome, det }) => {
+        const medidas = det.comprimento && det.largura
+          ? `${num(det.comprimento)}m × ${num(det.largura)}m`
+          : '—';
+        const alerta = det.vao_livre > 5
+          ? `<div class="fabrica-alerta">&#9888; VÃO GRANDE (acima de 5m) — especificação obrigatória da fábrica.</div>`
+          : '';
+        return `<div class="fabrica-item"><b>${nome}</b><div class="fabrica-g">` +
+          `<span><b>Ambiente:</b> ${medidas}</span>` +
+          `<span><b>Área:</b> ${formatBRL(det.area_m2)} m²</span>` +
+          `<span><b>Vão livre:</b> ${num(det.vao_livre)} m</span>` +
+          `<span><b>Uso:</b> ${det.uso === 'piso' ? 'Piso' : 'Forro'}</span>` +
+          `<span><b>Viga intermediária:</b> ${det.tem_viga_intermediaria ? 'Sim' : 'Não'}</span>` +
+          `</div>${alerta}</div>`;
+      }).join('') +
+      `<div class="fabrica-aviso">${AVISO_LAJE}</div></div>`;
+
     const nome = d ? (d.clientes?.nome || 'Cliente') : (nomeCliente || 'Cliente');
     const tel = d ? (d.clientes?.telefone || '') : whatsappCliente;
     const cod = d ? d.codigo : (orcamentoSalvo?.codigo || '');
@@ -1508,7 +1583,7 @@ export default function OrcamentoApp() {  // Auth state
     const parcelasImp = montarParcelasCartao(tot, ACRESCIMO_CARTAO);
     const semJurosImp = parcelasImp.semJuros.map(p => p.n + 'x R$ ' + formatBRL(p.valor)).join('  |  ');
     const comAcrescimoImp = parcelasImp.comAcrescimo.map(p => p.n + 'x R$ ' + formatBRL(p.valor)).join('  |  ');
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.pagto-row{margin:4px 0;font-size:13px}.pagto-row b{color:#333}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><div class="pagto-row"><b>&#128181; À vista (PIX/dinheiro):</b> R$ ${formatBRL(tot)}</div><div class="pagto-row"><b>&#128179; Cartão até 3x sem juros:</b> ${semJurosImp}</div><div class="pagto-row"><b>&#128179; Cartão 4x-6x (+8%):</b> ${comAcrescimoImp}</div></div><div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.pagto-row{margin:4px 0;font-size:13px}.pagto-row b{color:#333}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}.fabrica{margin:12px 0;border:2px solid #333;border-radius:6px;padding:10px 14px;background:#f7f7f7;page-break-inside:avoid}.fabrica-t{font-weight:bold;font-size:14px;letter-spacing:.5px;margin-bottom:8px;color:#111}.fabrica-item{margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed #ccc;font-size:13px}.fabrica-item:last-of-type{border-bottom:none;margin-bottom:0;padding-bottom:0}.fabrica-g{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-top:4px;font-size:12px;color:#444}.fabrica-alerta{margin-top:6px;padding:5px 8px;background:#ffe5e5;border:1px solid #d33;border-radius:4px;color:#a00;font-weight:bold;font-size:12px}.fabrica-aviso{margin-top:8px;padding-top:6px;border-top:1px solid #ccc;font-size:11px;color:#666;font-style:italic}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${(() => { const rawO = obsImp || ''; const fi = rawO.indexOf('FERRAGEM:'); const obs2 = fi >= 0 ? rawO.substring(0, fi).trim() : rawO.trim(); const ferr = fi >= 0 ? rawO.substring(fi).trim() : ''; const ferrLinhas = ferr ? ferr.replace('FERRAGEM:','').trim().split('\n').filter(Boolean) : []; let html = ''; if (obs2) html += '<div class="ir full"><b>Obs:</b> '+obs2+'</div>'; return html; })()}${formaPagImp?'<div class="ir"><b>Pagamento:</b> '+(formaPagLabelImp[formaPagImp]||formaPagImp)+'</div>':''}${statusPagImp?'<div class="ir"><b>Status pag.:</b> '+(statusPagImp==='completo'?'✅ Pago':statusPagImp==='parcial'?'⚠️ Parcial':statusPagImp==='pagamento_na_entrega'?'🚚 Pgto na Entrega':statusPagImp==='pendente'?'⏳ Pendente':'')+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><div class="pagto-row"><b>&#128181; À vista (PIX/dinheiro):</b> R$ ${formatBRL(tot)}</div><div class="pagto-row"><b>&#128179; Cartão até 3x sem juros:</b> ${semJurosImp}</div><div class="pagto-row"><b>&#128179; Cartão 4x-6x (+8%):</b> ${comAcrescimoImp}</div></div>${blocoFabrica}<div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -1877,9 +1952,16 @@ export default function OrcamentoApp() {  // Auth state
       // pedidos antigos pre-snapshot. Alinha com CLAUDE.md Opcao B.
       const matchProduto = produtos.find(p => p.nome === oi.produto_nome);
       const precoCatalogo = matchProduto?.preco ?? oi.preco_unitario;
+      // Kit de laje (Batch D): restaura com id sintetico + produto_id_real pra
+      // dois ambientes com o mesmo kit nao se fundirem numa linha, e carrega os
+      // dados tecnicos de volta pro carrinho — sem isso o PATCH recriaria os
+      // itens sem laje_detalhes e a fabrica perderia as medidas.
+      const detLaje = oi.laje_detalhes?.[0];
       return {
         produto: {
-          id: matchProduto?.id || String(oi.produto_id || ('item-' + idx)),
+          id: detLaje
+            ? 'laje-' + (oi.id || idx)
+            : (matchProduto?.id || String(oi.produto_id || ('item-' + idx))),
           nome: oi.produto_nome,
           preco: precoCatalogo,
           estoque: matchProduto?.estoque ?? 999,
@@ -1894,6 +1976,9 @@ export default function OrcamentoApp() {  // Auth state
         // difere do catalogo atual, restaura como override pra nao reverter
         // silenciosamente ao reabrir o pedido pra edicao.
         ...(oi.preco_unitario !== precoCatalogo ? { preco_custom: oi.preco_unitario } : {}),
+        ...(detLaje && oi.produto_id
+          ? { produto_id_real: String(oi.produto_id), laje_detalhes: detLaje }
+          : {}),
       };
     });
     setItens(cartItems);
@@ -2803,6 +2888,12 @@ export default function OrcamentoApp() {  // Auth state
                 className="flex items-center gap-2 px-4 py-2 bg-amber-700 text-white rounded-lg hover:bg-amber-800 transition-colors font-medium text-sm"
               >
                 <span>&#x1FAB5;</span> Calculadora de Madeira
+              </button>
+              <button
+                onClick={() => setShowCalculadoraLaje(true)}
+                className="flex items-center gap-2 px-4 py-2 bg-slate-600 text-white rounded-lg hover:bg-slate-700 transition-colors font-medium text-sm"
+              >
+                <span>&#x1F9F1;</span> Laje
               </button>
               <button
                 onClick={() => { setPdvNome(''); setPdvTelefone(''); setPdvItens([]); setPdvStatusPagamento('pago'); setPdvFormaPagamento('pix'); setPdvBusca(''); setMostrarPDV(true); }}
@@ -5410,6 +5501,13 @@ export default function OrcamentoApp() {  // Auth state
           produtos={produtos.filter(ehProdutoCalculadoraMadeira)}
           onAdicionar={adicionarMadeiraCalculada}
           onClose={() => setShowCalculadoraMadeira(false)}
+        />
+      )}
+      {showCalculadoraLaje && (
+        <CalculadoraLajeModal
+          produtos={produtos}
+          onAdicionar={adicionarLajeCalculada}
+          onClose={() => setShowCalculadoraLaje(false)}
         />
       )}
       </div>

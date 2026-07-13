@@ -275,6 +275,50 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      // Dados tecnicos do ambiente (Batch D): pra cada item de kit de laje que
+      // veio com body.laje_detalhes, insere em laje_detalhes. Sao esses dados
+      // que a fabrica usa pra especificar a laje. Mesmo padrao do bloco acima:
+      // opcional, e falha aqui nao derruba o orcamento ja criado.
+      const lajeRows: Array<{
+        orcamento_item_id: string;
+        comprimento: number | null;
+        largura: number | null;
+        area_m2: number;
+        vao_livre: number;
+        uso: string;
+        tem_viga_intermediaria: boolean;
+      }> = [];
+      for (let i = 0; i < itens.length; i++) {
+        const det = (itens[i] as { laje_detalhes?: {
+          comprimento?: number | null;
+          largura?: number | null;
+          area_m2?: number;
+          vao_livre?: number;
+          uso?: string;
+          tem_viga_intermediaria?: boolean;
+        } }).laje_detalhes;
+        const insertedId = itensInseridos?.[i]?.id as string | undefined;
+        if (!insertedId || !det) continue;
+        // vao_livre e uso sao os dois campos sem os quais a fabrica nao
+        // consegue especificar — item sem eles nao vira registro tecnico.
+        if (!det.uso || typeof det.vao_livre !== 'number' || det.vao_livre <= 0) continue;
+        lajeRows.push({
+          orcamento_item_id: insertedId,
+          comprimento: typeof det.comprimento === 'number' ? det.comprimento : null,
+          largura: typeof det.largura === 'number' ? det.largura : null,
+          area_m2: Number(det.area_m2) || 0,
+          vao_livre: Number(det.vao_livre),
+          uso: String(det.uso),
+          tem_viga_intermediaria: Boolean(det.tem_viga_intermediaria),
+        });
+      }
+      if (lajeRows.length > 0) {
+        const { error: ldErr } = await supabaseAdmin.from('laje_detalhes').insert(lajeRows);
+        if (ldErr) {
+          console.error('[laje_detalhes POST] insert falhou (orcamento ja criado):', ldErr);
+        }
+      }
+
       // Baixa de estoque quando o orcamento nasce ja committed (49pp do
       // gap historico vinha daqui — POST nunca baixava). Awaited de
       // proposito; fire-and-forget morre em delegacao entre lambdas.

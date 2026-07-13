@@ -29,7 +29,10 @@ export async function GET(
                                                                                                                 ),
                                                                                         orcamento_itens (
                                                                                                   id, produto_id, produto_nome, quantidade, quantidade_entregue, unidade,
-                                                                                                            preco_unitario, preco_custo, subtotal
+                                                                                                            preco_unitario, preco_custo, subtotal,
+                                                                                                            laje_detalhes (
+                                                                                                                      comprimento, largura, area_m2, vao_livre, uso, tem_viga_intermediaria
+                                                                                                                            )
                                                                                                                     )
                                                                                                                           `)
             .eq('id', params.id)
@@ -444,6 +447,48 @@ export async function PATCH(
               const { error: fcErr } = await supabaseAdmin.from('ferragem_consumo').insert(ferragemRows);
               if (fcErr) {
                 console.error('[ferragem_consumo PATCH] insert falhou (orcamento ja atualizado):', fcErr);
+              }
+            }
+
+            // Re-insere laje_detalhes (Batch D). Mesma logica: a FK tem ON
+            // DELETE CASCADE, entao o delete acima ja limpou os antigos. O
+            // cliente reenvia laje_detalhes no payload de edicao, senao os
+            // dados da fabrica se perderiam a cada edicao do pedido.
+            const lajeRows: Array<{
+              orcamento_item_id: string;
+              comprimento: number | null;
+              largura: number | null;
+              area_m2: number;
+              vao_livre: number;
+              uso: string;
+              tem_viga_intermediaria: boolean;
+            }> = [];
+            for (let i = 0; i < itens.length; i++) {
+              const det = (itens[i] as { laje_detalhes?: {
+                comprimento?: number | null;
+                largura?: number | null;
+                area_m2?: number;
+                vao_livre?: number;
+                uso?: string;
+                tem_viga_intermediaria?: boolean;
+              } }).laje_detalhes;
+              const insertedId = itensInseridos?.[i]?.id as string | undefined;
+              if (!insertedId || !det) continue;
+              if (!det.uso || typeof det.vao_livre !== 'number' || det.vao_livre <= 0) continue;
+              lajeRows.push({
+                orcamento_item_id: insertedId,
+                comprimento: typeof det.comprimento === 'number' ? det.comprimento : null,
+                largura: typeof det.largura === 'number' ? det.largura : null,
+                area_m2: Number(det.area_m2) || 0,
+                vao_livre: Number(det.vao_livre),
+                uso: String(det.uso),
+                tem_viga_intermediaria: Boolean(det.tem_viga_intermediaria),
+              });
+            }
+            if (lajeRows.length > 0) {
+              const { error: ldErr } = await supabaseAdmin.from('laje_detalhes').insert(lajeRows);
+              if (ldErr) {
+                console.error('[laje_detalhes PATCH] insert falhou (orcamento ja atualizado):', ldErr);
               }
             }
       }
