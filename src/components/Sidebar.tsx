@@ -8,6 +8,7 @@ import {
   Wrench,
   Truck,
   Warehouse,
+  Wallet,
   BarChart3,
   Sparkles,
   X,
@@ -23,6 +24,7 @@ export type AbaKey =
   | 'ferragens'
   | 'entregas'
   | 'estoque'
+  | 'financeiro'
   | 'ia'
   | 'dashboard';
 
@@ -32,7 +34,7 @@ interface SidebarItem {
   icon: LucideIcon;
 }
 
-// Ordem definitiva dos 9 items. abasVisiveis (no parent) filtra por role.
+// Ordem definitiva dos 10 items. abasVisiveis (no parent) filtra por role.
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'produtos', label: 'Catálogo', icon: Package },
   { key: 'orcamento', label: 'Orçamento', icon: ShoppingCart },
@@ -41,6 +43,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'ferragens', label: 'Ferragens', icon: Wrench },
   { key: 'entregas', label: 'Entregas', icon: Truck },
   { key: 'estoque', label: 'Estoque', icon: Warehouse },
+  { key: 'financeiro', label: 'Financeiro', icon: Wallet },
   { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { key: 'ia', label: 'IA', icon: Sparkles },
 ];

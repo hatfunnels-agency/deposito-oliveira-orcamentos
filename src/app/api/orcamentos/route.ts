@@ -28,9 +28,15 @@ export async function POST(request: NextRequest) {
                   desconto_valor,
                   data_entrega,
                   itens,
-                  status_pagamento,
                   status,
                   forma_pagamento,
+                  condicao_pagamento,
+                  vencimento,
+                  // { valor, metodo, parcelas? } — venda paga no ato (PDV).
+                  // Vira uma linha em `pagamentos`; o trigger deriva o
+                  // status_pagamento. Nao existe mais "nascer pago" sem
+                  // dinheiro registrado.
+                  pagamento_inicial,
                   endereco_id: enderecoIdBody,
                   endereco_novo: enderecoNovoBody,
           } = body;
@@ -137,8 +143,9 @@ export async function POST(request: NextRequest) {
               desconto_percentual: typeof desconto_percentual === 'number' ? desconto_percentual : 0,
               desconto_valor: typeof desconto_valor === 'number' ? desconto_valor : 0,
       };
-      if (status_pagamento) insertData.status_pagamento = status_pagamento;
-    if (forma_pagamento) insertData.forma_pagamento = forma_pagamento;
+      if (forma_pagamento) insertData.forma_pagamento = forma_pagamento;
+    if (condicao_pagamento) insertData.condicao_pagamento = condicao_pagamento;
+        if (vencimento) insertData.vencimento = vencimento;
           if (data_entrega) { insertData.data_entrega = data_entrega; }
           if (data_retirada) { insertData.data_retirada = data_retirada; }
           if (enderecoIdFinal) { insertData.endereco_id = enderecoIdFinal; }
@@ -152,6 +159,21 @@ export async function POST(request: NextRequest) {
       if (orcError) {
               console.error('Erro ao criar orcamento:', orcError);
               return NextResponse.json({ error: 'Erro ao salvar orcamento' }, { status: 500 });
+      }
+
+      // Venda paga no ato (PDV). Falha aqui nao derruba a venda — o pedido
+      // fica em aberto e aparece na aba Financeiro pra acerto manual, que e
+      // melhor do que perder o pedido inteiro.
+      if (pagamento_inicial && Number(pagamento_inicial.valor) > 0) {
+              const { error: pagError } = await supabaseAdmin.from('pagamentos').insert({
+                      orcamento_id: orcamento.id,
+                      valor: Number(pagamento_inicial.valor),
+                      metodo: pagamento_inicial.metodo || 'outro',
+                      parcelas: Number(pagamento_inicial.parcelas) || 1,
+                      origem: pagamento_inicial.origem || 'manual',
+                      gateway_id: pagamento_inicial.gateway_id || null,
+              });
+              if (pagError) console.error('Erro ao registrar pagamento inicial:', pagError);
       }
 
       // Cria itens
@@ -349,6 +371,9 @@ export async function GET(request: NextRequest) {
                 fonte,
                 forma_pagamento,
                 status_pagamento,
+                valor_pago,
+                condicao_pagamento,
+                vencimento,
                 ferragem_status,
                 motorista_id,
                 reagendamentos,

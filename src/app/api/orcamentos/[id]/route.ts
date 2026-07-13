@@ -17,7 +17,7 @@ export async function GET(
                     id, codigo, tipo_entrega, valor_frete, subtotal, total,
                             status, observacoes, criado_em, atualizado_em,
                                     data_entrega, data_retirada, fonte, forma_pagamento,
-                                            status_pagamento,
+                                            status_pagamento, valor_pago, condicao_pagamento, vencimento,
                                             ferragem_status,
                                             data_entrega_original, reagendamentos, bling_pedido_id, motorista_id, leva_id, endereco_id,
                                                     clientes (
@@ -61,7 +61,8 @@ export async function PATCH(
           // mais abaixo.
           const {
                   status, observacoes, tipo_entrega, valor_frete, subtotal, total,
-                  data_entrega, data_retirada, fonte, itens, forma_pagamento, status_pagamento,
+                  data_entrega, data_retirada, fonte, itens, forma_pagamento,
+                  condicao_pagamento, vencimento,
                   ferragem_status,
                   cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
@@ -179,10 +180,14 @@ export async function PATCH(
           if (motorista_id !== undefined) updateData.motorista_id = motorista_id;
           if (leva_id !== undefined) updateData.leva_id = leva_id;
           if (forma_pagamento !== undefined) updateData.forma_pagamento = forma_pagamento;
-          if (status_pagamento !== undefined) updateData.status_pagamento = status_pagamento;
-          // Pedido completo => pagamento sempre completo (mesmo "pagamento na entrega").
-          // Coloca apos a atribuicao explicita para o auto vencer caso o body trouxer divergente.
-          if (status === 'completo') updateData.status_pagamento = 'completo';
+          if (condicao_pagamento !== undefined) updateData.condicao_pagamento = condicao_pagamento;
+          if (vencimento !== undefined) updateData.vencimento = vencimento || null;
+          // status_pagamento NAO e mais escrito aqui: e derivado da tabela
+          // `pagamentos` por trigger no Postgres. Antes esta rota forcava
+          // status_pagamento='completo' sempre que status==='completo' — ou
+          // seja, entregue implicava pago, e nenhum pedido entregue podia
+          // aparecer como devendo. Pra marcar como pago, registre o dinheiro
+          // em POST /api/pagamentos.
           if (ferragem_status !== undefined) updateData.ferragem_status = ferragem_status;
           if (enderecoIdValidado !== undefined) updateData.endereco_id = enderecoIdValidado;
 

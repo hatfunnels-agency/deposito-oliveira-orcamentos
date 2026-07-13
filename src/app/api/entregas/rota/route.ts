@@ -321,9 +321,10 @@ export async function POST(request: NextRequest) {
 
 // PATCH - atualiza status das entregas (em_rota ou completo)
 // Delega pra PATCH /api/orcamentos/[id] de cada ID em paralelo, herdando
-// os side-effects canonicos: aplicarTagObraAtiva, GHL sync, force
-// status_pagamento='completo' quando status==='completo', e
-// atualizado_em. Falhas sao isoladas por ID — uma nao interrompe as
+// os side-effects canonicos: aplicarTagObraAtiva, GHL sync e
+// atualizado_em. Concluir a entrega NAO marca mais o pagamento como
+// completo — o dinheiro precisa ser registrado em POST /api/pagamentos.
+// Falhas sao isoladas por ID — uma nao interrompe as
 // outras, e vem reportadas em `falhas[]` no response.
 export async function PATCH(request: NextRequest) {
   try {

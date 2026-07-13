@@ -23,7 +23,7 @@ export async function GET(request: NextRequest) {
     const { data: orcamentosRaw, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, status, status_pagamento, subtotal, total, valor_frete,
+        id, codigo, status, status_pagamento, valor_pago, subtotal, total, valor_frete,
         tipo_entrega, forma_pagamento, fonte, criado_em, cliente_id,
         clientes ( id, nome, telefone, cidade ),
         orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade, preco_custo )
@@ -64,10 +64,11 @@ export async function GET(request: NextRequest) {
     const qtdTotalOrcamentos = todos.length
     const ticketMedio = qtdVendas > 0 ? totalFaturado / qtdVendas : 0
 
-    // Cash collected: soma do total dos pedidos com status_pagamento = 'completo' no periodo
+    // Cash collected: dinheiro efetivamente registrado (valor_pago), nao o
+    // total dos pedidos marcados como pagos. Pagamento parcial agora entra
+    // pelo valor que entrou, em vez de contar zero ou o total cheio.
     const cashCollected = todos
-      .filter((o: Record<string, unknown>) => o.status_pagamento === 'completo')
-      .reduce((s: number, o: Record<string, unknown>) => s + (Number(o.total) || 0), 0)
+      .reduce((s: number, o: Record<string, unknown>) => s + (Number(o.valor_pago) || 0), 0)
 
     // Vendas hoje: independente do periodo selecionado, soma vendas criadas hoje
     // (status diferente de 'cancelado' e 'orcamento')

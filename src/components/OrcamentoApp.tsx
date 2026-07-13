@@ -5,6 +5,7 @@ import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import DashboardTab from './DashboardTab';
+import FinanceiroTab from './FinanceiroTab';
 import ClienteProfile from './ClienteProfile';
 import MapaEntregas from './MapaEntregas';
 import Sidebar, { type AbaKey } from './Sidebar';
@@ -92,6 +93,9 @@ interface OrcamentoDetalhe {
   motorista_id?: string | null;
   forma_pagamento?: string | null;
   status_pagamento?: string | null;
+  valor_pago?: number | null;
+  condicao_pagamento?: string | null;
+  vencimento?: string | null;
   endereco_id: string | null;
   clientes: {
     id: string;
@@ -177,6 +181,9 @@ interface OrcamentoSalvo {
   bling_pedido_id?: string | null;
   forma_pagamento?: string | null;
   status_pagamento?: string | null;
+  valor_pago?: number | null;
+  condicao_pagamento?: string | null;
+  vencimento?: string | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null; recebedor?: string | null } | null;
   endereco_completo?: {
     id: string;
@@ -323,17 +330,25 @@ const STATUS_COLORS: Record<string, string> = {
   cancelado: 'bg-gray-200 text-gray-600',
 };
 
+// Estado do pagamento. Derivado da tabela `pagamentos` pelo trigger no
+// Postgres — nao se escreve isso na mao. Pra mudar, registre o dinheiro
+// em POST /api/pagamentos.
 const STATUS_PAGAMENTO_LABELS: Record<string, string> = {
   pendente: '⏳ Pgto Pendente',
   parcial: '⚠️ Pgto Parcial',
   completo: '✅ Pago',
-  pagamento_na_entrega: '🚚 Pgto na Entrega',
 };
 const STATUS_PAGAMENTO_COLORS: Record<string, string> = {
   pendente: 'bg-yellow-100 text-yellow-800',
   parcial: 'bg-orange-100 text-orange-800',
   completo: 'bg-green-100 text-green-800',
-  pagamento_na_entrega: 'bg-blue-100 text-blue-800',
+};
+
+// Combinado comercial — isso sim e escolhido pelo atendente.
+const CONDICAO_PAGAMENTO_LABELS: Record<string, string> = {
+  a_vista: '💰 À vista',
+  na_entrega: '🚚 Na entrega',
+  prazo: '📅 A prazo',
 };
 const ACRESCIMO_CARTAO = 0.08;
 const CAPACIDADE_CAMINHAO_M3 = 10;
@@ -510,7 +525,7 @@ export default function OrcamentoApp() {  // Auth state
       ? ['entregas']
       : papelUsuario === 'atendente'
       ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas']
-      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'dashboard', 'ia'];
+      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro', 'dashboard', 'ia'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -550,7 +565,11 @@ export default function OrcamentoApp() {  // Auth state
   const [dataRetirada, setDataRetirada] = useState('');
   const [fonteVenda, setFonteVenda] = useState('');
   const [statusPedidoForm, setStatusPedidoForm] = useState('orcamento');
-  const [statusPagamentoForm, setStatusPagamentoForm] = useState('pendente');
+  const [condicaoPagamentoForm, setCondicaoPagamentoForm] = useState('a_vista');
+  const [vencimentoForm, setVencimentoForm] = useState('');
+  // Registro de recebimento no detalhe do pedido.
+  const [pgtoValor, setPgtoValor] = useState('');
+  const [pgtoMetodo, setPgtoMetodo] = useState('pix');
   const [formaPagamentoForm, setFormaPagamentoForm] = useState('');
   const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<OrcamentoDetalhe | null>(null);
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
@@ -1180,7 +1199,8 @@ export default function OrcamentoApp() {  // Auth state
     setEnderecoViaCEP('');
     setTipoEntrega('retirada');
     setStatusPedidoForm('orcamento');
-    setStatusPagamentoForm('pendente');
+    setCondicaoPagamentoForm('a_vista');
+    setVencimentoForm('');
     setFormaPagamentoForm('');
     setFonteVenda('');
     setDescontoCustom(0);
@@ -1237,7 +1257,8 @@ export default function OrcamentoApp() {  // Auth state
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
         status: statusPedidoForm || 'orcamento',
-        status_pagamento: statusPagamentoForm || 'pendente',
+        condicao_pagamento: condicaoPagamentoForm || 'a_vista',
+        vencimento: condicaoPagamentoForm === 'prazo' && vencimentoForm ? vencimentoForm : null,
         forma_pagamento: formaPagamentoForm || null,
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
@@ -1578,7 +1599,13 @@ export default function OrcamentoApp() {  // Auth state
         subtotal,
         total: subtotal,
         status: 'retirada_pendente',
-        status_pagamento: pdvStatusPagamento === 'pago' ? 'completo' : 'pendente',
+        // Venda no balcao paga na hora: o dinheiro vira uma linha em
+        // `pagamentos`, e o status_pagamento sai disso. Nao existe mais
+        // pedido "nascer pago" sem pagamento registrado.
+        pagamento_inicial:
+          pdvStatusPagamento === 'pago'
+            ? { valor: subtotal, metodo: pdvFormaPagamento || 'outro' }
+            : undefined,
         forma_pagamento: pdvFormaPagamento,
         fonte: 'pdv',
         criado_por: user?.id ?? null,
@@ -1819,7 +1846,8 @@ export default function OrcamentoApp() {  // Auth state
     setEnderecoNovoForm(ENDERECO_NOVO_VAZIO);
     setObservacoes(detalhe.observacoes || '');
     setStatusPedidoForm(detalhe.status || 'orcamento');
-    setStatusPagamentoForm(detalhe.status_pagamento || 'pendente');
+    setCondicaoPagamentoForm(detalhe.condicao_pagamento || 'a_vista');
+    setVencimentoForm(detalhe.vencimento || '');
     setFormaPagamentoForm(detalhe.forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
       // Itens avulsos (ferro) têm produto_id null — restaurar como avulso.
@@ -3248,11 +3276,17 @@ export default function OrcamentoApp() {  // Auth state
                     </select>
                   </div>
                   <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Pagamento</label>
-                    <select value={statusPagamentoForm} onChange={e => { const v = e.target.value; setStatusPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ status_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                      {Object.entries(STATUS_PAGAMENTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    <label className="block text-xs font-medium text-gray-700 mb-1">Condição</label>
+                    <select value={condicaoPagamentoForm} onChange={e => { const v = e.target.value; setCondicaoPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ condicao_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
+                      {Object.entries(CONDICAO_PAGAMENTO_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                     </select>
                   </div>
+                  {condicaoPagamentoForm === 'prazo' && (
+                    <div>
+                      <label className="block text-xs font-medium text-gray-700 mb-1">Vence em</label>
+                      <input type="date" value={vencimentoForm} onChange={e => { const v = e.target.value; setVencimentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ vencimento: v || null }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300" />
+                    </div>
+                  )}
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Forma de Pagamento</label>
                     <select value={formaPagamentoForm} onChange={e => { const v = e.target.value; setFormaPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ forma_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
@@ -4255,6 +4289,9 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
+        {/* ===== FINANCEIRO TAB ===== */}
+        {abaAtiva === 'financeiro' && <FinanceiroTab />}
+
         {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
@@ -4536,26 +4573,78 @@ export default function OrcamentoApp() {  // Auth state
                           {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
                         </select>
                       </div>
+                      {/* Pagamento nao e mais um select: e o saldo real, vindo da
+                          soma dos registros em `pagamentos`. Marcar como pago exige
+                          registrar o dinheiro que entrou. */}
                       <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">Status do pagamento</label>
-                        <select
-                          value={orcamentoDetalhe.status_pagamento || 'pendente'}
-                          onChange={e => {
-                            const val = e.target.value;
-                            fetch(`/api/orcamentos/${orcamentoDetalhe.id}`, {
-                              method: 'PATCH',
-                              headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ status_pagamento: val }),
-                              cache: 'no-store',
-                            }).then(() => setOrcamentoDetalhe({ ...orcamentoDetalhe, status_pagamento: val }));
-                          }}
-                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white"
-                        >
-                          <option value="pendente">⏳ Pendente</option>
-                          <option value="parcial">⚠️ Parcial</option>
-                          <option value="completo">✅ Completo</option>
-                          <option value="pagamento_na_entrega">🚚 Pgto na Entrega</option>
-                        </select>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
+                        {(() => {
+                          const totalOrc = Number(orcamentoDetalhe.total) || 0;
+                          const pago = Number(orcamentoDetalhe.valor_pago) || 0;
+                          const saldo = totalOrc - pago;
+                          const quitado = saldo <= 0.01;
+                          return (
+                            <div className={`rounded-lg border px-3 py-2 ${quitado ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}`}>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className={quitado ? 'text-green-800 font-medium' : 'text-orange-900 font-medium'}>
+                                  {quitado ? '✅ Pago' : `Em aberto: ${saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                                </span>
+                                {pago > 0 && !quitado && (
+                                  <span className="text-xs text-gray-600">
+                                    pago {pago.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </span>
+                                )}
+                              </div>
+                              {!quitado && (
+                                <div className="flex gap-2 mt-2">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={pgtoValor}
+                                    onChange={e => setPgtoValor(e.target.value)}
+                                    placeholder={saldo.toFixed(2)}
+                                    className="flex-1 min-w-0 text-sm border border-orange-200 rounded-lg px-2 py-1.5"
+                                  />
+                                  <select
+                                    value={pgtoMetodo}
+                                    onChange={e => setPgtoMetodo(e.target.value)}
+                                    className="text-sm border border-orange-200 rounded-lg px-2 py-1.5 bg-white"
+                                  >
+                                    <option value="pix">Pix</option>
+                                    <option value="debito">Débito</option>
+                                    <option value="credito">Crédito</option>
+                                    <option value="dinheiro">Dinheiro</option>
+                                    <option value="transferencia">Transf.</option>
+                                    <option value="boleto">Boleto</option>
+                                  </select>
+                                  <button
+                                    onClick={async () => {
+                                      const valorNum = Number((pgtoValor || String(saldo)).replace(',', '.'));
+                                      if (!Number.isFinite(valorNum) || valorNum <= 0) { alert('Valor invalido'); return; }
+                                      const res = await fetch('/api/pagamentos', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ orcamento_id: orcamentoDetalhe.id, valor: valorNum, metodo: pgtoMetodo }),
+                                      });
+                                      const json = await res.json();
+                                      if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); return; }
+                                      setPgtoValor('');
+                                      setOrcamentoDetalhe({
+                                        ...orcamentoDetalhe,
+                                        valor_pago: Number(json.orcamento?.valor_pago) || 0,
+                                        status_pagamento: json.orcamento?.status_pagamento ?? orcamentoDetalhe.status_pagamento,
+                                      });
+                                      carregarHistorico();
+                                    }}
+                                    className="text-sm bg-[#F7941D] text-white px-3 py-1.5 rounded-lg hover:bg-[#E8850A] transition whitespace-nowrap"
+                                  >
+                                    Receber
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
                       </div>
                       <div>
                         <label className="text-xs font-medium text-gray-600 block mb-1">Forma de pagamento</label>
