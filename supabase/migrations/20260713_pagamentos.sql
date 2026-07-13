@@ -87,6 +87,10 @@ alter table pagamentos enable row level security;
 create or replace function recalcular_pagamento_orcamento()
 returns trigger
 language plpgsql
+-- search_path fixo: a funcao roda em toda escrita de pagamento, e sem isso
+-- um schema no search_path do chamador poderia sequestrar as referencias a
+-- `pagamentos`/`orcamentos` aqui dentro.
+set search_path = public
 as $$
 declare
   v_orcamento_id uuid;
@@ -158,7 +162,10 @@ select o.id,
          when 'boleto'   then 'boleto'
          else 'outro'
        end,
-       coalesce(o.data_entrega, o.data_retirada)::timestamptz,
+       -- 68 pedidos nao tem data_entrega nem data_retirada e data_pagamento e
+       -- not null. Cai pra criado_em: a data do proprio pedido e mais fiel do
+       -- que inventar uma.
+       coalesce(o.data_entrega::timestamptz, o.data_retirada::timestamptz, o.criado_em),
        'legado',
        'Backfill 2026-07-13 — pagamento anterior ao controle de recebiveis'
   from orcamentos o
