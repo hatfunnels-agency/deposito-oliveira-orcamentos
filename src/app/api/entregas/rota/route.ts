@@ -47,6 +47,9 @@ interface EntregaItem {
   cidade: string;
   status: string;
   total: number;
+  // Quanto o motorista tem que cobrar na porta. 0 = pedido ja quitado.
+  a_cobrar: number;
+  forma_pagamento: string;
   itens_resumo: string;
   falta_resumo: string;
   data_entrega: string | null;
@@ -69,7 +72,8 @@ export async function GET(request: NextRequest) {
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, status, total, data_entrega, observacoes,
+        id, codigo, tipo_entrega, status, total, valor_pago, forma_pagamento,
+        data_entrega, observacoes,
         clientes!inner (
           nome, telefone, recebedor
         ),
@@ -156,6 +160,8 @@ export async function GET(request: NextRequest) {
           recebedor: cliente?.recebedor ? String(cliente.recebedor) : '',
           bairro, cidade,
           status: String(e.status), total: Number(e.total),
+          a_cobrar: Math.max(0, Number(e.total) - (Number(e.valor_pago) || 0)),
+          forma_pagamento: e.forma_pagamento ? String(e.forma_pagamento) : '',
           itens_resumo: itensResumo,
           falta_resumo: faltaResumo,
           data_entrega: e.data_entrega ? String(e.data_entrega) : null,

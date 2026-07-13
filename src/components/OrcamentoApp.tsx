@@ -214,6 +214,8 @@ interface EntregaRota {
   cidade: string;
   status: string;
   total: number;
+  a_cobrar?: number;
+  forma_pagamento?: string;
   itens_resumo: string;
   falta_resumo?: string;
   data_entrega: string | null;
@@ -2209,6 +2211,10 @@ export default function OrcamentoApp() {  // Auth state
       if (e.recebedor) html += `<br/><em style="font-size:12px">Recebedor: ${e.recebedor}</em>`;
       html += `<div class="itens"><div class="itens-label">📦 Itens para carregar:</div>${e.itens_resumo || '<em style="color:#aaa">Nenhum item registrado</em>'}</div>`;
       html += `<div style="display:flex;justify-content:space-between;margin-top:4px"><span>Valor: <strong>R$ ${(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</strong></span><span style="color:#888;font-size:12px">${e.codigo}</span></div>`;
+      // O motorista sai com esta folha na mao — o que cobrar tem que estar nela.
+      html += (e.a_cobrar ?? 0) > 0.01
+        ? `<div style="margin-top:4px;padding:4px 8px;border:2px solid #b91c1c;border-radius:4px;color:#b91c1c;font-weight:bold">💰 COBRAR R$ ${(e.a_cobrar || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}${e.forma_pagamento ? ' — ' + e.forma_pagamento : ''}</div>`
+        : `<div style="margin-top:4px;color:#15803d;font-weight:bold;font-size:12px">✅ JÁ PAGO — só entregar</div>`;
       if (e.observacoes) html += `<div style="color:#666;font-style:italic;font-size:12px;margin-top:2px">Obs: ${e.observacoes}</div>`;
       html += `</div>`;
     });
@@ -2301,6 +2307,9 @@ export default function OrcamentoApp() {  // Auth state
       if (e.recebedor) html += `<br/><em>Recebedor: ${e.recebedor}</em>`;
       html += `<div class="itens">${e.itens_resumo}</div>`;
       html += `<div style="display:flex;justify-content:space-between"><span>Valor: <strong>R$ ${formatBRL(e.total)}</strong></span><span>${e.codigo}</span></div>`;
+      html += (e.a_cobrar ?? 0) > 0.01
+        ? `<div style="margin-top:4px;padding:4px 8px;border:2px solid #b91c1c;border-radius:4px;color:#b91c1c;font-weight:bold">💰 COBRAR R$ ${formatBRL(e.a_cobrar || 0)}${e.forma_pagamento ? ' — ' + e.forma_pagamento : ''}</div>`
+        : `<div style="margin-top:4px;color:#15803d;font-weight:bold;font-size:12px">✅ JÁ PAGO — só entregar</div>`;
       if (e.observacoes) html += `<div style="color:#666;font-style:italic;margin-top:2px">Obs: ${e.observacoes}</div>`;
       html += `</div>`;
     });
@@ -3936,6 +3945,16 @@ export default function OrcamentoApp() {  // Auth state
                           {e.status === 'entrega_parcial' && e.falta_resumo && (
                             <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
                           )}
+                          {/* O que o motorista tem que cobrar na porta. Vem do saldo
+                              real (total - valor_pago), nao de um rotulo digitado. */}
+                          {(e.a_cobrar ?? 0) > 0.01 ? (
+                            <p className="inline-block text-xs font-bold text-red-800 bg-red-100 border border-red-300 rounded px-2 py-0.5 mt-1">
+                              💰 COBRAR {(e.a_cobrar ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              {e.forma_pagamento ? ` · ${e.forma_pagamento}` : ''}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-green-700 font-medium mt-0.5">✅ Já pago — só entregar</p>
+                          )}
                         </div>
                         <button
                           onClick={ev => { ev.stopPropagation(); setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]); }}
@@ -4055,6 +4074,16 @@ export default function OrcamentoApp() {  // Auth state
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
                           {e.status === 'entrega_parcial' && e.falta_resumo && (
                             <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
+                          )}
+                          {/* O que o motorista tem que cobrar na porta. Vem do saldo
+                              real (total - valor_pago), nao de um rotulo digitado. */}
+                          {(e.a_cobrar ?? 0) > 0.01 ? (
+                            <p className="inline-block text-xs font-bold text-red-800 bg-red-100 border border-red-300 rounded px-2 py-0.5 mt-1">
+                              💰 COBRAR {(e.a_cobrar ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                              {e.forma_pagamento ? ` · ${e.forma_pagamento}` : ''}
+                            </p>
+                          ) : (
+                            <p className="text-xs text-green-700 font-medium mt-0.5">✅ Já pago — só entregar</p>
                           )}
                         </div>
                         <div className="flex gap-2 shrink-0">
