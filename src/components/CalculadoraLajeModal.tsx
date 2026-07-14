@@ -53,14 +53,6 @@ const KITS = [
   'Laje H16 Isopor',
 ];
 
-// Nomes exatos no catalogo (conferidos no banco). Cimento tem duas marcas
-// ativas; Votoram e o default. As variantes "s/ Entrega" estao inativas.
-const CIMENTO_VOTORAM = 'Cimento CP2 c/ Entrega - Votoram';
-const CIMENTO_CAUE = 'Cimento CP2 c/ Entrega - Cauê';
-const AREIA = 'Areia Média';
-const PEDRA = 'Pedra Brita';
-const TELA = 'Tela Pop 2 x 3 (20 x 20) Ferro 3.4';
-
 // Fallback dos parametros do traco caso /api/laje/config falhe. Mesmos
 // valores do seed em laje_parametros — a fonte da verdade e o banco.
 const PARAMS_FALLBACK: Record<string, number> = {
@@ -101,7 +93,6 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
   const [temViga, setTemViga] = useState(false);
   const [trechos, setTrechos] = useState<number[]>([0, 0]);
   const [kitEscolhido, setKitEscolhido] = useState<string>('');
-  const [marcaCimento, setMarcaCimento] = useState<string>(CIMENTO_VOTORAM);
 
   // Aba "avulso"
   const [buscaAvulso, setBuscaAvulso] = useState('');
@@ -170,14 +161,12 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
     };
   }, [produtoKit, area, consumo, parametros]);
 
-  // Monta as linhas com os produtos que existem. Se algum casado sumir do
-  // catalogo, a linha e omitida e a atendente e avisada — nao trava a venda.
-  const { linhas, faltando } = useMemo(() => {
-    const linhas: LinhaLaje[] = [];
-    const faltando: string[] = [];
-    if (!produtoKit || !calc || area <= 0) return { linhas, faltando };
-
-    linhas.push({
+  // So o kit de laje vai pro orcamento. Cimento, areia, pedra e tela ficam
+  // como referencia na tela (a atendente ve quanto o cliente vai precisar) mas
+  // sao adicionados pelo catalogo, e so se o cliente pedir.
+  const linhas: LinhaLaje[] = useMemo(() => {
+    if (!produtoKit || area <= 0) return [];
+    return [{
       produto_id: produtoKit.id,
       nome: produtoKit.nome,
       quantidade: area,
@@ -192,29 +181,8 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
         uso,
         tem_viga_intermediaria: temViga,
       },
-    });
-
-    const casados: Array<[string, number]> = [
-      [marcaCimento, calc.cimento],
-      [AREIA, calc.areia],
-      [PEDRA, calc.pedra],
-      [TELA, calc.tela],
-    ];
-    for (const [nome, qtd] of casados) {
-      const p = acharProduto(nome);
-      if (!p) { faltando.push(nome); continue; }
-      if (qtd <= 0) continue;
-      linhas.push({
-        produto_id: p.id,
-        nome: p.nome,
-        quantidade: qtd,
-        unidade: p.unidade,
-        preco: p.preco,
-        preco_custo: p.preco_custo,
-      });
-    }
-    return { linhas, faltando };
-  }, [produtoKit, calc, area, comprimento, largura, vaoLivre, uso, temViga, marcaCimento, produtos]);
+    }];
+  }, [produtoKit, area, comprimento, largura, vaoLivre, uso, temViga]);
 
   const total = linhas.reduce((s, l) => s + l.quantidade * l.preco, 0);
 
@@ -368,21 +336,7 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
                 </div>
               )}
 
-              <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Cimento</label>
-                <div className="grid grid-cols-2 gap-2">
-                  {[CIMENTO_VOTORAM, CIMENTO_CAUE].filter(n => acharProduto(n)).map(n => (
-                    <button key={n} onClick={() => setMarcaCimento(n)}
-                      className={'p-2 rounded-lg border-2 text-xs font-medium transition-colors ' +
-                        (marcaCimento === n ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
-                      {n.includes('Votoram') ? 'Votoram' : 'Cauê'}
-                      <div className="text-xs opacity-75">R$ {brl(acharProduto(n)?.preco ?? 0)}/saco</div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {calc && linhas.length > 0 && (
+              {linhas.length > 0 && (
                 <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
                   <div className="flex justify-between text-sm text-gray-600 mb-2 pb-2 border-b border-orange-200">
                     <span>Área</span>
@@ -397,24 +351,35 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
                       </span>
                     </div>
                   ))}
-                  <div className="flex justify-between text-xs text-gray-400 mt-2 pt-2 border-t border-orange-200">
-                    <span>Concreto da capa (informativo)</span>
-                    <span>{brl(calc.concreto)} m³</span>
-                  </div>
-                  <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg mt-1">
+                  <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg mt-2 pt-2 border-t border-orange-200">
                     <span>Total</span>
                     <span>R$ {brl(total)}</span>
                   </div>
-                  {faltando.length > 0 && (
-                    <p className="mt-2 text-xs text-red-600">
-                      Não encontrei no catálogo: {faltando.join(', ')}. Adicione manualmente se precisar.
-                    </p>
-                  )}
+                </div>
+              )}
+
+              {/* Material da capa: SO referencia. Nao entra no orcamento — se o
+                  cliente quiser, a atendente adiciona pelo catalogo. */}
+              {calc && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
+                    Material da capa — referência
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                    <span>Concreto</span><span className="text-right font-semibold">{brl(calc.concreto)} m³</span>
+                    <span>Cimento</span><span className="text-right font-semibold">{calc.cimento} sacos</span>
+                    <span>Areia</span><span className="text-right font-semibold">{brl(calc.areia)} m³</span>
+                    <span>Pedra</span><span className="text-right font-semibold">{brl(calc.pedra)} m³</span>
+                    <span>Tela 20×20</span><span className="text-right font-semibold">{calc.tela} peças</span>
+                  </div>
+                  <p className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                    Não entra no orçamento. Se o cliente quiser levar, adicione pelo catálogo.
+                  </p>
                 </div>
               )}
 
               <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3">
-                {AVISO_LAJE} As linhas abaixo entram no orçamento e podem ser editadas ou removidas antes de salvar.
+                {AVISO_LAJE}
               </p>
             </div>
           )}
