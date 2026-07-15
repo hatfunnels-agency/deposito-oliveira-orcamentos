@@ -7,6 +7,17 @@ const CHAVE_CAPACIDADE = 'ferragem_capacidade_m_dia';
 const CAPACIDADE_PADRAO = 70;
 // Pedidos "vivos" cuja ferragem ainda ocupa o patio.
 const STATUS_PIPELINE = ['entrega_pendente', 'retirada_pendente'];
+const UNIDADES_METRO = ['m', 'metro', 'metros'];
+
+// Madeira nunca conta como ferragem, mesmo com "viga"/"coluna" no nome
+// (ex: "Viga Cambará"). Mesma lista/heuristica da aba Ferragens.
+const FERRAGEM_EXCLUSOES = ['cambara', 'cambará', 'pinus', 'madeira', 'caibro', 'prancha', 'ripao', 'ripão', 'tabua', 'tábua', 'sarrafo', 'pontalete', 'madeirit'];
+function ehPecaFerragem(nome: string): boolean {
+  const n = (nome || '').toLowerCase();
+  if (!n) return false;
+  if (FERRAGEM_EXCLUSOES.some(e => n.includes(e))) return false;
+  return n.includes('viga') || n.includes('coluna') || n.includes('ferro') || n.includes('estribo');
+}
 
 type Row = Record<string, any>;
 
@@ -71,28 +82,24 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // 2) Itens -> ferragem_consumo -> metros por pedido.
+    // 2) Metros de ferragem por pedido = soma da quantidade das PECAS
+    //    montadas (viga/coluna), que sao itens avulsos (produto_id null) em
+    //    metros. E o metro linear da peca — o mesmo "70 m/dia" que o patio
+    //    amarra. NAO usar ferragem_consumo: ela soma todo o ferro (barras x
+    //    qtd + estribos) e so existe numa fracao dos pedidos.
     const { data: itens } = await supabaseAdmin
       .from('orcamento_itens')
-      .select('id, orcamento_id')
+      .select('orcamento_id, produto_nome, quantidade, unidade, produto_id')
       .in('orcamento_id', pedidoIds)
+      .is('produto_id', null)
       .limit(100000);
-    const itemToPedido = new Map<string, string>();
-    for (const it of itens ?? []) itemToPedido.set(it.id as string, it.orcamento_id as string);
-
-    const itemIds = (itens ?? []).map((i: Row) => i.id);
     const metrosPorPedido = new Map<string, number>();
-    if (itemIds.length > 0) {
-      const { data: consumo } = await supabaseAdmin
-        .from('ferragem_consumo')
-        .select('orcamento_item_id, metros')
-        .in('orcamento_item_id', itemIds)
-        .limit(100000);
-      for (const c of consumo ?? []) {
-        const pedidoId = itemToPedido.get(c.orcamento_item_id as string);
-        if (!pedidoId) continue;
-        metrosPorPedido.set(pedidoId, (metrosPorPedido.get(pedidoId) ?? 0) + (Number(c.metros) || 0));
-      }
+    for (const it of itens ?? []) {
+      const uni = String(it.unidade ?? '').trim().toLowerCase();
+      if (!UNIDADES_METRO.includes(uni)) continue;
+      if (!ehPecaFerragem(String(it.produto_nome ?? ''))) continue; // exclui madeira
+      const ped = it.orcamento_id as string;
+      metrosPorPedido.set(ped, (metrosPorPedido.get(ped) ?? 0) + (Number(it.quantidade) || 0));
     }
 
     // 3) So entram na fila de amarracao os pedidos com metros medidos.

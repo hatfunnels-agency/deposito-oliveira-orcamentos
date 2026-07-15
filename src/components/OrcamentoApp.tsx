@@ -1200,11 +1200,13 @@ export default function OrcamentoApp() {  // Auth state
     } catch {}
   }, []);
 
-  // Metros de ferragem no pedido em construcao (soma do detalhamento_ferro
-  // de cada item do carrinho).
+  // Metros de ferragem no pedido em construcao = metro linear das pecas
+  // montadas (mesma metrica da fila: quantidade dos itens que sao ferragem).
+  // Itens da calculadora carregam detalhamento_ferro e tem quantidade em
+  // metros; nao somar o detalhamento (isso e o ferro total, nao a peca).
   const metrosFerragemCarrinho = itens.reduce((s, it) => {
-    const df = (it as { detalhamento_ferro?: Array<{ metros: number }> }).detalhamento_ferro;
-    return s + (df ? df.reduce((a, d) => a + (Number(d.metros) || 0), 0) : 0);
+    const ehFerragem = Boolean((it as { detalhamento_ferro?: unknown[] }).detalhamento_ferro);
+    return s + (ehFerragem ? (Number(it.quantidade) || 0) : 0);
   }, 0);
 
   // Projeta quando a ferragem deste pedido ficaria pronta, se entrasse na
@@ -3895,7 +3897,7 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 </div>
                 <p className="text-[11px] text-gray-400 mt-2">
-                  Previsão por ordem de chegada, {ferragemFila.capacidade_m_dia} m amarrados por dia útil (seg–sáb). Só conta pedidos com metros medidos na calculadora.
+                  Previsão por ordem de chegada, {ferragemFila.capacidade_m_dia} m amarrados por dia útil (seg–sáb). Conta o metro linear das peças (vigas/colunas) de cada pedido.
                 </p>
               </div>
             )}
