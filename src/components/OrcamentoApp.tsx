@@ -3401,7 +3401,6 @@ export default function OrcamentoApp() {  // Auth state
                       <option value="debito">Débito</option>
                       <option value="credito">Crédito</option>
                       <option value="boleto">Boleto</option>
-                      <option value="pagamento_na_entrega">Pagamento na Entrega</option>
                     </select>
                   </div>
                 </div>
