@@ -63,7 +63,9 @@ const brl = (v: number) =>
 
 type Filtro = 'todos' | 'vencidos' | 'entregues';
 
-export default function FinanceiroTab() {
+// `simples` = visao da atendente: sem os cartoes gerenciais (recebido no
+// periodo, quebra por metodo), so a gestao dos pedidos a receber.
+export default function FinanceiroTab({ simples = false }: { simples?: boolean }) {
   const [data, setData] = useState<FinanceiroData | null>(null);
   const [loading, setLoading] = useState(true);
   const [dias, setDias] = useState(30);
@@ -102,26 +104,33 @@ export default function FinanceiroTab() {
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-bold text-gray-800">Financeiro</h2>
-        <select
-          value={dias}
-          onChange={e => setDias(Number(e.target.value))}
-          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
-        >
-          <option value={7}>Últimos 7 dias</option>
-          <option value={30}>Últimos 30 dias</option>
-          <option value={90}>Últimos 90 dias</option>
-        </select>
+        <h2 className="text-lg font-bold text-gray-800">
+          {simples ? 'Pedidos a receber' : 'Financeiro'}
+        </h2>
+        {!simples && (
+          <select
+            value={dias}
+            onChange={e => setDias(Number(e.target.value))}
+            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+          >
+            <option value={7}>Últimos 7 dias</option>
+            <option value={30}>Últimos 30 dias</option>
+            <option value={90}>Últimos 90 dias</option>
+          </select>
+        )}
       </div>
 
-      {/* Cards de resumo */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Card
-          icon={<TrendingUp className="w-4 h-4" />}
-          titulo={`Recebido (${dias}d)`}
-          valor={brl(resumo.recebido_periodo)}
-          cor="text-green-700 bg-green-50 border-green-200"
-        />
+      {/* Cards de resumo. Na visao simples, sem o "Recebido no periodo"
+          (metrica gerencial) — so o que a atendente precisa perseguir. */}
+      <div className={`grid gap-3 ${simples ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4'}`}>
+        {!simples && (
+          <Card
+            icon={<TrendingUp className="w-4 h-4" />}
+            titulo={`Recebido (${dias}d)`}
+            valor={brl(resumo.recebido_periodo)}
+            cor="text-green-700 bg-green-50 border-green-200"
+          />
+        )}
         <Card
           icon={<Wallet className="w-4 h-4" />}
           titulo="A receber"
@@ -145,8 +154,8 @@ export default function FinanceiroTab() {
         />
       </div>
 
-      {/* Recebido por metodo */}
-      {Object.keys(resumo.recebido_por_metodo).length > 0 && (
+      {/* Recebido por metodo — detalhe gerencial, oculto na visao simples */}
+      {!simples && Object.keys(resumo.recebido_por_metodo).length > 0 && (
         <div className="flex flex-wrap gap-2">
           {Object.entries(resumo.recebido_por_metodo)
             .sort((a, b) => b[1] - a[1])

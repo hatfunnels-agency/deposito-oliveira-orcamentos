@@ -535,7 +535,7 @@ export default function OrcamentoApp() {  // Auth state
     papelUsuario === 'motorista'
       ? ['entregas']
       : papelUsuario === 'atendente'
-      ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas']
+      ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro']
       : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro', 'dashboard', 'ia'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
@@ -694,6 +694,12 @@ export default function OrcamentoApp() {  // Auth state
     [entregasDia, entregasEmRota, entregasCompletas],
   );
   const [loadingCompleto, setLoadingCompleto] = useState<string | null>(null);
+  // Ao concluir uma entrega com saldo em aberto, a atendente precisa registrar
+  // a cobranca (ou marcar que foi entregue sem pagamento) antes de fechar.
+  const [cobrancaEntrega, setCobrancaEntrega] = useState<EntregaRota | null>(null);
+  const [cobrancaValor, setCobrancaValor] = useState('');
+  const [cobrancaMetodo, setCobrancaMetodo] = useState('pix');
+  const [cobrancaSalvando, setCobrancaSalvando] = useState(false);
   const [retiradas, setRetiradas] = useState<OrcamentoSalvo[]>([]);
   const [loadingRetiradas, setLoadingRetiradas] = useState(false);
   // === FERRAGENS STATES ===
@@ -2296,6 +2302,62 @@ export default function OrcamentoApp() {  // Auth state
       setEntregasCompletas(todas.filter(e => e.status === 'completo'));
     } catch (e) { console.error('Erro ao marcar entregue', e); }
     setLoadingCompleto(null);
+  };
+
+  // Clique em "Entregue": se ainda ha saldo em aberto, abre o modal de
+  // cobranca antes de concluir; se ja esta pago, conclui direto.
+  const iniciarConclusaoEntrega = (e: EntregaRota) => {
+    if ((e.a_cobrar ?? 0) > 0.01) {
+      setCobrancaValor((e.a_cobrar ?? 0).toFixed(2));
+      setCobrancaMetodo(e.forma_pagamento && e.forma_pagamento !== 'pagamento_na_entrega' ? e.forma_pagamento : 'pix');
+      setCobrancaEntrega(e);
+    } else {
+      marcarEntregue(e.id);
+    }
+  };
+
+  // Recebeu na entrega: registra o pagamento e conclui.
+  const confirmarCobrancaEntrega = async () => {
+    if (!cobrancaEntrega) return;
+    const valorNum = Number((cobrancaValor || '0').replace(',', '.'));
+    if (!Number.isFinite(valorNum) || valorNum <= 0) { alert('Informe um valor valido'); return; }
+    setCobrancaSalvando(true);
+    try {
+      const res = await fetch('/api/pagamentos', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orcamento_id: cobrancaEntrega.id, valor: valorNum, metodo: cobrancaMetodo }),
+      });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); setCobrancaSalvando(false); return; }
+      const id = cobrancaEntrega.id;
+      setCobrancaEntrega(null);
+      await marcarEntregue(id);
+    } catch { alert('Erro de conexao'); }
+    setCobrancaSalvando(false);
+  };
+
+  // Entregue sem pagamento: deixa o saldo em aberto (aparece no Financeiro) e
+  // marca no pedido, pra ficar registrado que foi decisao, nao esquecimento.
+  const marcarEntregueSemPagamento = async () => {
+    if (!cobrancaEntrega) return;
+    setCobrancaSalvando(true);
+    try {
+      const hoje = new Date().toLocaleDateString('pt-BR');
+      const marca = `⚠️ Entregue SEM pagamento em ${hoje}`;
+      const obsAtual = cobrancaEntrega.observacoes || '';
+      const novaObs = obsAtual.includes('Entregue SEM pagamento') ? obsAtual : `${marca}${obsAtual ? '\n' + obsAtual : ''}`;
+      await fetch(`/api/orcamentos/${cobrancaEntrega.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ observacoes: novaObs }),
+        cache: 'no-store',
+      });
+      const id = cobrancaEntrega.id;
+      setCobrancaEntrega(null);
+      await marcarEntregue(id);
+    } catch { alert('Erro ao marcar pedido'); }
+    setCobrancaSalvando(false);
   };
 
     const imprimirRotaDia = () => {
@@ -4211,7 +4273,7 @@ export default function OrcamentoApp() {  // Auth state
                             {expandedEmRota.includes(e.id) ? '▲ Fechar' : '📦 Ver'}
                           </button>
                           <button
-                            onClick={() => marcarEntregue(e.id)}
+                            onClick={() => iniciarConclusaoEntrega(e)}
                             disabled={loadingCompleto === e.id}
                             className="text-xs bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 disabled:opacity-50 whitespace-nowrap font-medium"
                           >
@@ -4436,7 +4498,7 @@ export default function OrcamentoApp() {  // Auth state
         )}
 
         {/* ===== FINANCEIRO TAB ===== */}
-        {abaAtiva === 'financeiro' && <FinanceiroTab />}
+        {abaAtiva === 'financeiro' && <FinanceiroTab simples={papelUsuario === 'atendente'} />}
 
         {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (
@@ -5492,6 +5554,62 @@ export default function OrcamentoApp() {  // Auth state
       )}
 
       {/* === MODAL CALCULADORA DE FERRO === */}
+      {/* Cobranca ao concluir entrega com saldo em aberto */}
+      {cobrancaEntrega && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-sm p-5">
+            <div className="flex items-center justify-between mb-1">
+              <h3 className="font-bold text-gray-800">Concluir entrega</h3>
+              <button onClick={() => setCobrancaEntrega(null)} disabled={cobrancaSalvando} className="text-gray-400 hover:text-gray-600 text-xl leading-none">×</button>
+            </div>
+            <p className="text-sm text-gray-600">{cobrancaEntrega.cliente_nome} · {cobrancaEntrega.codigo}</p>
+            <p className="text-xs text-gray-500 mb-4">
+              Em aberto: <strong>{(cobrancaEntrega.a_cobrar ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}</strong> de {cobrancaEntrega.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </p>
+
+            <label className="block text-xs font-medium text-gray-600 mb-1">Valor recebido</label>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={cobrancaValor}
+              onChange={e => setCobrancaValor(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-3 text-sm"
+            />
+            <label className="block text-xs font-medium text-gray-600 mb-1">Forma</label>
+            <select
+              value={cobrancaMetodo}
+              onChange={e => setCobrancaMetodo(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-4 text-sm bg-white"
+            >
+              <option value="pix">Pix</option>
+              <option value="debito">Débito</option>
+              <option value="credito">Crédito</option>
+              <option value="dinheiro">Dinheiro</option>
+              <option value="transferencia">Transferência</option>
+              <option value="boleto">Boleto</option>
+            </select>
+
+            <button
+              onClick={confirmarCobrancaEntrega}
+              disabled={cobrancaSalvando}
+              className="w-full bg-[#F7941D] text-white rounded-lg py-2.5 font-medium hover:bg-[#E8850A] transition disabled:opacity-50 mb-2"
+            >
+              {cobrancaSalvando ? 'Salvando…' : 'Receber e concluir'}
+            </button>
+            <button
+              onClick={marcarEntregueSemPagamento}
+              disabled={cobrancaSalvando}
+              className="w-full border border-gray-300 text-gray-600 rounded-lg py-2 text-sm font-medium hover:bg-gray-50 transition disabled:opacity-50"
+            >
+              Entregar sem pagamento
+            </button>
+            <p className="text-[11px] text-gray-400 mt-2 text-center">
+              Sem pagamento, o pedido fica marcado e continua no financeiro como a receber.
+            </p>
+          </div>
+        </div>
+      )}
+
       {showCalculadoraFerro && (
         <CalculadoraFerroModal
           onAdicionarItens={adicionarItensAvulsos}
