@@ -42,6 +42,13 @@ export async function GET(request: NextRequest) {
             clientes ( id, nome, telefone )
           `)
           .not('status', 'in', `(${NAO_VENDA.join(',')})`)
+          // So quem tem saldo. status_pagamento e derivado pelo trigger
+          // ('completo' = quitado), entao isso reduz a um conjunto pequeno —
+          // e evita o corte implicito de 1000 linhas do PostgREST, que
+          // descartava os pedidos em aberto mais recentes (bug: financeiro
+          // zerava conforme a base crescia). A checagem de saldo em JS abaixo
+          // continua como rede de seguranca.
+          .neq('status_pagamento', 'completo')
           .order('criado_em', { ascending: true }),
 
         supabaseAdmin
