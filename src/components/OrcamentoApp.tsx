@@ -709,6 +709,15 @@ export default function OrcamentoApp() {  // Auth state
   // === FERRAGENS STATES ===
   const [ferragens, setFerragens] = useState<Record<string, unknown>[]>([]);
   const [loadingFerragens, setLoadingFerragens] = useState(false);
+  // Fila de amarracao: previsao de quando cada pedido de ferragem fica pronto.
+  type FerragemFila = {
+    capacidade_m_dia: number;
+    fila: { id: string; codigo: string; cliente_nome: string; metros: number; data_pronta: string; dias_uteis: number }[];
+    resumo: { metros_total: number; pedidos: number; dias_uteis: number; zera_em: string | null };
+  };
+  const [ferragemFila, setFerragemFila] = useState<FerragemFila | null>(null);
+  const [editandoCapacidade, setEditandoCapacidade] = useState(false);
+  const [capacidadeInput, setCapacidadeInput] = useState('');
   const [ferragensProducao, setFerragensProducao] = useState<Record<string, unknown>[]>([]);
   const [loadingFerragensProducao, setLoadingFerragensProducao] = useState(false);
   const [ferragensProntas, setFerragensProntas] = useState<Record<string, unknown>[]>([]);
@@ -1195,6 +1204,7 @@ export default function OrcamentoApp() {  // Auth state
       carregarFerragens();
       carregarFerragensProducao();
       carregarFerragensProntas();
+      carregarFerragemFila();
     }
     if (abaAtiva === 'entregas') {
       setCarregandoLevas(true);
@@ -2180,6 +2190,31 @@ export default function OrcamentoApp() {  // Auth state
       setFerragens(data.orcamentos || []);
     } catch (e) { console.error('Erro ao carregar ferragens', e); }
     setLoadingFerragens(false);
+  };
+
+  // Lookup id -> previsao, pros cards da aba ferragens.
+  const previsaoFerragem = (id: string) => ferragemFila?.fila.find(f => f.id === id) ?? null;
+
+  const carregarFerragemFila = async () => {
+    try {
+      const res = await fetch('/api/ferragem/fila', { cache: 'no-store' });
+      const data = await res.json();
+      if (!data.error) setFerragemFila(data);
+    } catch (e) { console.error('Erro ao carregar fila de ferragem', e); }
+  };
+
+  const salvarCapacidade = async () => {
+    const n = Number(capacidadeInput.replace(',', '.'));
+    if (!Number.isFinite(n) || n <= 0) { alert('Informe metros/dia validos'); return; }
+    try {
+      await fetch('/api/ferragem/fila', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ capacidade_m_dia: n }),
+      });
+      setEditandoCapacidade(false);
+      await carregarFerragemFila();
+    } catch (e) { console.error('Erro ao salvar capacidade', e); }
   };
 
   const carregarFerragensProducao = async () => {
@@ -3777,6 +3812,62 @@ export default function OrcamentoApp() {  // Auth state
         {abaAtiva === 'ferragens' && (
           <div className="pb-8 space-y-6">
 
+            {/* === FILA DE AMARRACAO: capacidade + previsao === */}
+            {ferragemFila && (
+              <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex flex-wrap items-center gap-x-6 gap-y-1">
+                    <div>
+                      <p className="text-xs text-gray-500">Na fila</p>
+                      <p className="font-bold text-gray-800">
+                        {ferragemFila.resumo.metros_total.toLocaleString('pt-BR')} m · {ferragemFila.resumo.pedidos} pedido(s)
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Fila zera em</p>
+                      <p className="font-bold text-gray-800">
+                        {ferragemFila.resumo.zera_em
+                          ? `${new Date(ferragemFila.resumo.zera_em + 'T12:00:00').toLocaleDateString('pt-BR')} · ${ferragemFila.resumo.dias_uteis} dia(s) útil(eis)`
+                          : 'Sem fila 🎉'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500">Capacidade</p>
+                      {editandoCapacidade ? (
+                        <div className="flex items-center gap-1">
+                          <input
+                            type="text"
+                            inputMode="decimal"
+                            value={capacidadeInput}
+                            onChange={e => setCapacidadeInput(e.target.value)}
+                            className="w-16 text-sm border border-orange-200 rounded px-2 py-1"
+                          />
+                          <span className="text-xs text-gray-500">m/dia</span>
+                          <button onClick={salvarCapacidade} className="text-xs bg-[#F7941D] text-white px-2 py-1 rounded">OK</button>
+                          <button onClick={() => setEditandoCapacidade(false)} className="text-xs text-gray-400 px-1">×</button>
+                        </div>
+                      ) : (
+                        <p className="font-bold text-gray-800">
+                          {ferragemFila.capacidade_m_dia} m/dia
+                          {papelUsuario === 'admin' && (
+                            <button
+                              onClick={() => { setCapacidadeInput(String(ferragemFila.capacidade_m_dia)); setEditandoCapacidade(true); }}
+                              className="ml-2 text-xs text-orange-600 hover:text-orange-800 font-normal"
+                            >
+                              editar
+                            </button>
+                          )}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  Previsão por ordem de chegada, {ferragemFila.capacidade_m_dia} m amarrados por dia útil (seg–sáb). Só conta pedidos com metros medidos na calculadora.
+                </p>
+              </div>
+            )}
+
             {/* === SECTION 1: PEDIDOS COM FERRAGEM (PENDENTE) === */}
             <div className="bg-white rounded-xl shadow-sm border border-orange-200 p-4">
               <div className="flex items-center justify-between mb-3">
@@ -3820,6 +3911,15 @@ export default function OrcamentoApp() {  // Auth state
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
                           </p>
                         )}
+                        {(() => {
+                          const prev = previsaoFerragem(f.id as string);
+                          if (!prev) return null;
+                          return (
+                            <p className="text-xs mb-1 inline-block bg-amber-100 border border-amber-200 text-amber-800 rounded px-2 py-0.5">
+                              🗓️ Ferragem pronta ~ {new Date(prev.data_pronta + 'T12:00:00').toLocaleDateString('pt-BR')} · {prev.metros.toLocaleString('pt-BR')} m
+                            </p>
+                          );
+                        })()}
                         {itensExibir.length > 0 && (
                           <div className="text-xs text-gray-600 mb-2 space-y-0.5">
                             {itensExibir.slice(0, 5).map((it, i) => (
@@ -3891,6 +3991,15 @@ export default function OrcamentoApp() {  // Auth state
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
                           </p>
                         )}
+                        {(() => {
+                          const prev = previsaoFerragem(f.id as string);
+                          if (!prev) return null;
+                          return (
+                            <p className="text-xs mb-1 inline-block bg-amber-100 border border-amber-200 text-amber-800 rounded px-2 py-0.5">
+                              🗓️ Ferragem pronta ~ {new Date(prev.data_pronta + 'T12:00:00').toLocaleDateString('pt-BR')} · {prev.metros.toLocaleString('pt-BR')} m
+                            </p>
+                          );
+                        })()}
                         {itensExibir.length > 0 && (
                           <div className="text-xs text-gray-600 mb-2 space-y-0.5">
                             {itensExibir.slice(0, 5).map((it, i) => (
@@ -3964,6 +4073,15 @@ export default function OrcamentoApp() {  // Auth state
                             {new Date(((f.data_entrega || f.data_retirada) as string) + 'T00:00:00').toLocaleDateString('pt-BR')}
                           </p>
                         )}
+                        {(() => {
+                          const prev = previsaoFerragem(f.id as string);
+                          if (!prev) return null;
+                          return (
+                            <p className="text-xs mb-1 inline-block bg-amber-100 border border-amber-200 text-amber-800 rounded px-2 py-0.5">
+                              🗓️ Ferragem pronta ~ {new Date(prev.data_pronta + 'T12:00:00').toLocaleDateString('pt-BR')} · {prev.metros.toLocaleString('pt-BR')} m
+                            </p>
+                          );
+                        })()}
                         {itensExibir.length > 0 && (
                           <div className="text-xs text-gray-600 mb-2 space-y-0.5">
                             {itensExibir.slice(0, 5).map((it, i) => (
