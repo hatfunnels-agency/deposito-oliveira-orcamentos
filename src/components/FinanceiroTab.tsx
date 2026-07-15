@@ -16,6 +16,7 @@ interface ContaAberta {
   status_pagamento: string | null;
   condicao_pagamento: string | null;
   vencimento: string | null;
+  entregue_sem_pagamento?: boolean;
   entregue: boolean;
   vencido: boolean;
   dias_em_aberto: number;
@@ -239,6 +240,11 @@ export default function FinanceiroTab({ simples = false }: { simples?: boolean }
                   {c.vencimento && ` · vence ${c.vencimento.split('-').reverse().join('/')}`}
                   {c.entregue && ' · 🚚 já entregue'}
                 </p>
+                {c.entregue_sem_pagamento && (
+                  <span className="inline-block text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-1.5 py-0.5 mt-0.5">
+                    ⚠️ entregue sem pagamento
+                  </span>
+                )}
                 {c.valor_pago > 0 && (
                   <p className="text-xs text-gray-500">
                     Pago {brl(c.valor_pago)} de {brl(c.total)}

@@ -105,6 +105,7 @@ interface OrcamentoDetalhe {
   valor_pago?: number | null;
   condicao_pagamento?: string | null;
   vencimento?: string | null;
+  entregue_sem_pagamento?: boolean | null;
   endereco_id: string | null;
   clientes: {
     id: string;
@@ -193,6 +194,7 @@ interface OrcamentoSalvo {
   valor_pago?: number | null;
   condicao_pagamento?: string | null;
   vencimento?: string | null;
+  entregue_sem_pagamento?: boolean | null;
   clientes: { id: string; nome: string; telefone: string; cidade: string | null; estado: string | null; endereco?: string | null; numero?: string | null; bairro?: string | null; recebedor?: string | null } | null;
   endereco_completo?: {
     id: string;
@@ -700,6 +702,8 @@ export default function OrcamentoApp() {  // Auth state
   const [cobrancaValor, setCobrancaValor] = useState('');
   const [cobrancaMetodo, setCobrancaMetodo] = useState('pix');
   const [cobrancaSalvando, setCobrancaSalvando] = useState(false);
+  // Pagamentos do pedido aberto no detalhe (pro admin poder estornar).
+  const [pagamentosDetalhe, setPagamentosDetalhe] = useState<{ id: string; valor: number; metodo: string; data_pagamento: string; origem: string }[]>([]);
   const [retiradas, setRetiradas] = useState<OrcamentoSalvo[]>([]);
   const [loadingRetiradas, setLoadingRetiradas] = useState(false);
   // === FERRAGENS STATES ===
@@ -1690,9 +1694,37 @@ export default function OrcamentoApp() {  // Auth state
           clientes: data.clientes || null,
         });
         carregarEntregasParciais(id);
+        carregarPagamentosDetalhe(id);
       }
     } catch (e) { console.error('Erro ao carregar detalhe', e); }
     setLoadingDetalhe(false);
+  };
+
+  const carregarPagamentosDetalhe = async (id: string) => {
+    try {
+      const res = await fetch(`/api/pagamentos?orcamento_id=${id}`, { cache: 'no-store' });
+      const data = await res.json();
+      setPagamentosDetalhe(Array.isArray(data) ? data : []);
+    } catch { setPagamentosDetalhe([]); }
+  };
+
+  // Admin: remove um pagamento lancado errado. O trigger recalcula o saldo e
+  // o status_pagamento volta sozinho (pago -> parcial/pendente).
+  const estornarPagamento = async (pagamentoId: string) => {
+    if (!orcamentoDetalhe) return;
+    if (!window.confirm('Remover este pagamento? O pedido volta a ficar em aberto.')) return;
+    try {
+      const res = await fetch(`/api/pagamentos?id=${pagamentoId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) { alert(json.error || 'Erro ao remover pagamento'); return; }
+      setOrcamentoDetalhe({
+        ...orcamentoDetalhe,
+        valor_pago: Number(json.orcamento?.valor_pago) || 0,
+        status_pagamento: json.orcamento?.status_pagamento ?? orcamentoDetalhe.status_pagamento,
+      });
+      carregarPagamentosDetalhe(orcamentoDetalhe.id);
+      carregarHistorico();
+    } catch { alert('Erro de conexao'); }
   };
 
   const finalizarVendaPDV = async () => {
@@ -2338,19 +2370,16 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   // Entregue sem pagamento: deixa o saldo em aberto (aparece no Financeiro) e
-  // marca no pedido, pra ficar registrado que foi decisao, nao esquecimento.
+  // marca o pedido no campo proprio, pra ficar registrado que foi decisao,
+  // nao esquecimento — e permitir filtrar/relatar depois.
   const marcarEntregueSemPagamento = async () => {
     if (!cobrancaEntrega) return;
     setCobrancaSalvando(true);
     try {
-      const hoje = new Date().toLocaleDateString('pt-BR');
-      const marca = `⚠️ Entregue SEM pagamento em ${hoje}`;
-      const obsAtual = cobrancaEntrega.observacoes || '';
-      const novaObs = obsAtual.includes('Entregue SEM pagamento') ? obsAtual : `${marca}${obsAtual ? '\n' + obsAtual : ''}`;
       await fetch(`/api/orcamentos/${cobrancaEntrega.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ observacoes: novaObs }),
+        body: JSON.stringify({ entregue_sem_pagamento: true }),
         cache: 'no-store',
       });
       const id = cobrancaEntrega.id;
@@ -4842,6 +4871,7 @@ export default function OrcamentoApp() {  // Auth state
                                         valor_pago: Number(json.orcamento?.valor_pago) || 0,
                                         status_pagamento: json.orcamento?.status_pagamento ?? orcamentoDetalhe.status_pagamento,
                                       });
+                                      carregarPagamentosDetalhe(orcamentoDetalhe.id);
                                       carregarHistorico();
                                     }}
                                     className="text-sm bg-[#F7941D] text-white px-3 py-1.5 rounded-lg hover:bg-[#E8850A] transition whitespace-nowrap"
@@ -4853,7 +4883,37 @@ export default function OrcamentoApp() {  // Auth state
                             </div>
                           );
                         })()}
+                        {orcamentoDetalhe.entregue_sem_pagamento && (
+                          <p className="mt-1 inline-block text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                            ⚠️ Entregue sem pagamento
+                          </p>
+                        )}
                       </div>
+                      {/* Admin: pagamentos registrados, com estorno. Corrige pedido
+                          marcado como pago por engano — remover o lancamento faz o
+                          trigger recalcular e o status volta a pendente/parcial. */}
+                      {papelUsuario === 'admin' && pagamentosDetalhe.length > 0 && (
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Pagamentos registrados</label>
+                          <div className="space-y-1">
+                            {pagamentosDetalhe.map(p => (
+                              <div key={p.id} className="flex items-center justify-between text-sm border border-gray-200 rounded-lg px-3 py-1.5">
+                                <span className="text-gray-700">
+                                  {Number(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  <span className="text-gray-400"> · {p.metodo} · {new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</span>
+                                  {p.origem === 'legado' && <span className="text-gray-400"> · migrado</span>}
+                                </span>
+                                <button
+                                  onClick={() => estornarPagamento(p.id)}
+                                  className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded px-2 py-0.5 whitespace-nowrap"
+                                >
+                                  Estornar
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>

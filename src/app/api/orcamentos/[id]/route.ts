@@ -18,6 +18,7 @@ export async function GET(
                             status, observacoes, criado_em, atualizado_em,
                                     data_entrega, data_retirada, fonte, forma_pagamento,
                                             status_pagamento, valor_pago, condicao_pagamento, vencimento,
+                                            entregue_sem_pagamento, entregue_sem_pagamento_em,
                                             ferragem_status,
                                             data_entrega_original, reagendamentos, bling_pedido_id, motorista_id, leva_id, endereco_id,
                                                     clientes (
@@ -65,7 +66,7 @@ export async function PATCH(
           const {
                   status, observacoes, tipo_entrega, valor_frete, subtotal, total,
                   data_entrega, data_retirada, fonte, itens, forma_pagamento,
-                  condicao_pagamento, vencimento,
+                  condicao_pagamento, vencimento, entregue_sem_pagamento,
                   ferragem_status,
                   cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
@@ -185,6 +186,10 @@ export async function PATCH(
           if (forma_pagamento !== undefined) updateData.forma_pagamento = forma_pagamento;
           if (condicao_pagamento !== undefined) updateData.condicao_pagamento = condicao_pagamento;
           if (vencimento !== undefined) updateData.vencimento = vencimento || null;
+          if (entregue_sem_pagamento !== undefined) {
+                  updateData.entregue_sem_pagamento = Boolean(entregue_sem_pagamento);
+                  updateData.entregue_sem_pagamento_em = entregue_sem_pagamento ? new Date().toISOString() : null;
+          }
           // status_pagamento NAO e mais escrito aqui: e derivado da tabela
           // `pagamentos` por trigger no Postgres. Antes esta rota forcava
           // status_pagamento='completo' sempre que status==='completo' — ou

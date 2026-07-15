@@ -37,6 +37,7 @@ export async function GET(request: NextRequest) {
           .select(`
             id, codigo, total, valor_pago, status, status_pagamento,
             condicao_pagamento, vencimento, forma_pagamento,
+            entregue_sem_pagamento,
             data_entrega, data_retirada, criado_em,
             clientes ( id, nome, telefone )
           `)
@@ -69,6 +70,7 @@ export async function GET(request: NextRequest) {
           status_pagamento: o.status_pagamento,
           condicao_pagamento: o.condicao_pagamento,
           vencimento: o.vencimento,
+          entregue_sem_pagamento: Boolean(o.entregue_sem_pagamento),
           entregue: o.status === 'completo',
           vencido: Boolean(o.vencimento) && o.vencimento < hojeStr,
           dias_em_aberto: referencia ? Math.max(0, diasEntre(referencia, hoje)) : 0,

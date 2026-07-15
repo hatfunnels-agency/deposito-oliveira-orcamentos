@@ -148,9 +148,21 @@ export async function POST(request: NextRequest) {
     // Releitura pos-trigger: valor_pago e status_pagamento ja recalculados.
     const { data: atualizado } = await supabaseAdmin
       .from('orcamentos')
-      .select('id, codigo, total, valor_pago, status_pagamento')
+      .select('id, codigo, total, valor_pago, status_pagamento, entregue_sem_pagamento')
       .eq('id', orcamento_id)
       .single();
+
+    // Quitou um pedido que fora entregue sem pagamento? O flag deixa de valer
+    // — passa a significar "entregue e ainda em aberto", nao um historico.
+    if (
+      atualizado?.entregue_sem_pagamento &&
+      Number(atualizado.valor_pago) >= Number(atualizado.total) - CENTAVO
+    ) {
+      await supabaseAdmin
+        .from('orcamentos')
+        .update({ entregue_sem_pagamento: false, entregue_sem_pagamento_em: null })
+        .eq('id', orcamento_id);
+    }
 
     return NextResponse.json({
       pagamento,
