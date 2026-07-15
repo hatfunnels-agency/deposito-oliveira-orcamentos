@@ -718,6 +718,8 @@ export default function OrcamentoApp() {  // Auth state
   const [ferragemFila, setFerragemFila] = useState<FerragemFila | null>(null);
   const [editandoCapacidade, setEditandoCapacidade] = useState(false);
   const [capacidadeInput, setCapacidadeInput] = useState('');
+  // Previsao de "se fechar agora, ferragem pronta ~DD/MM" na tela do orcamento.
+  const [previsaoFechar, setPrevisaoFechar] = useState<{ data_pronta: string; metros: number; dias_uteis: number } | null>(null);
   const [ferragensProducao, setFerragensProducao] = useState<Record<string, unknown>[]>([]);
   const [loadingFerragensProducao, setLoadingFerragensProducao] = useState(false);
   const [ferragensProntas, setFerragensProntas] = useState<Record<string, unknown>[]>([]);
@@ -1197,6 +1199,25 @@ export default function OrcamentoApp() {  // Auth state
       }
     } catch {}
   }, []);
+
+  // Metros de ferragem no pedido em construcao (soma do detalhamento_ferro
+  // de cada item do carrinho).
+  const metrosFerragemCarrinho = itens.reduce((s, it) => {
+    const df = (it as { detalhamento_ferro?: Array<{ metros: number }> }).detalhamento_ferro;
+    return s + (df ? df.reduce((a, d) => a + (Number(d.metros) || 0), 0) : 0);
+  }, 0);
+
+  // Projeta quando a ferragem deste pedido ficaria pronta, se entrasse na
+  // fila agora. Recalcula quando muda o total de metros no carrinho.
+  useEffect(() => {
+    if (metrosFerragemCarrinho <= 0) { setPrevisaoFechar(null); return; }
+    let cancelado = false;
+    fetch(`/api/ferragem/fila?novo_metros=${metrosFerragemCarrinho}`, { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => { if (!cancelado && d.projecao_novo_pedido) setPrevisaoFechar(d.projecao_novo_pedido); })
+      .catch(() => {});
+    return () => { cancelado = true; };
+  }, [metrosFerragemCarrinho]);
 
   // Fetch levas
   useEffect(() => {
@@ -3493,6 +3514,17 @@ export default function OrcamentoApp() {  // Auth state
             </div>
           )}
                 </div>
+
+                {previsaoFechar && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm">
+                    <p className="font-semibold text-amber-900">
+                      🗓️ Ferragem pronta ~ {new Date(previsaoFechar.data_pronta + 'T12:00:00').toLocaleDateString('pt-BR')}
+                    </p>
+                    <p className="text-xs text-amber-800 mt-0.5">
+                      {previsaoFechar.metros.toLocaleString('pt-BR')} m neste pedido · {previsaoFechar.dias_uteis} dia(s) útil(eis) contando a fila atual. Use como base pra combinar a data de entrega.
+                    </p>
+                  </div>
+                )}
 
                 <div className="bg-[#E8850A] text-white rounded-xl p-4">
                   <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Subtotal:</span><span className="font-medium">R$ {formatBRL(subtotal)}</span></div>
