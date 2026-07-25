@@ -6,7 +6,9 @@ export const dynamic = 'force-dynamic';
 const CHAVE_CAPACIDADE = 'ferragem_capacidade_m_dia';
 const CAPACIDADE_PADRAO = 70;
 // Pedidos "vivos" cuja ferragem ainda ocupa o patio.
-const STATUS_PIPELINE = ['entrega_pendente', 'retirada_pendente'];
+// entrega_parcial incluido: material entregue com ferragem ainda pendente
+// deve permanecer na fila de amarracao ate a ferragem ser produzida/entregue.
+const STATUS_PIPELINE = ['entrega_pendente', 'entrega_parcial', 'retirada_pendente'];
 const UNIDADES_METRO = ['m', 'metro', 'metros'];
 
 // Madeira nunca conta como ferragem, mesmo com "viga"/"coluna" no nome

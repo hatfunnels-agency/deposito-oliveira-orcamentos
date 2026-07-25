@@ -124,10 +124,17 @@ export async function POST(request: NextRequest) {
       }
     }
     const novoStatus = tudoEntregue ? 'completo' : 'entrega_parcial';
-    await supabaseAdmin
+    // Confere o erro: antes esta gravacao falhava em silencio quando
+    // 'entrega_parcial' nao existia no CHECK constraint, deixando o pedido
+    // preso no status anterior. Nao desfaz os registros ja criados, mas loga
+    // pra falha nunca mais passar despercebida.
+    const { error: statusErr } = await supabaseAdmin
       .from('orcamentos')
       .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
       .eq('id', orcamento_id);
+    if (statusErr) {
+      console.error('[entregas-parciais POST] falha ao atualizar status do orcamento', novoStatus, statusErr);
+    }
 
     return NextResponse.json({
       success: true,

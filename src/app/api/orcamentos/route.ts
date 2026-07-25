@@ -456,7 +456,11 @@ export async function GET(request: NextRequest) {
       }
 
       const ferragemStatus = searchParams.get('ferragem_status');
-      const FERRAGEM_VALID_STATUSES = ['entrega_pendente', 'retirada_pendente'];
+      // Inclui entrega_parcial: pedido com material entregue mas ferragem
+      // ainda pendente (material+ferragem, comum quando a ferragem atrasa)
+      // precisa continuar aparecendo na fila/lista de ferragens ate a
+      // ferragem sair de fato.
+      const FERRAGEM_VALID_STATUSES = ['entrega_pendente', 'entrega_parcial', 'retirada_pendente'];
       if (ferragemStatus === 'pendente') {
         // Pedidos com ferragem (itens de ferro OU FERRAGEM: em observacoes)
         // que ainda nao foram passados ao ferreiro.

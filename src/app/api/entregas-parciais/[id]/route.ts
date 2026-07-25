@@ -76,10 +76,13 @@ export async function DELETE(
       if (e > 1e-9) algumEntregue = true;
     }
     const novoStatus = tudoEntregue ? 'completo' : algumEntregue ? 'entrega_parcial' : 'entrega_pendente';
-    await supabaseAdmin
+    const { error: statusErr } = await supabaseAdmin
       .from('orcamentos')
       .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
       .eq('id', orcamentoId);
+    if (statusErr) {
+      console.error('[entregas-parciais DELETE] falha ao atualizar status do orcamento', novoStatus, statusErr);
+    }
 
     return NextResponse.json({ success: true, novo_status: novoStatus });
   } catch (e) {

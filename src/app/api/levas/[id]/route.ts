@@ -34,7 +34,7 @@ export async function PATCH(
         await supabaseAdmin.from('orcamentos').update({ leva_id: null }).eq('id', orcamento_id).eq('leva_id', params.id);
         await recalcularVolume(params.id);
       } else if (action === 'marcar_em_rota') {
-        await supabaseAdmin.from('orcamentos').update({ status: 'em_rota' }).eq('leva_id', params.id).in('status', ['entrega_pendente', 'separacao', 'pagamento_ok']);
+        await supabaseAdmin.from('orcamentos').update({ status: 'em_rota' }).eq('leva_id', params.id).in('status', ['entrega_pendente', 'entrega_parcial', 'separacao', 'pagamento_ok']);
         await supabaseAdmin.from('levas_entrega').update({ status: 'em_rota' }).eq('id', params.id);
       } else {
         // Legacy: { orcamento_id, acao: 'adicionar'/'remover' }
@@ -57,7 +57,7 @@ export async function PATCH(
           await supabaseAdmin.from('levas_entrega').update(updateData).eq('id', params.id);
         }
         if (status === 'em_rota') {
-          await supabaseAdmin.from('orcamentos').update({ status: 'em_rota' }).eq('leva_id', params.id).in('status', ['entrega_pendente', 'separacao', 'pagamento_ok']);
+          await supabaseAdmin.from('orcamentos').update({ status: 'em_rota' }).eq('leva_id', params.id).in('status', ['entrega_pendente', 'entrega_parcial', 'separacao', 'pagamento_ok']);
         }
       }
 

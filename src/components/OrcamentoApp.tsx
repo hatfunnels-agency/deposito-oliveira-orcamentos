@@ -341,6 +341,7 @@ const PESO_MEDIO_KG: Record<string, number> = {
 const STATUS_LABELS: Record<string, string> = {
   orcamento: 'Orçamento',
   entrega_pendente: 'Entrega Pendente',
+  entrega_parcial: 'Entrega Parcial',
   retirada_pendente: 'Retirada Pendente',
   em_rota: 'Em Rota',
   completo: 'Completo',
@@ -351,6 +352,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_COLORS: Record<string, string> = {
   orcamento: 'bg-gray-100 text-gray-700',
   entrega_pendente: 'bg-orange-100 text-orange-800',
+  entrega_parcial: 'bg-indigo-100 text-indigo-800',
   retirada_pendente: 'bg-purple-100 text-purple-800',
   em_rota: 'bg-blue-100 text-blue-800',
   completo: 'bg-green-200 text-green-900',

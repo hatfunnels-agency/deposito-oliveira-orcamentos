@@ -4,7 +4,9 @@ import { supabaseAdmin } from '@/lib/supabase'
 export const dynamic = 'force-dynamic'
 
 // Status reais no banco que contam como vendas (excluindo orcamento e cancelado)
-const VENDAS_STATUS = ['entrega_pendente', 'em_entrega', 'retirada_pendente', 'completo']
+// entrega_parcial conta como venda confirmada (material ja saiu); sem ele o
+// dashboard subcontava pedidos parcialmente entregues.
+const VENDAS_STATUS = ['entrega_pendente', 'entrega_parcial', 'em_entrega', 'retirada_pendente', 'completo']
 
 export async function GET(request: NextRequest) {
   try {
