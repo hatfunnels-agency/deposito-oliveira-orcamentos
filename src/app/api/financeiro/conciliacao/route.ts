@@ -83,12 +83,65 @@ export async function GET(request: NextRequest) {
       porMetodo[p.metodo] = m;
     }
 
+    // Vendas do dia SEM pagamento coletado: pedido que e' venda (nao orcamento/
+    // cancelado), sem dinheiro coletado (valor_pago ~ 0), e que "e' do dia" pela
+    // uniao — criado hoje OU entregue/retirado hoje. Categoria separada (nao
+    // entra nos totais por metodo, que sao dinheiro que entrou). data_entrega/
+    // data_retirada sao colunas date (sem tz); criado_em e' timestamptz (usa o
+    // mesmo intervalo UTC do dia BRT dos pagamentos).
+    const { data: vendasRows, error: vendasErr } = await supabaseAdmin
+      .from('orcamentos')
+      .select(`
+        id, codigo, total, valor_pago, status, tipo_entrega,
+        condicao_pagamento, vencimento, entregue_sem_pagamento,
+        criado_em, data_entrega, data_retirada,
+        clientes ( nome )
+      `)
+      .not('status', 'in', '(orcamento,cancelado)')
+      .or(
+        `data_entrega.eq.${data},data_retirada.eq.${data},` +
+          `and(criado_em.gte.${inicio.toISOString()},criado_em.lt.${fim.toISOString()})`,
+      );
+    if (vendasErr) {
+      console.error('[financeiro/conciliacao] erro ao buscar vendas do dia', vendasErr);
+    }
+
+    type ClienteEmbed = { nome?: string } | null;
+    const semPagamentoVendas = (vendasRows ?? [])
+      .filter((o) => (Number(o.valor_pago) || 0) <= 0.009)
+      .map((o) => {
+        const motivo = o.entregue_sem_pagamento
+          ? 'entregue sem pagamento'
+          : o.condicao_pagamento === 'prazo'
+            ? 'a prazo'
+            : 'sem pagamento';
+        return {
+          orcamento_id: o.id as string,
+          codigo: (o.codigo as string) ?? '—',
+          cliente_nome: ((o.clientes as ClienteEmbed)?.nome) ?? 'Cliente',
+          valor: Number(o.total) || 0,
+          status: (o.status as string) ?? null,
+          tipo_entrega: (o.tipo_entrega as string) ?? null,
+          condicao_pagamento: (o.condicao_pagamento as string) ?? null,
+          vencimento: (o.vencimento as string | null) ?? null,
+          motivo,
+        };
+      })
+      .sort((a, b) => b.valor - a.valor);
+
+    const semPagamentoTotal = semPagamentoVendas.reduce((s, v) => s + v.valor, 0);
+
     return NextResponse.json({
       data,
       total,
       quantidade: pagamentos.length,
       por_metodo: porMetodo,
       pagamentos,
+      sem_pagamento: {
+        total: semPagamentoTotal,
+        quantidade: semPagamentoVendas.length,
+        vendas: semPagamentoVendas,
+      },
     });
   } catch (e) {
     console.error('[financeiro/conciliacao] erro interno', e);

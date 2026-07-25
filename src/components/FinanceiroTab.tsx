@@ -346,12 +346,24 @@ interface PagamentoDia {
   tipo_entrega: string | null;
   cliente_nome: string;
 }
+interface VendaSemPagamento {
+  orcamento_id: string;
+  codigo: string;
+  cliente_nome: string;
+  valor: number;
+  status: string | null;
+  tipo_entrega: string | null;
+  condicao_pagamento: string | null;
+  vencimento: string | null;
+  motivo: string;
+}
 interface ConciliacaoData {
   data: string;
   total: number;
   quantidade: number;
   por_metodo: Record<string, { total: number; qtd: number }>;
   pagamentos: PagamentoDia[];
+  sem_pagamento: { total: number; quantidade: number; vendas: VendaSemPagamento[] };
 }
 
 // data local do navegador no formato YYYY-MM-DD (deposito opera em BRT).
@@ -361,7 +373,9 @@ function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }
   const [dia, setDia] = useState<string>(hojeInputBRT());
   const [dados, setDados] = useState<ConciliacaoData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filtroMetodo, setFiltroMetodo] = useState<string | null>(null);
+  // Filtro: 'todos' | 'recebidos' (so dinheiro que entrou) | 'sem_pagamento'
+  // (so vendas sem pagamento coletado) | <metodo>.
+  const [sel, setSel] = useState<string>('todos');
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -385,18 +399,25 @@ function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }
     const d = new Date(`${dia}T12:00:00`);
     d.setDate(d.getDate() + delta);
     setDia(d.toLocaleDateString('en-CA'));
-    setFiltroMetodo(null);
+    setSel('todos');
   };
 
   const metodosPresentes = dados
     ? Object.entries(dados.por_metodo).sort((a, b) => b[1].total - a[1].total)
     : [];
-  const listaFiltrada = dados
-    ? dados.pagamentos.filter(p => !filtroMetodo || p.metodo === filtroMetodo)
+  const semPag = dados?.sem_pagamento ?? { total: 0, quantidade: 0, vendas: [] };
+  const ehMetodo = metodosPresentes.some(([m]) => m === sel);
+  const mostrarPagamentos = sel === 'todos' || sel === 'recebidos' || ehMetodo;
+  const mostrarSemPag = (sel === 'todos' || sel === 'sem_pagamento') && semPag.quantidade > 0;
+  const pagamentosVis = dados && mostrarPagamentos
+    ? dados.pagamentos.filter(p => (ehMetodo ? p.metodo === sel : true))
     : [];
+  const semPagVis = mostrarSemPag ? semPag.vendas : [];
+
   const labelMetodo = (m: string) => METODOS.find(x => x.v === m)?.l ?? m;
   const hora = (iso: string) =>
     new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+  const ddmm = (d: string | null) => (d ? d.split('-').reverse().slice(0, 2).join('/') : '');
 
   return (
     <div className="space-y-4">
@@ -405,11 +426,11 @@ function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }
         <input
           type="date"
           value={dia}
-          onChange={e => { setDia(e.target.value); setFiltroMetodo(null); }}
+          onChange={e => { setDia(e.target.value); setSel('todos'); }}
           className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
         />
         <button onClick={() => mudarDia(1)} className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm">›</button>
-        <button onClick={() => { setDia(hojeInputBRT()); setFiltroMetodo(null); }} className="text-xs text-[#F7941D] hover:underline ml-1">hoje</button>
+        <button onClick={() => { setDia(hojeInputBRT()); setSel('todos'); }} className="text-xs text-[#F7941D] hover:underline ml-1">hoje</button>
       </div>
 
       {loading && !dados ? (
@@ -418,44 +439,61 @@ function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }
         <div className="p-8 text-center text-red-500">Erro ao carregar a conciliação.</div>
       ) : (
         <>
-          {/* Total do dia + total por metodo (cartao clicavel = filtro) */}
+          {/* Total recebido (dinheiro que entrou) + por metodo + card separado
+              das vendas sem pagamento coletado. Cartoes sao clicaveis = filtro. */}
           <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             <Card
               icon={<TrendingUp className="w-4 h-4" />}
-              titulo="Total do dia"
+              titulo="Recebido no dia"
               valor={brl(dados.total)}
               rodape={`${dados.quantidade} pagamento(s)`}
               cor="text-green-700 bg-green-50 border-green-200"
             />
             {metodosPresentes.map(([m, info]) => (
-              <button key={m} onClick={() => setFiltroMetodo(filtroMetodo === m ? null : m)} className="text-left">
-                <div className={`border rounded-xl p-3 transition ${filtroMetodo === m ? 'ring-2 ring-[#F7941D] border-[#F7941D] bg-orange-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+              <button key={m} onClick={() => setSel(sel === m ? 'todos' : m)} className="text-left">
+                <div className={`border rounded-xl p-3 transition ${sel === m ? 'ring-2 ring-[#F7941D] border-[#F7941D] bg-orange-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
                   <div className="text-xs font-medium text-gray-500">{labelMetodo(m)}</div>
                   <p className="text-lg font-bold mt-1 text-gray-900">{brl(info.total)}</p>
                   <p className="text-[11px] text-gray-400">{info.qtd} pagamento(s)</p>
                 </div>
               </button>
             ))}
+            {semPag.quantidade > 0 && (
+              <button onClick={() => setSel(sel === 'sem_pagamento' ? 'todos' : 'sem_pagamento')} className="text-left">
+                <div className={`border rounded-xl p-3 transition ${sel === 'sem_pagamento' ? 'ring-2 ring-amber-400 border-amber-400' : 'border-amber-200 hover:border-amber-300'} bg-amber-50`}>
+                  <div className="text-xs font-medium text-amber-700">⏳ Sem pagamento</div>
+                  <p className="text-lg font-bold mt-1 text-amber-900">{brl(semPag.total)}</p>
+                  <p className="text-[11px] text-amber-600">{semPag.quantidade} venda(s) do dia</p>
+                </div>
+              </button>
+            )}
           </div>
 
-          {metodosPresentes.length > 0 && (
+          {/* Chips de filtro */}
+          {(metodosPresentes.length > 0 || semPag.quantidade > 0) && (
             <div className="flex flex-wrap gap-2">
-              <button onClick={() => setFiltroMetodo(null)} className={`text-sm px-3 py-1.5 rounded-lg transition ${filtroMetodo === null ? 'bg-[#F7941D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                Todos ({dados.quantidade})
-              </button>
-              {metodosPresentes.map(([m, info]) => (
-                <button key={m} onClick={() => setFiltroMetodo(m)} className={`text-sm px-3 py-1.5 rounded-lg transition ${filtroMetodo === m ? 'bg-[#F7941D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
-                  {labelMetodo(m)} ({info.qtd})
+              {([
+                ['todos', `Todos (${dados.quantidade + semPag.quantidade})`],
+                ...(semPag.quantidade > 0 ? [['recebidos', `Só recebidos (${dados.quantidade})`] as [string, string]] : []),
+                ...metodosPresentes.map(([m, info]) => [m, `${labelMetodo(m)} (${info.qtd})`] as [string, string]),
+                ...(semPag.quantidade > 0 ? [['sem_pagamento', `⏳ Sem pagamento (${semPag.quantidade})`] as [string, string]] : []),
+              ] as [string, string][]).map(([k, label]) => (
+                <button
+                  key={k}
+                  onClick={() => setSel(k)}
+                  className={`text-sm px-3 py-1.5 rounded-lg transition ${sel === k ? 'bg-[#F7941D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  {label}
                 </button>
               ))}
             </div>
           )}
 
-          {listaFiltrada.length === 0 ? (
+          {pagamentosVis.length === 0 && semPagVis.length === 0 ? (
             <div className="text-center py-10 text-gray-400 text-sm">Nenhum pagamento neste dia/filtro.</div>
           ) : (
             <div className="space-y-2">
-              {listaFiltrada.map(p => (
+              {pagamentosVis.map(p => (
                 <button
                   key={p.id}
                   onClick={() => onAbrirPedido?.(p.orcamento_id)}
@@ -475,6 +513,36 @@ function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }
                   </div>
                 </button>
               ))}
+
+              {/* Vendas do dia sem pagamento coletado */}
+              {semPagVis.length > 0 && (
+                <>
+                  {pagamentosVis.length > 0 && (
+                    <p className="text-xs font-semibold text-amber-700 pt-2">Sem pagamento coletado</p>
+                  )}
+                  {semPagVis.map(v => (
+                    <button
+                      key={v.orcamento_id}
+                      onClick={() => onAbrirPedido?.(v.orcamento_id)}
+                      className="w-full text-left border border-amber-200 bg-amber-50 rounded-xl p-3 flex items-center justify-between gap-3 hover:border-amber-400 transition"
+                    >
+                      <div className="min-w-0">
+                        <p className="font-semibold text-sm text-gray-800 truncate">{v.cliente_nome}</p>
+                        <p className="text-xs text-gray-500">
+                          {v.codigo}
+                          {v.tipo_entrega ? ` · ${v.tipo_entrega === 'retirada' ? 'retirada' : 'entrega'}` : ''}
+                          {` · ${v.motivo}`}
+                          {v.condicao_pagamento === 'prazo' && v.vencimento ? ` · vence ${ddmm(v.vencimento)}` : ''}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-xs bg-amber-100 text-amber-800 rounded-full px-2.5 py-1 whitespace-nowrap">a receber</span>
+                        <p className="font-bold text-sm text-amber-900">{brl(v.valor)}</p>
+                      </div>
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
           )}
         </>
