@@ -4733,7 +4733,7 @@ export default function OrcamentoApp() {  // Auth state
         )}
 
         {/* ===== FINANCEIRO TAB ===== */}
-        {abaAtiva === 'financeiro' && <FinanceiroTab simples={papelUsuario === 'atendente'} />}
+        {abaAtiva === 'financeiro' && <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />}
 
         {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (

@@ -66,12 +66,22 @@ type Filtro = 'todos' | 'vencidos' | 'entregues';
 
 // `simples` = visao da atendente: sem os cartoes gerenciais (recebido no
 // periodo, quebra por metodo), so a gestao dos pedidos a receber.
-export default function FinanceiroTab({ simples = false }: { simples?: boolean }) {
+// `onAbrirPedido` abre o modal de detalhe do pedido (com itens) — vive no
+// OrcamentoApp e e passado por prop pra as linhas ficarem clicaveis.
+export default function FinanceiroTab({
+  simples = false,
+  onAbrirPedido,
+}: {
+  simples?: boolean;
+  onAbrirPedido?: (id: string) => void;
+}) {
   const [data, setData] = useState<FinanceiroData | null>(null);
   const [loading, setLoading] = useState(true);
   const [dias, setDias] = useState(30);
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [cobrando, setCobrando] = useState<ContaAberta | null>(null);
+  // Conciliacao do dia e uma visao gerencial (oculta no modo simples).
+  const [modo, setModo] = useState<'receber' | 'conciliacao'>('receber');
 
   const carregar = useCallback(async () => {
     setLoading(true);
@@ -104,22 +114,46 @@ export default function FinanceiroTab({ simples = false }: { simples?: boolean }
 
   return (
     <div className="px-4 pt-4 pb-8 space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-bold text-gray-800">
-          {simples ? 'Pedidos a receber' : 'Financeiro'}
+          {simples ? 'Pedidos a receber' : modo === 'conciliacao' ? 'Conciliação do dia' : 'Financeiro'}
         </h2>
-        {!simples && (
-          <select
-            value={dias}
-            onChange={e => setDias(Number(e.target.value))}
-            className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
-          >
-            <option value={7}>Últimos 7 dias</option>
-            <option value={30}>Últimos 30 dias</option>
-            <option value={90}>Últimos 90 dias</option>
-          </select>
-        )}
+        <div className="flex items-center gap-2">
+          {!simples && (
+            <div className="flex bg-gray-100 rounded-lg p-0.5 text-sm">
+              <button
+                onClick={() => setModo('receber')}
+                className={`px-3 py-1 rounded-md transition ${modo === 'receber' ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                A receber
+              </button>
+              <button
+                onClick={() => setModo('conciliacao')}
+                className={`px-3 py-1 rounded-md transition ${modo === 'conciliacao' ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
+              >
+                Conciliação do dia
+              </button>
+            </div>
+          )}
+          {!simples && modo === 'receber' && (
+            <select
+              value={dias}
+              onChange={e => setDias(Number(e.target.value))}
+              className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+            >
+              <option value={7}>Últimos 7 dias</option>
+              <option value={30}>Últimos 30 dias</option>
+              <option value={90}>Últimos 90 dias</option>
+            </select>
+          )}
+        </div>
       </div>
+
+      {!simples && modo === 'conciliacao' ? (
+        <Conciliacao onAbrirPedido={onAbrirPedido} />
+      ) : (
+      <>
+      {/* ===== visao "A receber" (padrao) ===== */}
 
       {/* Cards de resumo. Na visao simples, sem o "Recebido no periodo"
           (metrica gerencial) — so o que a atendente precisa perseguir. */}
@@ -280,6 +314,9 @@ export default function FinanceiroTab({ simples = false }: { simples?: boolean }
         </div>
       )}
 
+      </>
+      )}
+
       {cobrando && (
         <ModalPagamento
           conta={cobrando}
@@ -289,6 +326,158 @@ export default function FinanceiroTab({ simples = false }: { simples?: boolean }
             carregar();
           }}
         />
+      )}
+    </div>
+  );
+}
+
+// ===== Conciliacao bancaria das vendas do dia =====
+interface PagamentoDia {
+  id: string;
+  valor: number;
+  metodo: string;
+  parcelas: number;
+  data_pagamento: string;
+  origem: string;
+  observacoes: string | null;
+  orcamento_id: string;
+  codigo: string;
+  status: string | null;
+  tipo_entrega: string | null;
+  cliente_nome: string;
+}
+interface ConciliacaoData {
+  data: string;
+  total: number;
+  quantidade: number;
+  por_metodo: Record<string, { total: number; qtd: number }>;
+  pagamentos: PagamentoDia[];
+}
+
+// data local do navegador no formato YYYY-MM-DD (deposito opera em BRT).
+const hojeInputBRT = () => new Date().toLocaleDateString('en-CA');
+
+function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }) {
+  const [dia, setDia] = useState<string>(hojeInputBRT());
+  const [dados, setDados] = useState<ConciliacaoData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [filtroMetodo, setFiltroMetodo] = useState<string | null>(null);
+
+  const carregar = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/financeiro/conciliacao?data=${dia}`);
+      const json = await res.json();
+      setDados(res.ok ? json : null);
+    } catch (e) {
+      console.error('Erro ao carregar conciliacao:', e);
+      setDados(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [dia]);
+
+  useEffect(() => {
+    carregar();
+  }, [carregar]);
+
+  const mudarDia = (delta: number) => {
+    const d = new Date(`${dia}T12:00:00`);
+    d.setDate(d.getDate() + delta);
+    setDia(d.toLocaleDateString('en-CA'));
+    setFiltroMetodo(null);
+  };
+
+  const metodosPresentes = dados
+    ? Object.entries(dados.por_metodo).sort((a, b) => b[1].total - a[1].total)
+    : [];
+  const listaFiltrada = dados
+    ? dados.pagamentos.filter(p => !filtroMetodo || p.metodo === filtroMetodo)
+    : [];
+  const labelMetodo = (m: string) => METODOS.find(x => x.v === m)?.l ?? m;
+  const hora = (iso: string) =>
+    new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'America/Sao_Paulo' });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button onClick={() => mudarDia(-1)} className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm">‹</button>
+        <input
+          type="date"
+          value={dia}
+          onChange={e => { setDia(e.target.value); setFiltroMetodo(null); }}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5"
+        />
+        <button onClick={() => mudarDia(1)} className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-600 hover:bg-gray-200 text-sm">›</button>
+        <button onClick={() => { setDia(hojeInputBRT()); setFiltroMetodo(null); }} className="text-xs text-[#F7941D] hover:underline ml-1">hoje</button>
+      </div>
+
+      {loading && !dados ? (
+        <div className="p-8 text-center text-gray-400">Carregando…</div>
+      ) : !dados ? (
+        <div className="p-8 text-center text-red-500">Erro ao carregar a conciliação.</div>
+      ) : (
+        <>
+          {/* Total do dia + total por metodo (cartao clicavel = filtro) */}
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+            <Card
+              icon={<TrendingUp className="w-4 h-4" />}
+              titulo="Total do dia"
+              valor={brl(dados.total)}
+              rodape={`${dados.quantidade} pagamento(s)`}
+              cor="text-green-700 bg-green-50 border-green-200"
+            />
+            {metodosPresentes.map(([m, info]) => (
+              <button key={m} onClick={() => setFiltroMetodo(filtroMetodo === m ? null : m)} className="text-left">
+                <div className={`border rounded-xl p-3 transition ${filtroMetodo === m ? 'ring-2 ring-[#F7941D] border-[#F7941D] bg-orange-50' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+                  <div className="text-xs font-medium text-gray-500">{labelMetodo(m)}</div>
+                  <p className="text-lg font-bold mt-1 text-gray-900">{brl(info.total)}</p>
+                  <p className="text-[11px] text-gray-400">{info.qtd} pagamento(s)</p>
+                </div>
+              </button>
+            ))}
+          </div>
+
+          {metodosPresentes.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => setFiltroMetodo(null)} className={`text-sm px-3 py-1.5 rounded-lg transition ${filtroMetodo === null ? 'bg-[#F7941D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                Todos ({dados.quantidade})
+              </button>
+              {metodosPresentes.map(([m, info]) => (
+                <button key={m} onClick={() => setFiltroMetodo(m)} className={`text-sm px-3 py-1.5 rounded-lg transition ${filtroMetodo === m ? 'bg-[#F7941D] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                  {labelMetodo(m)} ({info.qtd})
+                </button>
+              ))}
+            </div>
+          )}
+
+          {listaFiltrada.length === 0 ? (
+            <div className="text-center py-10 text-gray-400 text-sm">Nenhum pagamento neste dia/filtro.</div>
+          ) : (
+            <div className="space-y-2">
+              {listaFiltrada.map(p => (
+                <button
+                  key={p.id}
+                  onClick={() => onAbrirPedido?.(p.orcamento_id)}
+                  className="w-full text-left border border-gray-200 bg-white rounded-xl p-3 flex items-center justify-between gap-3 hover:border-[#F7941D] hover:bg-orange-50/40 transition"
+                >
+                  <div className="min-w-0">
+                    <p className="font-semibold text-sm text-gray-800 truncate">{p.cliente_nome}</p>
+                    <p className="text-xs text-gray-500">
+                      {hora(p.data_pagamento)} · {p.codigo}
+                      {p.tipo_entrega ? ` · ${p.tipo_entrega === 'retirada' ? 'retirada' : 'entrega'}` : ''}
+                      {p.valor < 0 ? ' · estorno' : ''}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs bg-gray-100 text-gray-700 rounded-full px-2.5 py-1 whitespace-nowrap">{labelMetodo(p.metodo)}</span>
+                    <p className={`font-bold text-sm ${p.valor < 0 ? 'text-red-600' : 'text-gray-900'}`}>{brl(p.valor)}</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
