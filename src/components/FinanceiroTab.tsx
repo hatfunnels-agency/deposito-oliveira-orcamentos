@@ -265,8 +265,15 @@ export default function FinanceiroTab({
                   : 'border-gray-200 bg-white'
               }`}
             >
-              <div className="min-w-0">
-                <p className="font-semibold text-sm text-gray-800 truncate">
+              {/* Area do cliente e' um botao separado: abre o pedido (com itens)
+                  sem aninhar com os botoes Cobrar/Registrar da direita. */}
+              <button
+                type="button"
+                onClick={() => onAbrirPedido?.(c.id)}
+                disabled={!onAbrirPedido}
+                className="min-w-0 text-left group disabled:cursor-default"
+              >
+                <p className="font-semibold text-sm text-gray-800 truncate group-hover:underline group-hover:text-[#F7941D] group-disabled:no-underline group-disabled:text-gray-800">
                   {c.cliente_nome}
                 </p>
                 <p className="text-xs text-gray-500">
@@ -284,7 +291,7 @@ export default function FinanceiroTab({
                     Pago {brl(c.valor_pago)} de {brl(c.total)}
                   </p>
                 )}
-              </div>
+              </button>
               <div className="flex items-center gap-2 shrink-0">
                 <div className="text-right">
                   <p className="font-bold text-sm text-gray-900">{brl(c.saldo)}</p>
