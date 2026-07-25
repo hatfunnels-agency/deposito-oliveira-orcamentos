@@ -682,8 +682,43 @@ export async function DELETE(
                       );
       }
 
-      await supabaseAdmin.from('orcamento_itens').delete().eq('orcamento_id', params.id);
-          await supabaseAdmin.from('orcamentos').delete().eq('id', params.id);
+      // Remove primeiro as entregas parciais: a FK entregas_parciais(_itens)
+      // e NO ACTION (nao CASCADE), entao ela bloqueia o delete dos itens/
+      // pedido. Antes os deletes nao conferiam erro e a rota retornava
+      // success:true SEM apagar nada quando o pedido tinha entrega parcial.
+      const { data: eps } = await supabaseAdmin
+        .from('entregas_parciais').select('id').eq('orcamento_id', params.id);
+      const epIds = (eps || []).map((e) => e.id as string);
+      if (epIds.length > 0) {
+              const { error: epiErr } = await supabaseAdmin
+                .from('entregas_parciais_itens').delete().in('entrega_parcial_id', epIds);
+              if (epiErr) {
+                      console.error('Erro ao remover itens de entrega parcial:', epiErr);
+                      return NextResponse.json({ error: 'Erro ao excluir orcamento' }, { status: 500 });
+              }
+              const { error: epErr } = await supabaseAdmin
+                .from('entregas_parciais').delete().eq('orcamento_id', params.id);
+              if (epErr) {
+                      console.error('Erro ao remover entregas parciais:', epErr);
+                      return NextResponse.json({ error: 'Erro ao excluir orcamento' }, { status: 500 });
+              }
+      }
+
+      // orcamento_itens (e pagamentos) tem FK CASCADE pra orcamentos, entao o
+      // delete do pedido ja limpa os filhos. Mantido explicito + conferido
+      // pra falha nunca mais passar como sucesso.
+      const { error: itensErr } = await supabaseAdmin
+        .from('orcamento_itens').delete().eq('orcamento_id', params.id);
+      if (itensErr) {
+              console.error('Erro ao remover itens do orcamento:', itensErr);
+              return NextResponse.json({ error: 'Erro ao excluir itens do orcamento' }, { status: 500 });
+      }
+      const { error: orcErr } = await supabaseAdmin
+        .from('orcamentos').delete().eq('id', params.id);
+      if (orcErr) {
+              console.error('Erro ao remover orcamento:', orcErr);
+              return NextResponse.json({ error: 'Erro ao excluir orcamento' }, { status: 500 });
+      }
 
       return NextResponse.json({ success: true });
     } catch (error) {

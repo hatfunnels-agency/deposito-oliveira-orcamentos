@@ -3,10 +3,11 @@ import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-// Status reais no banco que contam como vendas (excluindo orcamento e cancelado)
-// entrega_parcial conta como venda confirmada (material ja saiu); sem ele o
-// dashboard subcontava pedidos parcialmente entregues.
-const VENDAS_STATUS = ['entrega_pendente', 'entrega_parcial', 'em_entrega', 'retirada_pendente', 'completo']
+// Status reais no banco que contam como vendas (excluindo orcamento e cancelado).
+// entrega_parcial conta como venda confirmada (material ja saiu). 'em_rota' e o
+// status real de pedido em entrega — antes estava 'em_entrega' (inexistente no
+// enum), entao pedidos em rota nao entravam nas vendas do dashboard.
+const VENDAS_STATUS = ['entrega_pendente', 'entrega_parcial', 'em_rota', 'retirada_pendente', 'completo']
 
 export async function GET(request: NextRequest) {
   try {
