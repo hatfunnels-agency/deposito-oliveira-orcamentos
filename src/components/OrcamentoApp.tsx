@@ -44,6 +44,15 @@ interface ItemOrcamento {
   avulso?: boolean;
   preco_custom?: number;
   obs?: string;
+  // Identidade do item quando ele veio de um pedido existente aberto para
+  // edicao (orcamento_itens.id no banco). Faz o PATCH casar item-a-item e
+  // ATUALIZAR no lugar em vez de apagar+reinserir — sem isso o DELETE quebra
+  // a FK de entregas_parciais_itens (NO ACTION) e zera quantidade_entregue.
+  // Ausente em itens novos adicionados durante a edicao.
+  orcamento_item_id?: string;
+  // Quanto ja foi entregue deste item (entrega parcial). Carregado na edicao
+  // pra UI/validacao; a checagem autoritativa acontece no backend.
+  quantidade_entregue?: number;
   // Detalhamento por tipo de ferro pra item gerado pela calculadora de
   // ferragem. Persiste em ferragem_consumo (Batch B). Opcional — itens
   // normais e avulsos manuais nao tem.
@@ -68,6 +77,10 @@ interface OrcamentoItem {
   // Batch D — dados tecnicos do ambiente (so em itens de kit de laje). Vem do
   // GET como array (relacao 1-N no Postgrest), na pratica 0 ou 1 registro.
   laje_detalhes?: DetalhesLaje[] | null;
+  // Batch B — detalhamento por tipo de ferro (so em itens da calculadora de
+  // ferragem). Vem do GET como array (relacao 1-N). Sem isto, reabrir o pedido
+  // pra editar perderia o consumo de ferro ao salvar.
+  ferragem_consumo?: Array<{ tipo_ferro: string; metros: number }> | null;
 }
 
 interface EntregaParcial {
@@ -91,6 +104,8 @@ interface OrcamentoDetalhe {
   valor_frete: number;
   subtotal: number;
   total: number;
+  desconto_percentual?: number | null;
+  desconto_valor?: number | null;
   status: string;
   observacoes: string | null;
   criado_em: string;
@@ -1348,6 +1363,10 @@ export default function OrcamentoApp() {  // Auth state
         forma_pagamento: formaPagamentoForm || null,
         criado_por: user?.id ?? null,
         itens: itens.map(i => ({
+          // Identidade do item existente (edicao): faz o backend ATUALIZAR no
+          // lugar em vez de apagar+reinserir, preservando quantidade_entregue e
+          // a FK de entregas_parciais_itens. Itens novos nao tem — viram INSERT.
+          ...(i.orcamento_item_id ? { orcamento_item_id: i.orcamento_item_id } : {}),
           // Laje usa id sintetico na UI mas persiste o produto_id real
           // (produto_id_real) — ver adicionarLajeCalculada.
           produto_id: i.produto_id_real ?? (i.avulso ? null : i.produto.id),
@@ -1419,8 +1438,16 @@ export default function OrcamentoApp() {  // Auth state
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
-        if (data.codigo) {
+        const data = await res.json().catch(() => ({}));
+        // Antes o sucesso era decidido so por `data.codigo`; num 500/400 o
+        // corpo traz `{ error }` sem codigo e o salvamento falhava em silencio
+        // (nenhum alerta). Agora surfa o erro do backend pro usuario.
+        if (!res.ok || data?.error) {
+          setSalvandoOrcamento(false);
+          alert(data?.error || 'Erro ao salvar o pedido.');
+          return;
+        }
+        if (data.codigo || data.id) {
           savedId = data.id || editandoId;
           resetarFormulario();
         }
@@ -1430,7 +1457,12 @@ export default function OrcamentoApp() {  // Auth state
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
-        const data = await res.json();
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data?.error) {
+          setSalvandoOrcamento(false);
+          alert(data?.error || 'Erro ao salvar o pedido.');
+          return;
+        }
         if (data.codigo) {
           savedId = data.id;
           resetarFormulario();
@@ -2020,11 +2052,25 @@ export default function OrcamentoApp() {  // Auth state
     setModoEndereco('existente');
     setEnderecoNovoForm(ENDERECO_NOVO_VAZIO);
     setObservacoes(detalhe.observacoes || '');
+    // Restaura o ajuste (desconto) do pedido. Sem isto o form reabria com
+    // desconto zerado (ou herdava o do pedido editado antes), e ao salvar o
+    // desconto se perdia no total. descontoCustom e sempre em %; descontoValorInput
+    // guarda o R$ pro modo=valor.
+    const pctSalvo = Number(detalhe.desconto_percentual) || 0;
+    setDescontoCustom(pctSalvo);
+    setDescontoValorInput(Number(detalhe.desconto_valor) || 0);
+    setDescontoModo('pct');
     setStatusPedidoForm(detalhe.status || 'orcamento');
     setCondicaoPagamentoForm(detalhe.condicao_pagamento || 'a_vista');
     setVencimentoForm(detalhe.vencimento || '');
     setFormaPagamentoForm(detalhe.forma_pagamento || '');
     const cartItems: ItemOrcamento[] = detalhe.orcamento_itens.map((oi, idx) => {
+      // Detalhamento de ferro persistido (ferragem_consumo). Restaurado pra que
+      // salvar a edicao nao apague o consumo de ferro do item. So vira campo se
+      // houver linhas.
+      const detFerro = (oi.ferragem_consumo && oi.ferragem_consumo.length > 0)
+        ? oi.ferragem_consumo.map(f => ({ tipo_ferro: f.tipo_ferro, metros: Number(f.metros) }))
+        : undefined;
       // Itens avulsos (ferro) têm produto_id null — restaurar como avulso.
       // preco_custo vem do snapshot gravado na criacao (CLAUDE.md "Opcao B").
       if (oi.produto_id === null) {
@@ -2043,6 +2089,9 @@ export default function OrcamentoApp() {  // Auth state
           quantidade: oi.quantidade,
           avulso: true,
           preco_custom: oi.preco_unitario,
+          orcamento_item_id: oi.id,
+          quantidade_entregue: Number(oi.quantidade_entregue) || 0,
+          ...(detFerro ? { detalhamento_ferro: detFerro } : {}),
         };
       }
       // Produto normal: prefere snapshot do orcamento (preco real no
@@ -2070,6 +2119,8 @@ export default function OrcamentoApp() {  // Auth state
           abaixo_minimo: matchProduto?.abaixo_minimo ?? false,
         },
         quantidade: oi.quantidade,
+        orcamento_item_id: oi.id,
+        quantidade_entregue: Number(oi.quantidade_entregue) || 0,
         // Preserva preco editado manualmente na venda: se o preco salvo
         // difere do catalogo atual, restaura como override pra nao reverter
         // silenciosamente ao reabrir o pedido pra edicao.
@@ -2077,6 +2128,7 @@ export default function OrcamentoApp() {  // Auth state
         ...(detLaje && oi.produto_id
           ? { produto_id_real: String(oi.produto_id), laje_detalhes: detLaje }
           : {}),
+        ...(detFerro ? { detalhamento_ferro: detFerro } : {}),
       };
     });
     setItens(cartItems);

@@ -15,6 +15,7 @@ export async function GET(
             .from('orcamentos')
             .select(`
                     id, codigo, tipo_entrega, valor_frete, subtotal, total,
+                            desconto_percentual, desconto_valor,
                             status, observacoes, criado_em, atualizado_em,
                                     data_entrega, data_retirada, fonte, forma_pagamento,
                                             status_pagamento, valor_pago, condicao_pagamento, vencimento,
@@ -33,6 +34,9 @@ export async function GET(
                                                                                                             preco_unitario, preco_custo, subtotal,
                                                                                                             laje_detalhes (
                                                                                                                       comprimento, largura, area_m2, vao_livre, uso, tem_viga_intermediaria
+                                                                                                                            ),
+                                                                                                            ferragem_consumo (
+                                                                                                                      tipo_ferro, metros
                                                                                                                             )
                                                                                                                     )
                                                                                                                           `)
@@ -68,6 +72,7 @@ export async function PATCH(
                   data_entrega, data_retirada, fonte, itens, forma_pagamento,
                   condicao_pagamento, vencimento, entregue_sem_pagamento,
                   ferragem_status,
+                  desconto_percentual, desconto_valor,
                   cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
                   endereco_id: enderecoIdBody,
@@ -180,6 +185,12 @@ export async function PATCH(
           if (valor_frete !== undefined) updateData.valor_frete = valor_frete;
           if (subtotal !== undefined) updateData.subtotal = subtotal;
           if (total !== undefined) updateData.total = total;
+          // Ajuste (desconto): o frontend ja enviava esses campos, mas o PATCH
+          // nao os gravava — o desconto so "colava" via `total` + trigger de
+          // recalculo. Persistir aqui mantem os valores de desconto corretos
+          // ao reabrir/editar o pedido.
+          if (desconto_percentual !== undefined) updateData.desconto_percentual = desconto_percentual;
+          if (desconto_valor !== undefined) updateData.desconto_valor = desconto_valor;
           if (bling_pedido_id !== undefined) updateData.bling_pedido_id = bling_pedido_id;
           if (motorista_id !== undefined) updateData.motorista_id = motorista_id;
           if (leva_id !== undefined) updateData.leva_id = leva_id;
@@ -375,74 +386,185 @@ export async function PATCH(
       }
 
       if (itens && Array.isArray(itens) && itens.length > 0) {
-            // Snapshot dos itens atuais para rollback manual caso o insert falhe
-            const { data: itensAntigos } = await supabaseAdmin
-              .from('orcamento_itens')
-              .select('*')
-              .eq('orcamento_id', params.id);
-
-            const itensToInsert = itens.map((item: {
-                      produto_id?: string;
-                      produto_nome: string;
-                      quantidade: number;
-                      unidade?: string;
-                      preco_unitario: number;
-                      preco_custo?: number;
-            }) => ({
-                      orcamento_id: params.id,
-                      produto_id: item.produto_id || null,
-                      produto_nome: item.produto_nome,
-                      quantidade: item.quantidade,
-                      unidade: item.unidade || 'unidade',
-                      preco_unitario: item.preco_unitario,
-                      subtotal: item.quantidade * item.preco_unitario,
-                      preco_custo: typeof item.preco_custo === 'number' ? item.preco_custo : 0,
-            }));
-
-            // Substituicao atomica: so apaga os itens antigos depois de ter o payload
-            // novo pronto, e restaura o snapshot se o insert falhar. Evita que uma
-            // edicao deixe o orcamento sem itens ou acumule orfaos.
+            // Sync item-a-item por identidade (orcamento_item_id) em vez de
+            // apagar+reinserir tudo. O caminho antigo (DELETE de todos os
+            // orcamento_itens + INSERT novos) quebrava dois casos de pedido com
+            // entrega parcial: (1) a FK entregas_parciais_itens.orcamento_item_id
+            // e NO ACTION (nao CASCADE como ferragem_consumo/laje_detalhes),
+            // entao o DELETE era bloqueado pelo Postgres e o PATCH retornava 500;
+            // (2) mesmo sem a FK, o reinsert gerava ids novos e zerava
+            // quantidade_entregue, perdendo o historico de entrega parcial.
             //
-            // ferragem_consumo nao precisa de DELETE explicito aqui: a FK em
-            // orcamento_item_id tem ON DELETE CASCADE, entao o delete em
-            // orcamento_itens abaixo ja apaga os filhos automaticamente. Re-
-            // insercao acontece depois do insert dos novos itens (Batch B
-            // Fase 1).
-            const { error: delItensErr } = await supabaseAdmin
+            // Agora: itens com orcamento_item_id valido -> UPDATE no lugar
+            // (preserva quantidade_entregue e a FK); sem id -> INSERT; existentes
+            // ausentes do payload -> DELETE, mas so os que NAO tem entrega
+            // parcial (os protegidos disparam erro claro em vez de falha muda).
+            type ItemPayload = {
+              orcamento_item_id?: string;
+              produto_id?: string;
+              produto_nome: string;
+              quantidade: number;
+              unidade?: string;
+              preco_unitario: number;
+              preco_custo?: number;
+              detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }>;
+              laje_detalhes?: {
+                comprimento?: number | null;
+                largura?: number | null;
+                area_m2?: number;
+                vao_livre?: number;
+                uso?: string;
+                tem_viga_intermediaria?: boolean;
+              };
+            };
+            const itensPayload = itens as ItemPayload[];
+
+            // 1) Itens atuais no banco (id + quanto ja foi entregue).
+            const { data: itensAtuais, error: itensAtuaisErr } = await supabaseAdmin
               .from('orcamento_itens')
-              .delete()
+              .select('id, quantidade_entregue')
               .eq('orcamento_id', params.id);
-            if (delItensErr) {
-              console.error('Erro ao remover itens antigos do orcamento:', delItensErr);
+            if (itensAtuaisErr) {
+              console.error('Erro ao carregar itens atuais do orcamento:', itensAtuaisErr);
               return NextResponse.json({ error: 'Erro ao atualizar itens do orcamento' }, { status: 500 });
             }
+            const atuaisMap = new Map<string, { id: string; quantidade_entregue: number }>();
+            for (const it of itensAtuais || []) {
+              atuaisMap.set(it.id as string, {
+                id: it.id as string,
+                quantidade_entregue: Number(it.quantidade_entregue) || 0,
+              });
+            }
+            const idsAtuais = Array.from(atuaisMap.keys());
 
-            const { data: itensInseridos, error: insItensErr } = await supabaseAdmin
-              .from('orcamento_itens')
-              .insert(itensToInsert)
-              .select('id');
-            if (insItensErr) {
-              console.error('Erro ao inserir novos itens do orcamento:', insItensErr);
-              // Rollback manual: restaura os itens antigos para nao deixar o orcamento vazio
-              if (itensAntigos && itensAntigos.length > 0) {
-                await supabaseAdmin.from('orcamento_itens').insert(itensAntigos);
-              }
-              return NextResponse.json({ error: 'Erro ao salvar itens do orcamento' }, { status: 500 });
+            // 2) Quais itens estao referenciados por entrega parcial (protegidos).
+            const protegidos = new Set<string>();
+            if (idsAtuais.length > 0) {
+              const { data: refs } = await supabaseAdmin
+                .from('entregas_parciais_itens')
+                .select('orcamento_item_id')
+                .in('orcamento_item_id', idsAtuais);
+              for (const r of refs || []) protegidos.add(r.orcamento_item_id as string);
             }
 
-            // Re-insere ferragem_consumo a partir do detalhamento_ferro do
-            // payload (Batch B Fase 1). Aceita opcional — items sem o
-            // campo nao geram linhas. Mapeia por indice (insert preserva
-            // ordem). Falha so e logada (orcamento ja foi salvo).
+            // 3) Particiona os recebidos: casados (UPDATE) vs novos (INSERT).
+            const paraAtualizar: Array<{ atual: { id: string; quantidade_entregue: number }; novo: ItemPayload; idx: number }> = [];
+            const paraInserir: Array<{ novo: ItemPayload; idx: number }> = [];
+            const idsRecebidos = new Set<string>();
+            for (let i = 0; i < itensPayload.length; i++) {
+              const item = itensPayload[i];
+              const oid = item.orcamento_item_id;
+              if (oid && atuaisMap.has(oid)) {
+                idsRecebidos.add(oid);
+                paraAtualizar.push({ atual: atuaisMap.get(oid)!, novo: item, idx: i });
+              } else {
+                paraInserir.push({ novo: item, idx: i });
+              }
+            }
+
+            // 4) Removidos = atuais ausentes do payload. Protegido -> erro claro.
+            const idsRemovidos = idsAtuais.filter((id) => !idsRecebidos.has(id));
+            if (idsRemovidos.some((id) => protegidos.has(id))) {
+              return NextResponse.json(
+                { error: 'Nao e possivel remover um item que ja teve entrega parcial. Cancele a entrega parcial desse item antes de edita-lo.' },
+                { status: 400 },
+              );
+            }
+
+            // 5) Quantidade nova nao pode ficar abaixo do que ja foi entregue.
+            for (const { atual, novo } of paraAtualizar) {
+              if (Number(novo.quantidade) + 1e-9 < atual.quantidade_entregue) {
+                return NextResponse.json(
+                  { error: `Quantidade menor que o total ja entregue (${atual.quantidade_entregue}) para "${novo.produto_nome}". Cancele a entrega parcial primeiro.` },
+                  { status: 400 },
+                );
+              }
+            }
+
+            // 6) UPDATE dos casados — preserva quantidade_entregue (nao tocada).
+            for (const { atual, novo } of paraAtualizar) {
+              const { error: updErr } = await supabaseAdmin
+                .from('orcamento_itens')
+                .update({
+                  produto_id: novo.produto_id || null,
+                  produto_nome: novo.produto_nome,
+                  quantidade: novo.quantidade,
+                  unidade: novo.unidade || 'unidade',
+                  preco_unitario: novo.preco_unitario,
+                  subtotal: Number(novo.quantidade) * Number(novo.preco_unitario),
+                  preco_custo: typeof novo.preco_custo === 'number' ? novo.preco_custo : 0,
+                })
+                .eq('id', atual.id);
+              if (updErr) {
+                console.error('Erro ao atualizar item do orcamento:', updErr);
+                return NextResponse.json({ error: 'Erro ao atualizar itens do orcamento' }, { status: 500 });
+              }
+            }
+
+            // 7) DELETE dos removidos nao-protegidos (CASCADE limpa os filhos).
+            if (idsRemovidos.length > 0) {
+              const { error: delErr } = await supabaseAdmin
+                .from('orcamento_itens')
+                .delete()
+                .in('id', idsRemovidos);
+              if (delErr) {
+                console.error('Erro ao remover itens do orcamento:', delErr);
+                return NextResponse.json({ error: 'Erro ao atualizar itens do orcamento' }, { status: 500 });
+              }
+            }
+
+            // 8) INSERT dos novos.
+            let inseridos: Array<{ id: string }> = [];
+            if (paraInserir.length > 0) {
+              const rows = paraInserir.map(({ novo }) => ({
+                orcamento_id: params.id,
+                produto_id: novo.produto_id || null,
+                produto_nome: novo.produto_nome,
+                quantidade: novo.quantidade,
+                unidade: novo.unidade || 'unidade',
+                preco_unitario: novo.preco_unitario,
+                subtotal: Number(novo.quantidade) * Number(novo.preco_unitario),
+                preco_custo: typeof novo.preco_custo === 'number' ? novo.preco_custo : 0,
+              }));
+              const { data: ins, error: insErr } = await supabaseAdmin
+                .from('orcamento_itens')
+                .insert(rows)
+                .select('id');
+              if (insErr) {
+                console.error('Erro ao inserir novos itens do orcamento:', insErr);
+                return NextResponse.json({ error: 'Erro ao salvar itens do orcamento' }, { status: 500 });
+              }
+              inseridos = (ins || []) as Array<{ id: string }>;
+            }
+
+            // 9) Filhos (ferragem_consumo, laje_detalhes): reconstroi para os
+            // itens recebidos. Mapa indice-do-payload -> id final no banco.
+            const idPorIdx = new Map<number, string>();
+            for (const { atual, idx } of paraAtualizar) idPorIdx.set(idx, atual.id);
+            for (let k = 0; k < paraInserir.length; k++) {
+              const id = inseridos[k]?.id;
+              if (id) idPorIdx.set(paraInserir[k].idx, id);
+            }
+
+            // Itens atualizados mantiveram seus filhos (nao foram deletados via
+            // CASCADE): limpa antes de reinserir do payload pra nao duplicar. Os
+            // novos ja entram limpos. Filhos nao tem FK protetora -> delete seguro.
+            const idsAtualizados = paraAtualizar.map((p) => p.atual.id);
+            if (idsAtualizados.length > 0) {
+              await supabaseAdmin.from('ferragem_consumo').delete().in('orcamento_item_id', idsAtualizados);
+              await supabaseAdmin.from('laje_detalhes').delete().in('orcamento_item_id', idsAtualizados);
+            }
+
+            // ferragem_consumo (Batch B): so itens da calculadora de ferragem.
             const ferragemRows: Array<{ orcamento_item_id: string; tipo_ferro: string; metros: number }> = [];
-            for (let i = 0; i < itens.length; i++) {
-              const det = (itens[i] as { detalhamento_ferro?: Array<{ tipo_ferro: string; metros: number }> }).detalhamento_ferro;
-              const insertedId = itensInseridos?.[i]?.id as string | undefined;
-              if (!insertedId || !det || !Array.isArray(det) || det.length === 0) continue;
+            for (let i = 0; i < itensPayload.length; i++) {
+              const det = itensPayload[i].detalhamento_ferro;
+              const itemId = idPorIdx.get(i);
+              if (!itemId || !det || !Array.isArray(det) || det.length === 0) continue;
               for (const d of det) {
                 if (!d.tipo_ferro || typeof d.metros !== 'number' || d.metros <= 0) continue;
                 ferragemRows.push({
-                  orcamento_item_id: insertedId,
+                  orcamento_item_id: itemId,
                   tipo_ferro: String(d.tipo_ferro),
                   metros: Number(d.metros),
                 });
@@ -455,10 +577,7 @@ export async function PATCH(
               }
             }
 
-            // Re-insere laje_detalhes (Batch D). Mesma logica: a FK tem ON
-            // DELETE CASCADE, entao o delete acima ja limpou os antigos. O
-            // cliente reenvia laje_detalhes no payload de edicao, senao os
-            // dados da fabrica se perderiam a cada edicao do pedido.
+            // laje_detalhes (Batch D): dados tecnicos do ambiente pra fabrica.
             const lajeRows: Array<{
               orcamento_item_id: string;
               comprimento: number | null;
@@ -468,20 +587,13 @@ export async function PATCH(
               uso: string;
               tem_viga_intermediaria: boolean;
             }> = [];
-            for (let i = 0; i < itens.length; i++) {
-              const det = (itens[i] as { laje_detalhes?: {
-                comprimento?: number | null;
-                largura?: number | null;
-                area_m2?: number;
-                vao_livre?: number;
-                uso?: string;
-                tem_viga_intermediaria?: boolean;
-              } }).laje_detalhes;
-              const insertedId = itensInseridos?.[i]?.id as string | undefined;
-              if (!insertedId || !det) continue;
+            for (let i = 0; i < itensPayload.length; i++) {
+              const det = itensPayload[i].laje_detalhes;
+              const itemId = idPorIdx.get(i);
+              if (!itemId || !det) continue;
               if (!det.uso || typeof det.vao_livre !== 'number' || det.vao_livre <= 0) continue;
               lajeRows.push({
-                orcamento_item_id: insertedId,
+                orcamento_item_id: itemId,
                 comprimento: typeof det.comprimento === 'number' ? det.comprimento : null,
                 largura: typeof det.largura === 'number' ? det.largura : null,
                 area_m2: Number(det.area_m2) || 0,
