@@ -2198,14 +2198,6 @@ export default function OrcamentoApp() {  // Auth state
     setEntregaSelecionadaId(null);
   };
 
-  const atribuirTodosMotorista = async (motoristaId: string) => {
-    if (!entregasRota || !Array.isArray(entregasRota.rota_otimizada)) return;
-    const entregasSemMotorista = entregasRota.rota_otimizada.filter((e: EntregaRota & { motorista_id?: string | null }) => !e.motorista_id);
-    for (const e of entregasSemMotorista) {
-      await atribuirMotorista(e.id, motoristaId);
-    }
-  };
-
   const criarMotorista = async () => {
     if (!novoMotoristaNome.trim()) return;
     try {
@@ -4445,13 +4437,9 @@ export default function OrcamentoApp() {  // Auth state
                         >
                           {expandedDia.includes(e.id) ? '▲ Fechar' : '📦 Ver pedido'}
                         </button>
-                          {/* Motorista avulso, para entrega que nao entra em leva.
-                              O modal ja existia no arquivo mas nada o abria. */}
-                          <button
-                            onClick={ev => { ev.stopPropagation(); setEntregaSelecionadaId(e.id); setMostrarAtribuirMotorista(true); }}
-                            className="shrink-0 text-xs text-gray-600 hover:text-gray-900 px-2 py-1 rounded hover:bg-gray-100 whitespace-nowrap"
-                            title="Atribuir motorista"
-                          >🚗</button>
+                          {/* Sem atalho de motorista aqui: em Pendentes o pedido
+                              ainda nao saiu, e quem leva e definido no envio para
+                              rota. Corrigir depois se faz em Em Rota. */}
                           <button onClick={() => abrirDetalhe(e.id)} className="shrink-0 text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 whitespace-nowrap">📋 Ver Pedido</button>
                       </div>
                       {expandedDia.includes(e.id) && (
