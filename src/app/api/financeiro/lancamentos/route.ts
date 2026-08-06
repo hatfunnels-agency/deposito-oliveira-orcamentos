@@ -1,8 +1,81 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { aprenderComCorrecao } from '@/lib/categorizacao';
+import {
+  aprenderComCorrecao,
+  carregarContexto,
+  classificarPorRegras,
+  type LancamentoParaCategorizar,
+} from '@/lib/categorizacao';
 
 export const dynamic = 'force-dynamic';
+export const maxDuration = 300;
+
+/**
+ * POST /api/financeiro/lancamentos  { acao: 'recategorizar', mes?: '2026-07' }
+ *
+ * Reaplica as regras no que ja foi importado. Necessario porque regra nova
+ * nasce depois: uma correcao vira regra, e todos os lancamentos parecidos
+ * do historico deveriam se beneficiar dela sem reimportar arquivo.
+ *
+ * NUNCA mexe em lancamento revisado a mao — a decisao do humano ganha da
+ * regra, sempre.
+ */
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    if (body.acao !== 'recategorizar') {
+      return NextResponse.json({ error: 'Acao desconhecida' }, { status: 400 });
+    }
+
+    // `neq('categoria_origem','manual')` sozinho EXCLUI as linhas com NULL —
+    // em SQL, NULL <> 'manual' e NULL, nao verdadeiro. Justamente os
+    // lancamentos sem categoria (os que mais precisam de recategorizacao)
+    // ficariam de fora.
+    let q = supabaseAdmin
+      .from('lancamentos_bancarios')
+      .select('id, descricao, contraparte, documento, valor, categoria_id, categoria_origem')
+      .or('categoria_origem.is.null,categoria_origem.neq.manual')
+      .limit(5000);
+
+    if (/^\d{4}-\d{2}$/.test(body.mes || '')) {
+      const [ano, m] = String(body.mes).split('-').map(Number);
+      q = q.gte('data', `${body.mes}-01`).lte('data', new Date(Date.UTC(ano, m, 0)).toISOString().slice(0, 10));
+    }
+
+    const { data: alvos, error } = await q;
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+
+    const { categoriasPorId, regras } = await carregarContexto();
+    let alterados = 0;
+
+    for (const l of (alvos || [])) {
+      const alvo: LancamentoParaCategorizar = {
+        descricao: String(l.descricao || ''),
+        contraparte: (l.contraparte as string | null) ?? null,
+        documento: (l.documento as string | null) ?? null,
+        valor: Number(l.valor) || 0,
+      };
+      const c = classificarPorRegras(alvo, regras, categoriasPorId);
+      if (!c.categoria_id || c.categoria_id === l.categoria_id) continue;
+
+      const { error: errUp } = await supabaseAdmin
+        .from('lancamentos_bancarios')
+        .update({
+          categoria_id: c.categoria_id,
+          categoria_origem: c.origem,
+          categoria_confianca: c.confianca,
+          atualizado_em: new Date().toISOString(),
+        })
+        .eq('id', l.id);
+      if (!errUp) alterados++;
+    }
+
+    return NextResponse.json({ avaliados: (alvos || []).length, alterados });
+  } catch (e) {
+    console.error('Erro em POST /api/financeiro/lancamentos:', e);
+    return NextResponse.json({ error: 'Erro interno' }, { status: 500 });
+  }
+}
 
 /**
  * GET /api/financeiro/lancamentos

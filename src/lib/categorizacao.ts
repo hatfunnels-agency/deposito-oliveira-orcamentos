@@ -46,6 +46,12 @@ export function normalizar(s: string | null | undefined): string {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toUpperCase()
+    // "&" vira "E": banco e adquirente escrevem a MESMA razao social das
+    // duas formas. Na Stone de julho/2026 aparecem "L & J DEPOSITO
+    // OLIVEIRA LTDA" e "L E J DEPOSITO OLIVEIRA LTDA" pro mesmo CNPJ —
+    // sem isso, R$66k de transferencia entre contas proprias escapava da
+    // regra e caia na fila de revisao como se fosse despesa.
+    .replace(/&/g, 'E')
     .replace(/\s+/g, ' ')
     .trim();
 }

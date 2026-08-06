@@ -220,7 +220,15 @@ FROM (VALUES
   -- Transferencia propria. Prioridade 1: tem que vencer tudo, senao o
   -- dinheiro que so mudou de conta vira faturamento.
   ('contraparte', 'L & J DEPOSITO OLIVEIRA', 'Transferencia entre contas',  1),
-  ('descricao',   'TRANSFERENCIA ENTRE CONTAS STONE', 'Transferencia entre contas', 1),
+
+  -- "Stone Principal" e a conta de liquidacao da adquirente. Credito vindo
+  -- dela e a VENDA NO CARTAO caindo, nao transferencia entre contas
+  -- proprias. Trata-la como transferencia sumia com R$150k/mes de receita.
+  -- A transferencia de verdade e Stone -> Itau, pega pela regra acima.
+  ('contraparte', 'STONE PRINCIPAL',         'Venda - Cartao (Stone)',      5),
+  -- Na Stone, Tipo='Transacao' em credito e cliente pagando (origem e
+  -- pessoa fisica). A guarda de sinal impede isso de pegar saida.
+  ('descricao',   'TRANSACAO',               'Venda - PIX',                60),
 
   -- Receita
   ('descricao',   'PIX RECEBIDO',            'Venda - PIX',                 50),
