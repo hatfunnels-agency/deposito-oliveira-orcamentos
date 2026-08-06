@@ -681,6 +681,7 @@ export default function OrcamentoApp() {  // Auth state
   // prompt de motorista; o que fica registrado e a leva com quem levou o que.
   const [mostrarModalRota, setMostrarModalRota] = useState(false);
   const [motoristaRota, setMotoristaRota] = useState('');
+  const [revertendoStatus, setRevertendoStatus] = useState<string | null>(null);
   const [entregasSelecionadas, setEntregasSelecionadas] = useState<string[]>([]);
   const [buscandoEndereco, setBuscandoEndereco] = useState(false);
   // Feature 9 - Reschedule
@@ -2293,6 +2294,53 @@ export default function OrcamentoApp() {  // Auth state
       await carregarEntregasDia();
     }
     setLoadingRota(false);
+  };
+
+  /**
+   * Volta o status de uma entrega sem precisar caçar o pedido do cliente.
+   * completo -> em_rota (marcou entregue por engano)
+   * em_rota  -> entrega_pendente (o caminhao nao saiu, ou saiu sem esse pedido)
+   *
+   * Nao mexe em estoque: a baixa so acontece na transicao
+   * non-committed -> committed (ver COMMITTED_STATUSES em lib/estoque-baixa),
+   * e entrega_pendente, em_rota e completo sao TODOS committed. Voltar entre
+   * eles e neutro. _previous_status vai junto pra regra ser avaliada certa.
+   *
+   * Ao voltar de em_rota, tambem solta leva e motorista: se o pedido nao foi,
+   * ele nao pertence aquela viagem — senao a leva mente sobre o que saiu.
+   */
+  const voltarStatusEntrega = async (
+    entrega: EntregaRota,
+    novoStatus: 'em_rota' | 'entrega_pendente'
+  ) => {
+    const destino = novoStatus === 'em_rota' ? 'Em Rota' : 'Pendentes';
+    if (!confirm(`Voltar o pedido de ${entrega.cliente_nome} para ${destino}?`)) return;
+    setRevertendoStatus(entrega.id);
+    try {
+      const body: Record<string, unknown> = {
+        status: novoStatus,
+        _previous_status: entrega.status,
+      };
+      if (novoStatus === 'entrega_pendente') {
+        body.leva_id = null;
+        body.motorista_id = null;
+      }
+      const res = await fetch('/api/orcamentos/' + entrega.id, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        cache: 'no-store',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || 'Erro ao voltar o status');
+      }
+      await carregarEntregasDia();
+    } catch (e) {
+      console.error('Erro ao voltar status', e);
+      alert(e instanceof Error ? e.message : 'Erro ao voltar o status');
+    }
+    setRevertendoStatus(null);
   };
 
   const carregarEntregasDia = async () => {
@@ -4548,6 +4596,15 @@ export default function OrcamentoApp() {  // Auth state
                           >
                             {expandedEmRota.includes(e.id) ? '▲ Fechar' : '📦 Ver'}
                           </button>
+                          {/* Volta pra Pendentes sem precisar caçar o pedido. */}
+                          <button
+                            onClick={() => voltarStatusEntrega(e, 'entrega_pendente')}
+                            disabled={revertendoStatus === e.id}
+                            className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
+                            title="Voltar para Pendentes"
+                          >
+                            {revertendoStatus === e.id ? '...' : '↩ Pendente'}
+                          </button>
                           <button
                             onClick={() => iniciarConclusaoEntrega(e)}
                             disabled={loadingCompleto === e.id}
@@ -4606,6 +4663,15 @@ export default function OrcamentoApp() {  // Auth state
                         </div>
                         <div className="flex gap-2 shrink-0 items-center">
                           <span className="text-xs text-green-600 font-medium">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
+                          {/* Marcou entregue por engano: volta pra Em Rota. */}
+                          <button
+                            onClick={() => voltarStatusEntrega(e, 'em_rota')}
+                            disabled={revertendoStatus === e.id}
+                            className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
+                            title="Voltar para Em Rota"
+                          >
+                            {revertendoStatus === e.id ? '...' : '↩ Em rota'}
+                          </button>
                           <button
                             onClick={() => setExpandedCompleto(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
                             className="text-xs text-green-500 hover:text-green-700 px-2 py-1 rounded hover:bg-green-50 whitespace-nowrap"
