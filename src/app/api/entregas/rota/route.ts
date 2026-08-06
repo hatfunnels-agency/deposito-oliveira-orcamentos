@@ -57,6 +57,12 @@ interface EntregaItem {
   distancia_km: number | null;
   lat: number | null;
   lng: number | null;
+  // Sem estes dois a UI nao consegue mostrar nem filtrar por motorista/leva:
+  // o filtro de motorista existia no frontend lendo um campo que a API
+  // nunca mandou, entao nunca casava com nada.
+  motorista_id: string | null;
+  leva_id: string | null;
+  leva_numero: number | null;
 }
 
 // GET - carrega entregas do dia (pendentes, em rota e completas)
@@ -73,7 +79,8 @@ export async function GET(request: NextRequest) {
       .from('orcamentos')
       .select(`
         id, codigo, tipo_entrega, status, total, valor_pago, forma_pagamento,
-        data_entrega, observacoes,
+        data_entrega, observacoes, motorista_id, leva_id,
+        levas_entrega ( numero_leva ),
         clientes!inner (
           nome, telefone, recebedor
         ),
@@ -169,6 +176,13 @@ export async function GET(request: NextRequest) {
           distancia_km: distanciaKm,
           lat,
           lng,
+          motorista_id: e.motorista_id ? String(e.motorista_id) : null,
+          leva_id: e.leva_id ? String(e.leva_id) : null,
+          leva_numero: (() => {
+            const lRaw = e.levas_entrega;
+            const l = (Array.isArray(lRaw) ? lRaw[0] : lRaw) as Record<string, unknown> | null;
+            return l?.numero_leva != null ? Number(l.numero_leva) : null;
+          })(),
         };
       })
     );

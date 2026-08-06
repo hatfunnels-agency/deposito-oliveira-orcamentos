@@ -4,6 +4,15 @@
 node_modules/
 .next/
 next-env.d.ts
+tsconfig.tsbuildinfo
+
+# variaveis de ambiente — NUNCA versionar.
+# .env.example fica de fora do ignore de proposito: ele so tem nomes, sem valores.
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
 
 # pastas auxiliares (nao fazem parte do app)
 mcp-gmn/
