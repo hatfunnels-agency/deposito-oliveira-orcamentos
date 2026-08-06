@@ -7,6 +7,7 @@ import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
 import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
+import ExtratosTab from './ExtratosTab';
 import ClienteProfile from './ClienteProfile';
 import MapaEntregas from './MapaEntregas';
 import Sidebar, { type AbaKey } from './Sidebar';
@@ -679,6 +680,7 @@ export default function OrcamentoApp() {  // Auth state
   // A leva nao aparece na interface: ela e criada por baixo dos panos quando o
   // usuario manda as entregas selecionadas para a rota. O que ele ve e o
   // prompt de motorista; o que fica registrado e a leva com quem levou o que.
+  const [vistaFinanceiro, setVistaFinanceiro] = useState<'operacional' | 'extratos'>('operacional');
   const [mostrarModalRota, setMostrarModalRota] = useState(false);
   const [motoristaRota, setMotoristaRota] = useState('');
   const [revertendoStatus, setRevertendoStatus] = useState<string | null>(null);
@@ -4828,7 +4830,26 @@ export default function OrcamentoApp() {  // Auth state
         )}
 
         {/* ===== FINANCEIRO TAB ===== */}
-        {abaAtiva === 'financeiro' && <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />}
+        {abaAtiva === 'financeiro' && (
+          <div className="space-y-4">
+            {/* Extrato e DRE sao dado gerencial: atendente nao ve. */}
+            {papelUsuario !== 'atendente' && (
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                <button
+                  onClick={() => setVistaFinanceiro('operacional')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaFinanceiro === 'operacional' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >💰 A receber</button>
+                <button
+                  onClick={() => setVistaFinanceiro('extratos')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaFinanceiro === 'extratos' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >🏦 Extratos e DRE</button>
+              </div>
+            )}
+            {vistaFinanceiro === 'extratos' && papelUsuario !== 'atendente'
+              ? <ExtratosTab />
+              : <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />}
+          </div>
+        )}
 
         {/* ===== ESTOQUE TAB ===== */}
       {abaAtiva === 'estoque' && (

@@ -1,5 +1,8 @@
 .claude/
 
+# lixo do macOS
+.DS_Store
+
 # dependencias e build
 node_modules/
 .next/
@@ -13,6 +16,13 @@ tsconfig.tsbuildinfo
 .env.*.local
 .env.development
 .env.production
+
+# extratos bancarios e financeiro sensivel — NUNCA versionar.
+# O repositorio e publico. Extrato tem saldo, CPF/CNPJ de fornecedor e
+# historico de movimentacao; nada disso pode sair da maquina.
+/Financeiro/
+*.ofx
+/extratos/
 
 # pastas auxiliares (nao fazem parte do app)
 mcp-gmn/
