@@ -254,29 +254,6 @@ interface EntregaRota {
   lng?: number | null;
 }
 
-interface LevaOrcamento {
-  id: string;
-  codigo: string;
-  total: number;
-  status: string;
-  data_entrega: string | null;
-  motorista_id?: string | null;
-  volume_m3?: number;
-  clientes?: { nome?: string; endereco?: string; numero?: string; bairro?: string; cidade?: string } | null;
-}
-
-interface Leva {
-  id: string;
-  numero_leva: number;
-  data: string;
-  volume_total?: number;
-  volume_calculado?: number;
-  status?: string;
-  motorista_id?: string | null;
-  motoristas?: { id: string; nome: string; veiculo?: string } | null;
-  orcamentos?: LevaOrcamento[];
-}
-
 interface Motorista {
   id: string;
   nome: string;
@@ -699,13 +676,11 @@ export default function OrcamentoApp() {  // Auth state
   const [mostrandoSugestoes, setMostrandoSugestoes] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Levas state
-  const [levas, setLevas] = useState<Leva[]>([]);
-  const [levaAtualId, setLevaAtualId] = useState<string | null>(null);
-  const [carregandoLevas, setCarregandoLevas] = useState(false);
-  const [erroLevas, setErroLevas] = useState<string | null>(null);
-  // Motorista escolhido na barra de "montar leva" com as entregas selecionadas.
-  const [motoristaNovaLeva, setMotoristaNovaLeva] = useState('');
-  const [acaoLeva, setAcaoLeva] = useState<string | null>(null);
+  // A leva nao aparece na interface: ela e criada por baixo dos panos quando o
+  // usuario manda as entregas selecionadas para a rota. O que ele ve e o
+  // prompt de motorista; o que fica registrado e a leva com quem levou o que.
+  const [mostrarModalRota, setMostrarModalRota] = useState(false);
+  const [motoristaRota, setMotoristaRota] = useState('');
   const [entregasSelecionadas, setEntregasSelecionadas] = useState<string[]>([]);
   const [buscandoEndereco, setBuscandoEndereco] = useState(false);
   // Feature 9 - Reschedule
@@ -1262,7 +1237,6 @@ export default function OrcamentoApp() {  // Auth state
     return () => { cancelado = true; };
   }, [metrosFerragemCarrinho]);
 
-  // Fetch levas
   useEffect(() => {
     if (abaAtiva === 'ferragens') {
       carregarFerragens();
@@ -1271,17 +1245,9 @@ export default function OrcamentoApp() {  // Auth state
       carregarFerragemFila();
     }
     if (abaAtiva === 'entregas') {
-      carregarLevas();
       // Load retiradas pendentes
       carregarRetiradas();
     }  }, [abaAtiva]);
-
-  // Levas seguem a data escolhida no filtro de entregas. Antes buscava
-  // sem filtro e o retorno vinha misturado com levas de qualquer dia.
-  useEffect(() => {
-    if (abaAtiva === 'entregas') carregarLevas();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataEntregas]);
 
   // Smart address search - CEP only (street names must be picked from dropdown).
   // Frete desabilitado: apenas resolve o endereco via ViaCEP.
@@ -2266,92 +2232,67 @@ export default function OrcamentoApp() {  // Auth state
     return amanha.toISOString().slice(0, 10);
   };
 
-  const carregarLevas = async () => {
-    setCarregandoLevas(true);
-    setErroLevas(null);
+  /**
+   * Manda as entregas selecionadas para a rota, registrando quem levou.
+   *
+   * A leva nao aparece na tela, mas e ela que guarda a viagem: motorista,
+   * veiculo e quais pedidos sairam juntos. Ordem importa — a leva e criada
+   * ANTES de marcar em_rota, senao o pedido muda de status sem registro de
+   * quem o levou, que era exatamente o buraco de dado que motivou isso.
+   */
+  const enviarParaRota = async () => {
+    if (selecionadas.length === 0 || !motoristaRota) return;
+    const ids = [...selecionadas];
+    setLoadingRota(true);
+    setMostrarModalRota(false);
     try {
-      const res = await fetch('/api/levas?data=' + dataEntregasAlvo(), { cache: 'no-store' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao carregar levas');
-      setLevas(data.levas || []);
-    } catch (e) {
-      // Silenciar erro aqui foi o que escondeu o PGRST200 do embed por meses.
-      console.error('Erro ao carregar levas', e);
-      setErroLevas(e instanceof Error ? e.message : 'Erro ao carregar levas');
-      setLevas([]);
-    }
-    setCarregandoLevas(false);
-  };
-
-  const criarLevaComSelecionadas = async () => {
-    if (selecionadas.length === 0) return;
-    setAcaoLeva('criando');
-    try {
-      const res = await fetch('/api/levas', {
+      // 1. Leva com as entregas e o motorista (grava leva_id + motorista_id
+      //    em cada pedido).
+      const resLeva = await fetch('/api/levas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           data: dataEntregasAlvo(),
-          motorista_id: motoristaNovaLeva || null,
-          orcamento_ids: selecionadas,
+          motorista_id: motoristaRota,
+          orcamento_ids: ids,
         }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao criar leva');
-      setSelecionadas([]);
-      setMotoristaNovaLeva('');
-      await Promise.all([carregarLevas(), carregarEntregasDia()]);
-    } catch (e) {
-      console.error('Erro ao criar leva', e);
-      alert(e instanceof Error ? e.message : 'Erro ao criar leva');
-    }
-    setAcaoLeva(null);
-  };
+      const leva = await resLeva.json();
+      if (!resLeva.ok) throw new Error(leva.error || 'Erro ao registrar a leva');
 
-  const patchLeva = async (levaId: string, body: Record<string, unknown>, marcador: string) => {
-    setAcaoLeva(marcador);
-    try {
-      const res = await fetch('/api/levas/' + levaId, {
+      // 2. Rota otimizada + link do Google Maps (so leitura, nao muda status).
+      const distancias: Record<string, number | null> = {};
+      for (const e of entregasDia) {
+        if (ids.includes(e.id)) distancias[e.id] = e.distancia_km ?? null;
+      }
+      const resRota = await fetch('/api/entregas/rota', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids, distancias }),
+        cache: 'no-store',
+      });
+      if (resRota.ok) setRotaGerada(await resRota.json());
+
+      // 3. Leva e pedidos para em_rota.
+      const resStatus = await fetch('/api/levas/' + leva.id, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ action: 'marcar_em_rota' }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Erro ao atualizar leva');
-      await Promise.all([carregarLevas(), carregarEntregasDia()]);
+      if (!resStatus.ok) {
+        const err = await resStatus.json().catch(() => ({}));
+        throw new Error(err.error || 'Leva criada, mas falhou ao marcar em rota');
+      }
+
+      setSelecionadas([]);
+      setMotoristaRota('');
+      await carregarEntregasDia();
     } catch (e) {
-      console.error('Erro ao atualizar leva', e);
-      alert(e instanceof Error ? e.message : 'Erro ao atualizar leva');
+      console.error('Erro ao enviar para rota', e);
+      alert(e instanceof Error ? e.message : 'Erro ao enviar para rota');
+      await carregarEntregasDia();
     }
-    setAcaoLeva(null);
-  };
-
-  const adicionarSelecionadasNaLeva = (levaId: string) =>
-    patchLeva(levaId, { action: 'add_entregas', orcamento_ids: selecionadas }, 'add-' + levaId)
-      .then(() => setSelecionadas([]));
-
-  const removerDaLeva = (levaId: string, orcamentoId: string) =>
-    patchLeva(levaId, { action: 'remove_entrega', orcamento_id: orcamentoId }, 'rm-' + orcamentoId);
-
-  const marcarLevaEmRota = (levaId: string) =>
-    patchLeva(levaId, { action: 'marcar_em_rota' }, 'rota-' + levaId);
-
-  const trocarMotoristaLeva = (levaId: string, motoristaId: string) =>
-    patchLeva(levaId, { motorista_id: motoristaId || null }, 'mot-' + levaId);
-
-  const excluirLeva = async (levaId: string) => {
-    if (!confirm('Excluir esta leva? As entregas voltam para a lista de pendentes.')) return;
-    setAcaoLeva('del-' + levaId);
-    try {
-      const res = await fetch('/api/levas/' + levaId, { method: 'DELETE' });
-      if (!res.ok) throw new Error('Erro ao excluir leva');
-      if (levaAtualId === levaId) setLevaAtualId(null);
-      await Promise.all([carregarLevas(), carregarEntregasDia()]);
-    } catch (e) {
-      console.error('Erro ao excluir leva', e);
-      alert(e instanceof Error ? e.message : 'Erro ao excluir leva');
-    }
-    setAcaoLeva(null);
+    setLoadingRota(false);
   };
 
   const carregarEntregasDia = async () => {
@@ -2497,48 +2438,6 @@ export default function OrcamentoApp() {  // Auth state
       await carregarFerragensProducao();
     } catch (e) { console.error('Erro ao voltar ferragem para pendente', e); }
     setVoltandoFerragemPendente(null);
-  };
-
-  const gerarRota = async () => {
-    if (selecionadas.length === 0) return;
-    setLoadingRota(true);
-    try {
-      const distancias: Record<string, number | null> = {};
-      for (const e of entregasDia) {
-        if (selecionadas.includes(e.id)) {
-          distancias[e.id] = e.distancia_km ?? null;
-        }
-      }
-      const res = await fetch('/api/entregas/rota', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selecionadas, distancias }),
-        cache: 'no-store',
-      });
-      const data = await res.json();
-      setRotaGerada(data);
-      // Mark selected orders as em_rota
-      await fetch('/api/entregas/rota', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: selecionadas, novoStatus: 'em_rota' }),
-        cache: 'no-store',
-      });
-      // Reload all sections
-      const amanha = new Date();
-      amanha.setDate(amanha.getDate() + 1);
-      const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
-      const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
-      const reloadData = await reloadRes.json();
-      const todasRaw: EntregaRota[] = reloadData.entregas || [];
-      const seen = new Set<string>();
-      const todas = todasRaw.filter(e => { if (seen.has(e.id)) return false; seen.add(e.id); return true; });
-      setEntregasDia(todas.filter(e => e.status === 'aguardando' || e.status === 'confirmado' || e.status === 'entrega_pendente' || e.status === 'entrega_parcial'));
-      setEntregasEmRota(todas.filter(e => e.status === 'em_rota'));
-      setEntregasCompletas(todas.filter(e => e.status === 'completo'));
-      setSelecionadas([]);
-    } catch (e) { console.error('Erro ao gerar rota', e); }
-    setLoadingRota(false);
   };
 
   const toggleSelecionada = (id: string) => {
@@ -4331,15 +4230,22 @@ export default function OrcamentoApp() {  // Auth state
           <div className="pb-8 space-y-6">
 
             {/* Toggle Lista | Mapa */}
-            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+                <button
+                  onClick={() => setVistaEntregas('lista')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaEntregas === 'lista' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >📋 Lista</button>
+                <button
+                  onClick={() => setVistaEntregas('mapa')}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaEntregas === 'mapa' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >🗺️ Mapa</button>
+              </div>
+              {/* O modal de gestao ja existia pronto no arquivo, mas nada o abria. */}
               <button
-                onClick={() => setVistaEntregas('lista')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaEntregas === 'lista' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >📋 Lista</button>
-              <button
-                onClick={() => setVistaEntregas('mapa')}
-                className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaEntregas === 'mapa' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-              >🗺️ Mapa</button>
+                onClick={() => setMostrarGestaoMotoristas(true)}
+                className="text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 whitespace-nowrap"
+              >⚙️ Motoristas</button>
             </div>
 
             {vistaEntregas === 'mapa' ? (
@@ -4353,11 +4259,11 @@ export default function OrcamentoApp() {  // Auth state
                 />
                 {selecionadas.length > 0 && (
                   <button
-                    onClick={gerarRota}
+                    onClick={() => { setMotoristaRota(''); setMostrarModalRota(true); }}
                     disabled={loadingRota}
                     className="fixed bottom-6 left-1/2 -translate-x-1/2 z-10 bg-orange-500 hover:bg-orange-600 disabled:opacity-60 text-white font-semibold px-6 py-3 rounded-full shadow-lg flex items-center gap-2"
                   >
-                    🚚 {loadingRota ? 'Gerando rota...' : `Gerar Rota (${selecionadas.length} ${selecionadas.length === 1 ? 'entrega' : 'entregas'})`}
+                    🚚 {loadingRota ? 'Enviando...' : `Enviar para Rota (${selecionadas.length} ${selecionadas.length === 1 ? 'entrega' : 'entregas'})`}
                   </button>
                 )}
               </>
@@ -4452,54 +4358,6 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
               )}
 
-              {/* Montar leva com o que esta selecionado. A leva e a viagem:
-                  quem levou e o que foi junto. Sem cota de peso — o limite
-                  de carga e decisao de quem carrega, nao do sistema. */}
-              {selecionadas.length > 0 && (
-                <div className="mb-4 border border-blue-200 bg-blue-50 rounded-lg p-3">
-                  <p className="text-xs font-bold text-blue-800 mb-2">
-                    🚚 Montar leva com {selecionadas.length} {selecionadas.length === 1 ? 'entrega' : 'entregas'}
-                  </p>
-                  <div className="flex flex-col sm:flex-row gap-2">
-                    <select
-                      value={motoristaNovaLeva}
-                      onChange={ev => setMotoristaNovaLeva(ev.target.value)}
-                      className="flex-1 border border-blue-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-400"
-                    >
-                      <option value="">Sem motorista definido</option>
-                      {motoristas.map(m => (
-                        <option key={m.id} value={m.id}>
-                          {m.nome}{m.veiculo ? ' — ' + m.veiculo : ''}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      onClick={criarLevaComSelecionadas}
-                      disabled={acaoLeva === 'criando'}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 whitespace-nowrap"
-                    >
-                      {acaoLeva === 'criando' ? 'Criando...' : '+ Nova leva'}
-                    </button>
-                  </div>
-                  {levas.filter(l => l.status !== 'em_rota').length > 0 && (
-                    <div className="mt-2 flex flex-wrap gap-2 items-center">
-                      <span className="text-xs text-blue-700">ou adicionar em:</span>
-                      {levas.filter(l => l.status !== 'em_rota').map(l => (
-                        <button
-                          key={l.id}
-                          onClick={() => adicionarSelecionadasNaLeva(l.id)}
-                          disabled={acaoLeva === 'add-' + l.id}
-                          className="text-xs bg-white border border-blue-300 text-blue-700 px-2 py-1 rounded hover:bg-blue-100 disabled:opacity-50"
-                        >
-                          {acaoLeva === 'add-' + l.id ? '...' : 'Leva ' + l.numero_leva}
-                          {l.motoristas?.nome ? ' (' + l.motoristas.nome + ')' : ''}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
               {entregasDia.length > 0 && (
                 <div className="space-y-2 mb-4">
                   {entregasDia.map((e, idx) => (
@@ -4531,25 +4389,6 @@ export default function OrcamentoApp() {  // Auth state
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
                           {e.status === 'entrega_parcial' && e.falta_resumo && (
                             <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
-                          )}
-                          {e.leva_id && (
-                            <p className="inline-block text-xs font-semibold text-blue-800 bg-blue-100 border border-blue-300 rounded px-2 py-0.5 mt-1">
-                              🚚 Leva {e.leva_numero ?? '?'}
-                              {(() => {
-                                const m = motoristas.find(x => x.id === e.motorista_id);
-                                return m ? ' · ' + m.nome + (m.veiculo ? ' (' + m.veiculo + ')' : '') : '';
-                              })()}
-                            </p>
-                          )}
-                          {/* O que o motorista tem que cobrar na porta. Vem do saldo
-                              real (total - valor_pago), nao de um rotulo digitado. */}
-                          {(e.a_cobrar ?? 0) > 0.01 ? (
-                            <p className="inline-block text-xs font-bold text-red-800 bg-red-100 border border-red-300 rounded px-2 py-0.5 mt-1">
-                              💰 COBRAR {(e.a_cobrar ?? 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                              {e.forma_pagamento ? ` · ${e.forma_pagamento}` : ''}
-                            </p>
-                          ) : (
-                            <p className="text-xs text-green-700 font-medium mt-0.5">✅ Já pago — só entregar</p>
                           )}
                         </div>
                         <button
@@ -4598,11 +4437,11 @@ export default function OrcamentoApp() {  // Auth state
 
               {selecionadas.length > 0 && (
                 <button
-                  onClick={gerarRota}
+                  onClick={() => { setMotoristaRota(''); setMostrarModalRota(true); }}
                   disabled={loadingRota}
                   className="w-full bg-blue-600 text-white px-4 py-3 rounded-lg text-sm font-bold hover:bg-blue-700 disabled:opacity-50 mb-3"
                 >
-                  {loadingRota ? 'Gerando rota...' : 'Gerar Rota (' + selecionadas.length + ' entregas)'}
+                  {loadingRota ? 'Enviando...' : '🚚 Enviar para Rota (' + selecionadas.length + ' ' + (selecionadas.length === 1 ? 'entrega' : 'entregas') + ')'}
                 </button>
               )}
 
@@ -4651,133 +4490,6 @@ export default function OrcamentoApp() {  // Auth state
               )}
             </div>
 
-            {/* === SECTION 1.5: LEVAS DO DIA ===
-                A leva e o registro da viagem: motorista, veiculo e o que foi
-                junto. E daqui que sai o dado de entregas por viagem, que hoje
-                nao existe em lugar nenhum. */}
-            <div className="bg-white rounded-xl shadow-sm border border-blue-100 p-4">
-              <div className="flex items-center gap-2 mb-4">
-                <span className="text-lg">🚚</span>
-                <h2 className="font-bold text-blue-700">Levas do Dia</h2>
-                {levas.length > 0 && (
-                  <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full">{levas.length}</span>
-                )}
-                <button
-                  onClick={carregarLevas}
-                  disabled={carregandoLevas}
-                  className="ml-auto text-xs text-blue-600 hover:text-blue-800 px-2 py-1 rounded hover:bg-blue-50 border border-blue-200"
-                >
-                  {carregandoLevas ? 'Carregando...' : '↻ Atualizar'}
-                </button>
-              </div>
-
-              {erroLevas && (
-                <div className="mb-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
-                  Erro ao carregar levas: {erroLevas}
-                </div>
-              )}
-
-              {!carregandoLevas && levas.length === 0 && !erroLevas && (
-                <p className="text-center py-6 text-gray-400 text-sm">
-                  Nenhuma leva montada para esta data.<br />
-                  <span className="text-xs">Selecione entregas acima e clique em &quot;Nova leva&quot;.</span>
-                </p>
-              )}
-
-              {levas.length > 0 && (
-                <div className="space-y-3">
-                  {levas.map(l => {
-                    const qtd = l.orcamentos?.length || 0;
-                    const volume = l.volume_calculado ?? l.volume_total ?? 0;
-                    const emRota = l.status === 'em_rota';
-                    return (
-                      <div key={l.id} className={`border rounded-lg overflow-hidden ${emRota ? 'border-purple-200 bg-purple-50' : 'border-blue-200 bg-blue-50'}`}>
-                        <div className="p-3">
-                          <div className="flex items-start justify-between gap-2 flex-wrap">
-                            <div className="min-w-0">
-                              <p className="font-bold text-gray-800 text-sm">
-                                Leva {l.numero_leva}
-                                {emRota && <span className="ml-2 text-xs font-bold text-purple-700 bg-purple-100 border border-purple-300 rounded px-2 py-0.5">EM ROTA</span>}
-                              </p>
-                              <p className="text-xs text-gray-600 mt-0.5">
-                                {qtd} {qtd === 1 ? 'entrega' : 'entregas'}
-                                {volume > 0 && <span> · {volume.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m³</span>}
-                              </p>
-                            </div>
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <select
-                                value={l.motorista_id || ''}
-                                onChange={ev => trocarMotoristaLeva(l.id, ev.target.value)}
-                                disabled={acaoLeva === 'mot-' + l.id}
-                                className="border border-gray-300 rounded-lg px-2 py-1 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-400 disabled:opacity-50"
-                              >
-                                <option value="">Sem motorista</option>
-                                {motoristas.map(m => (
-                                  <option key={m.id} value={m.id}>
-                                    {m.nome}{m.veiculo ? ' — ' + m.veiculo : ''}
-                                  </option>
-                                ))}
-                              </select>
-                              {!emRota && qtd > 0 && (
-                                <button
-                                  onClick={() => marcarLevaEmRota(l.id)}
-                                  disabled={acaoLeva === 'rota-' + l.id}
-                                  className="bg-purple-600 text-white text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-purple-700 disabled:opacity-50 whitespace-nowrap"
-                                >
-                                  {acaoLeva === 'rota-' + l.id ? '...' : '▶ Sair para rota'}
-                                </button>
-                              )}
-                              <button
-                                onClick={() => excluirLeva(l.id)}
-                                disabled={acaoLeva === 'del-' + l.id}
-                                className="text-xs text-red-600 hover:text-red-800 px-2 py-1 rounded hover:bg-red-50 border border-red-200 disabled:opacity-50"
-                              >
-                                {acaoLeva === 'del-' + l.id ? '...' : '🗑'}
-                              </button>
-                            </div>
-                          </div>
-
-                          {qtd === 0 && (
-                            <p className="text-xs text-gray-400 italic mt-2">Leva vazia — selecione entregas acima para adicionar.</p>
-                          )}
-
-                          {qtd > 0 && (
-                            <div className="mt-2 space-y-1">
-                              {(l.orcamentos || []).map((o, i) => (
-                                <div key={o.id} className="flex items-center gap-2 bg-white border border-gray-200 rounded px-2 py-1.5 text-xs">
-                                  <span className="text-gray-400 w-4 text-center shrink-0">{i + 1}</span>
-                                  <div className="flex-1 min-w-0">
-                                    <span className="font-medium text-gray-800">{o.clientes?.nome || 'Cliente'}</span>
-                                    {o.clientes?.bairro && <span className="text-gray-500"> — {o.clientes.bairro}</span>}
-                                    <span className="text-gray-400 font-mono ml-1">{o.codigo}</span>
-                                  </div>
-                                  {(o.volume_m3 ?? 0) > 0 && (
-                                    <span className="text-gray-500 shrink-0">{o.volume_m3!.toLocaleString('pt-BR', { maximumFractionDigits: 2 })} m³</span>
-                                  )}
-                                  <button
-                                    onClick={() => abrirDetalhe(o.id)}
-                                    className="text-blue-500 hover:text-blue-700 shrink-0 px-1"
-                                  >📋</button>
-                                  {!emRota && (
-                                    <button
-                                      onClick={() => removerDaLeva(l.id, o.id)}
-                                      disabled={acaoLeva === 'rm-' + o.id}
-                                      className="text-red-500 hover:text-red-700 shrink-0 px-1 disabled:opacity-50"
-                                      title="Remover da leva"
-                                    >✕</button>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-
             {/* === SECTION 2: EM ROTA === */}
             <div className="bg-white rounded-xl shadow-sm border border-purple-100 p-4">
               <div className="flex items-center gap-2 mb-4">
@@ -4815,6 +4527,19 @@ export default function OrcamentoApp() {  // Auth state
                           ) : (
                             <p className="text-xs text-green-700 font-medium mt-0.5">✅ Já pago — só entregar</p>
                           )}
+                          {/* Quem esta levando. Clicavel pra corrigir se saiu
+                              com o motorista errado. */}
+                          <button
+                            onClick={() => { setEntregaSelecionadaId(e.id); setMostrarAtribuirMotorista(true); }}
+                            className="block text-xs mt-1 text-gray-600 hover:text-gray-900 hover:underline"
+                          >
+                            {(() => {
+                              const m = motoristas.find(x => x.id === e.motorista_id);
+                              return m
+                                ? '🚗 ' + m.nome + (m.veiculo ? ' (' + m.veiculo + ')' : '')
+                                : '🚗 Sem motorista — definir';
+                            })()}
+                          </button>
                         </div>
                         <div className="flex gap-2 shrink-0">
                           <button
@@ -5947,6 +5672,68 @@ export default function OrcamentoApp() {  // Auth state
             <span>R$ {itens.reduce((a, i) => a + i.quantidade * i.produto.preco, 0).toLocaleString('pt-BR', {minimumFractionDigits:2, maximumFractionDigits:2})}</span>
             <span>Ver Orçamento →</span>
           </button>
+        </div>
+      )}
+
+{/* Modal: quem vai levar. Aparece ao mandar as selecionadas para a rota.
+    Motorista e obrigatorio de proposito — e o unico momento em que o dado
+    de quem levou o que pode ser capturado sem custo pra quem opera. */}
+      {mostrarModalRota && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarModalRota(false)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
+            <h2 className="text-lg font-bold text-gray-800 mb-1">🚚 Quem vai levar?</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              {selecionadas.length} {selecionadas.length === 1 ? 'entrega' : 'entregas'} para {(() => {
+                const [a, m, d] = dataEntregasAlvo().split('-');
+                return `${d}/${m}/${a}`;
+              })()}
+            </p>
+
+            <div className="space-y-2 mb-4">
+              {motoristas.length === 0 && (
+                <p className="text-sm text-gray-400 text-center py-4">
+                  Nenhum motorista cadastrado.<br />Cadastre um abaixo para continuar.
+                </p>
+              )}
+              {motoristas.map(m => (
+                <button
+                  key={m.id}
+                  onClick={() => setMotoristaRota(m.id)}
+                  className={`w-full text-left px-4 py-3 rounded-lg border text-sm transition ${
+                    motoristaRota === m.id
+                      ? 'border-[#F7941D] bg-[#FFF3E0] font-semibold text-gray-800'
+                      : 'border-gray-200 hover:bg-gray-50 text-gray-700'
+                  }`}
+                >
+                  {motoristaRota === m.id ? '● ' : '○ '}{m.nome}
+                  {m.veiculo && <span className="text-gray-500 font-normal"> — {m.veiculo}</span>}
+                </button>
+              ))}
+            </div>
+
+            <button
+              onClick={() => { setMostrarModalRota(false); setMostrarGestaoMotoristas(true); }}
+              className="w-full text-xs text-blue-600 hover:text-blue-800 mb-4 py-1"
+            >
+              ⚙️ Gerenciar motoristas (editar nome, veículo, adicionar)
+            </button>
+
+            <div className="flex gap-2">
+              <button
+                onClick={() => setMostrarModalRota(false)}
+                className="flex-1 bg-gray-200 text-gray-700 py-2.5 rounded-lg text-sm font-medium hover:bg-gray-300"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={enviarParaRota}
+                disabled={!motoristaRota || loadingRota}
+                className="flex-1 bg-[#F7941D] text-white py-2.5 rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loadingRota ? 'Enviando...' : 'Enviar para rota'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
