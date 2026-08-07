@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Upload, FileText, AlertTriangle, CheckCircle2, TrendingUp } from 'lucide-react';
+import FechamentoDia from './FechamentoDia';
 
 /**
  * Importacao de extrato + revisao + DRE.
@@ -52,7 +53,7 @@ const rotuloMes = (m: string) => {
 };
 
 export default function ExtratosTab() {
-  const [vista, setVista] = useState<'importar' | 'revisar' | 'dre'>('importar');
+  const [vista, setVista] = useState<'dia' | 'importar' | 'revisar' | 'dre'>('dia');
   const [mes, setMes] = useState(mesAtual());
 
   const [contas, setContas] = useState<Conta[]>([]);
@@ -182,7 +183,7 @@ export default function ExtratosTab() {
     <div className="pb-8 space-y-4">
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-          {([['importar', '📥 Importar'], ['revisar', '🔍 Revisar'], ['dre', '📊 DRE']] as const).map(([v, rot]) => (
+          {([['dia', '📅 Dia'], ['importar', '📥 Importar'], ['revisar', '🔍 Revisar'], ['dre', '📊 DRE']] as const).map(([v, rot]) => (
             <button
               key={v}
               onClick={() => setVista(v)}
@@ -192,7 +193,7 @@ export default function ExtratosTab() {
             </button>
           ))}
         </div>
-        {vista !== 'importar' && (
+        {vista !== 'importar' && vista !== 'dia' && (
           <select value={mes} onChange={e => setMes(e.target.value)}
             className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D]">
             {meses.map(m => <option key={m} value={m}>{rotuloMes(m)}</option>)}
@@ -207,6 +208,8 @@ export default function ExtratosTab() {
           <button onClick={() => setErro(null)} className="text-red-400 hover:text-red-700">✕</button>
         </div>
       )}
+
+      {vista === 'dia' && <FechamentoDia />}
 
       {/* ---------------- IMPORTAR ---------------- */}
       {vista === 'importar' && (
