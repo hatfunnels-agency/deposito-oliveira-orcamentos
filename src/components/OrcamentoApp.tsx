@@ -3010,7 +3010,7 @@ export default function OrcamentoApp() {  // Auth state
                     onChange={e => {
                       const v = e.target.value;
                       setClienteNumeroNovo(v);
-                      const digits = v.replace(/D/g,'');
+                      const digits = v.replace(/\D/g,'');
                       if (digits.length >= 8) {
                         setClienteBuscandoNum(true);
                         setClienteEncontrado(null);
@@ -3343,7 +3343,21 @@ export default function OrcamentoApp() {  // Auth state
                                 if (cli.numero) setNumeroEndereco(cli.numero);
                                 if (cli.complemento) setComplementoEndereco(cli.complemento);
                                 if (cli.recebedor) setRecebedor(cli.recebedor);
-                              } else { setClienteEncontrado(null); }
+                                // Carrega enderecos_clientes (endereco "novo") e pre-seleciona
+                                // o padrao. Os campos legados acima (clientes.endereco/numero/
+                                // cep) estao vazios pra ~377 clientes cujo endereco so vive em
+                                // enderecos_clientes — sem isto, eles nao puxavam endereco.
+                                const ends = await carregarEnderecosDoCliente(cli.id);
+                                const padrao = ends.find(e => e.is_padrao) ?? ends[0];
+                                if (padrao) {
+                                  setEnderecoIdSelecionado(padrao.id);
+                                  setModoEndereco('existente');
+                                }
+                              } else {
+                                setClienteEncontrado(null);
+                                setEnderecosDoCliente([]);
+                                setEnderecoIdSelecionado(null);
+                              }
                             } catch {} finally { setClienteBuscandoNum(false); }
                           }, 400);
                         }
