@@ -8,15 +8,15 @@
 create table if not exists automacao_envios (
   id              uuid primary key default gen_random_uuid(),
   chave_dedup     text not null unique,
-  tipo            text not null,          -- followup | posvenda | reativacao
-  momento         text not null,          -- dia1 | dia4 | dia7 | check | geral
+  tipo            text not null,          -- followup | posvenda | reativacao | contexto
+  momento         text not null,          -- dia1 | dia4 | dia7 | check | geral | resumo
   cliente_id      uuid references clientes(id) on delete cascade,
   orcamento_id    uuid references orcamentos(id) on delete set null,
   telefone        text,
   ghl_contact_id  text,
   template_nome   text,
   mensagem        text,
-  status          text not null default 'simulado',  -- simulado | enviado | erro | pulado
+  status          text not null default 'simulado',  -- simulado | enviado | erro | pulado | concluido (tipo=contexto)
   motivo          text,
   criado_em       timestamptz not null default now()
 );
