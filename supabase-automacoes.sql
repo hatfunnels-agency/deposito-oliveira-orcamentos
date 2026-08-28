@@ -9,7 +9,7 @@ create table if not exists automacao_envios (
   id              uuid primary key default gen_random_uuid(),
   chave_dedup     text not null unique,
   tipo            text not null,          -- followup | posvenda | reativacao | contexto
-  momento         text not null,          -- dia1 | dia4 | dia7 | check | geral | resumo
+  momento         text not null,          -- quente | dia1 | dia4 | dia7 | check | semanal | quinzenal | mensal | resumo
   cliente_id      uuid references clientes(id) on delete cascade,
   orcamento_id    uuid references orcamentos(id) on delete set null,
   telefone        text,

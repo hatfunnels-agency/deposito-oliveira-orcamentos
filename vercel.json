@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/automacoes/tick",
-      "schedule": "0 12 * * *"
+      "schedule": "0 * * * *"
     },
     {
       "path": "/api/automacoes/tick-contexto",

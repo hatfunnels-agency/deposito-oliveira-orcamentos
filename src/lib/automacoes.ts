@@ -33,14 +33,58 @@ export type Candidato = {
 };
 
 // Nome do template aprovado na Meta por momento da regua.
-// O ID numerico do GHL vai em GHL_TEMPLATE_IDS (env) — ver enviarWhatsApp().
+// O ID numerico do GHL vai em GHL_TEMPLATE_IDS (env) — ver resolverTemplate().
 export const TEMPLATES: Record<string, string> = {
   'followup:dia1': 'followup_dia1',
   'followup:dia4': 'followup_dia4',
   'followup:dia7': 'followup_dia7',
   'posvenda:check': 'posvenda_check',
-  'reativacao:geral': 'reativacao_geral',
+  // Reativacao por cadencia: texto diferente pra nao virar robo — quem tem
+  // obra ativa recebe toda semana e nao pode ler a mesma frase 3x seguidas.
+  'reativacao:semanal': 'reativacao_semanal',
+  'reativacao:quinzenal': 'reativacao_geral',
+  'reativacao:mensal': 'reativacao_retorno',
 };
+
+// Resolve o nome do template pro id que o GHL espera, lendo GHL_TEMPLATE_IDS.
+// Ordem de preferencia:
+//   1. a versao Utility (`<nome>_util`), se o id dela estiver configurado —
+//      Utility entrega melhor que Marketing e nao e barrada por opt-out;
+//   2. o proprio nome;
+//   3. reativacao degrada pra `reativacao_geral` (os templates novos de
+//      cadencia podem ainda nao existir na Meta — nao pode falhar por isso).
+// null = nenhum id configurado; quem chama decide o que fazer.
+export function resolverTemplate(nome: string): { nome: string; id: string } | null {
+  if (!nome) return null;
+  let ids: Record<string, string> = {};
+  try {
+    ids = JSON.parse(process.env.GHL_TEMPLATE_IDS || '{}');
+  } catch {
+    ids = {};
+  }
+  const util = `${nome}_util`;
+  if (ids[util]) return { nome: util, id: ids[util] };
+  if (ids[nome]) return { nome, id: ids[nome] };
+  if (nome.startsWith('reativacao_') && nome !== 'reativacao_geral' && ids['reativacao_geral']) {
+    return { nome: 'reativacao_geral', id: ids['reativacao_geral'] };
+  }
+  return null;
+}
+
+// ------------------------------------------------------- horario comercial
+// Brasilia e UTC-3 fixo (o Brasil nao tem horario de verao desde 2019).
+export function horaBrasilia(agora = new Date()): { hora: number; diaSemana: number } {
+  const brt = new Date(agora.getTime() - 3 * 3600_000);
+  return { hora: brt.getUTCHours(), diaSemana: brt.getUTCDay() }; // diaSemana: 0=domingo
+}
+
+// Guarda de envio: 8h–18h de Brasilia, segunda a sabado. Domingo nada.
+// Cliente recebendo WhatsApp de deposito as 3 da manha e dano de marca.
+export function dentroHorarioComercial(agora = new Date()): boolean {
+  const { hora, diaSemana } = horaBrasilia(agora);
+  if (diaSemana === 0) return false;
+  return hora >= 8 && hora < 18;
+}
 
 // Cadencia da regua de follow-up, em horas desde a emissao do orcamento.
 //
@@ -52,7 +96,7 @@ export const TEMPLATES: Record<string, string> = {
 const JANELAS_FOLLOWUP: Array<{
   momento: string; deHoras: number; ateHoras: number; exigeJanelaAberta: boolean;
 }> = [
-  { momento: 'quente', deHoras: 3, ateHoras: 24, exigeJanelaAberta: true },
+  { momento: 'quente', deHoras: 3, ateHoras: 8, exigeJanelaAberta: true },
   { momento: 'dia1', deHoras: 24, ateHoras: 48, exigeJanelaAberta: false },
   { momento: 'dia4', deHoras: 96, ateHoras: 120, exigeJanelaAberta: false },
   { momento: 'dia7', deHoras: 168, ateHoras: 192, exigeJanelaAberta: false },
@@ -207,6 +251,7 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     if (diasSemComprar < 7) continue;
 
     const cadenciaDias = isObraAtivaActive(quando) ? 7 : diasSemComprar <= 60 ? 15 : 30;
+    const momento = cadenciaDias === 7 ? 'semanal' : cadenciaDias === 15 ? 'quinzenal' : 'mensal';
 
     const anterior = ultimoEnvio.get(clienteId);
     if (anterior) {
@@ -217,17 +262,17 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     saida.push({
       chaveDedup: `reativacao:${clienteId}:${hoje.toISOString().slice(0, 10)}`,
       tipo: 'reativacao',
-      momento: 'geral',
+      momento,
       clienteId,
       clienteNome: cli.nome || '',
       telefone: cli.telefone,
       orcamentoId: null,
-      template: TEMPLATES['reativacao:geral'],
+      template: TEMPLATES[`reativacao:${momento}`],
       variaveis: [primeiroNome(cli.nome)],
       contexto: `Ultima compra ha ${diasSemComprar} dias. Cadencia de ${cadenciaDias} dias.`,
       exigeJanelaAberta: false,
       iaTipo: 'reativacao',
-      iaMomento: cadenciaDias === 7 ? 'semanal' : cadenciaDias === 15 ? 'quinzenal' : 'mensal',
+      iaMomento: momento,
     });
 
     if (saida.length >= limite) break;

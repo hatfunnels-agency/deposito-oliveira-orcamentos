@@ -5,6 +5,9 @@ import {
   candidatosFollowup,
   candidatosPosvenda,
   candidatosReativacao,
+  dentroHorarioComercial,
+  horaBrasilia,
+  resolverTemplate,
   type Candidato,
 } from '@/lib/automacoes';
 
@@ -12,13 +15,22 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
 
 // GET /api/automacoes/tick
-// Cron da Vercel (schedule em vercel.json). Auth: Bearer CRON_SECRET.
+// Cron da Vercel de hora em hora (schedule em vercel.json). Auth: Bearer CRON_SECRET.
 //
 // SEGURANCA: sai em MODO SIMULACAO por padrao. So envia de verdade quando
 // AUTOMACOES_DRY_RUN === 'false' no env. Em simulacao ele calcula tudo,
 // grava em automacao_envios com status='simulado' e nao chama o WhatsApp.
 //
-// Escopo: ?tipos=followup,posvenda,reativacao (padrao: so followup).
+// HORARIO COMERCIAL: so processa entre 8h e 18h de Brasilia, segunda a
+// sabado. Fora disso o tick roda, conta o que esta pendente e devolve no
+// JSON, mas NAO grava no log nem fala com o GHL — gravar fora do horario
+// queimaria a chave_dedup e o candidato nunca mais dispararia.
+//
+// Escopo: ?tipos=followup,posvenda,reativacao. Sem o parametro, o padrao
+// depende da hora local: as 9h roda tudo (reativacao varre a base inteira e
+// pos-venda e por dia de entrega — 1x/dia basta); nas demais horas, so
+// follow-up, que e o unico que precisa de granularidade de hora (o momento
+// 'quente' e 3–8h depois do orcamento).
 // Teste:  ?telefone=11999999999 restringe o envio a um numero so.
 
 const GHL_API_BASE = 'https://services.leadconnectorhq.com';
@@ -35,16 +47,6 @@ type Resultado = {
   via: 'ia' | 'template' | '—';
   motivo?: string;
 };
-
-// Mapa nome-do-template -> id do template no GHL. Vem do env como JSON:
-//   GHL_TEMPLATE_IDS={"followup_dia1":"...","followup_dia4":"..."}
-function templateIds(): Record<string, string> {
-  try {
-    return JSON.parse(process.env.GHL_TEMPLATE_IDS || '{}');
-  } catch {
-    return {};
-  }
-}
 
 function ghlHeaders() {
   return {
@@ -123,11 +125,8 @@ async function enviarTexto(
 async function enviarTemplate(
   contactId: string,
   telefone: string,
-  templateNome: string,
+  id: string, // id do template no GHL, ja resolvido por resolverTemplate()
 ): Promise<{ ok: boolean; motivo?: string }> {
-  const id = templateIds()[templateNome];
-  if (!id) return { ok: false, motivo: `sem id configurado pro template ${templateNome}` };
-
   const resp = await fetch(`${GHL_API_BASE}/conversations/messages`, {
     method: 'POST',
     headers: ghlHeaders(),
@@ -163,7 +162,11 @@ export async function GET(request: NextRequest) {
   const dryRun = process.env.AUTOMACOES_DRY_RUN !== 'false';
   const limite = Number(url.searchParams.get('limite') || LIMITE_PADRAO);
   const soTelefone = url.searchParams.get('telefone');
-  const tipos = (url.searchParams.get('tipos') || 'followup')
+  const { hora, diaSemana } = horaBrasilia();
+  // Sem ?tipos: as 9h da manha roda a regua inteira; no resto do dia so o
+  // follow-up (reativacao e pos-venda nao precisam de granularidade de hora).
+  const tiposPadrao = hora === 9 ? 'followup,posvenda,reativacao' : 'followup';
+  const tipos = (url.searchParams.get('tipos') || tiposPadrao)
     .split(',')
     .map(t => t.trim())
     .filter(Boolean);
@@ -192,6 +195,23 @@ export async function GET(request: NextRequest) {
     }
     candidatos = candidatos.filter(c => !jaEnviados.has(c.chaveDedup)).slice(0, limite);
 
+    // Guarda de horario comercial: fora de 8h–18h seg–sab (Brasilia) o tick
+    // para AQUI — depois de calcular, antes de gravar ou falar com o GHL.
+    // Nao grava de proposito: a chave_dedup e UNIQUE, e um registro 'pulado'
+    // as 3h da manha mataria o envio que o tick das 8h faria.
+    if (!dentroHorarioComercial()) {
+      return NextResponse.json({
+        modo: dryRun ? 'SIMULACAO — nada foi enviado' : 'ENVIO REAL',
+        horarioComercial: false,
+        mensagem:
+          `Fora do horario comercial (8h–18h de Brasilia, segunda a sabado)` +
+          `${diaSemana === 0 ? ' — domingo nao envia nada' : ` — agora sao ${hora}h`}. ` +
+          `Nada foi gravado; os pendentes ficam pro proximo tick dentro do horario.`,
+        tipos,
+        pendentes: candidatos.length,
+      });
+    }
+
     const resultados: Resultado[] = [];
 
     for (const c of candidatos) {
@@ -200,6 +220,7 @@ export async function GET(request: NextRequest) {
       let motivo: string | undefined;
       let contactId: string | null = null;
       let texto: string | null = null;
+      let templateResolvido: { nome: string; id: string } | null = null;
 
       // A busca do contato e a checagem da janela rodam tambem em simulacao —
       // e o que permite conferir a decisao (IA x template) antes de ligar.
@@ -228,7 +249,22 @@ export async function GET(request: NextRequest) {
           via = 'template';
         }
 
-        if (!dryRun && status !== 'pulado') {
+        // Resolve nome -> id ANTES de decidir enviar (e tambem em simulacao,
+        // pro log mostrar qual template sairia — inclusive a preferencia por
+        // Utility e o fallback de reativacao pra reativacao_geral).
+        if (via === 'template' && status !== 'pulado') {
+          templateResolvido = resolverTemplate(c.template);
+          if (!templateResolvido) {
+            if (dryRun) {
+              motivo = `sem id em GHL_TEMPLATE_IDS pro template ${c.template} (no envio real isso seria erro)`;
+            } else {
+              status = 'erro';
+              motivo = `sem id em GHL_TEMPLATE_IDS pro template ${c.template}`;
+            }
+          }
+        }
+
+        if (!dryRun && status !== 'pulado' && status !== 'erro') {
           const permitido = await contatoPodeReceber(contactId);
           if (!permitido.ok) {
             status = 'pulado';
@@ -237,7 +273,7 @@ export async function GET(request: NextRequest) {
             const envio =
               via === 'ia' && texto
                 ? await enviarTexto(contactId, c.telefone, texto)
-                : await enviarTemplate(contactId, c.telefone, c.template);
+                : await enviarTemplate(contactId, c.telefone, templateResolvido!.id);
             if (!envio.ok) {
               status = 'erro';
               motivo = envio.motivo;
@@ -257,7 +293,7 @@ export async function GET(request: NextRequest) {
           orcamento_id: c.orcamentoId,
           telefone: c.telefone,
           ghl_contact_id: contactId,
-          template_nome: via === 'ia' ? null : c.template || null,
+          template_nome: via === 'ia' ? null : templateResolvido?.nome || c.template || null,
           mensagem: texto || c.contexto,
           status,
           motivo: motivo || null,
@@ -271,7 +307,7 @@ export async function GET(request: NextRequest) {
         momento: c.momento,
         cliente: c.clienteNome,
         telefone: c.telefone,
-        template: via === 'ia' ? '(IA — janela aberta)' : c.template,
+        template: via === 'ia' ? '(IA — janela aberta)' : templateResolvido?.nome || c.template,
         status,
         via,
         motivo,
