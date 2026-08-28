@@ -162,13 +162,22 @@ export async function candidatosFollowup(): Promise<Candidato[]> {
 // Dispara 1 dia depois da entrega. Uma vez por cliente, pra sempre — por isso
 // a chave de dedup nao inclui o orcamento.
 export async function candidatosPosvenda(): Promise<Candidato[]> {
-  const ontem = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 10);
+  // Janela de 3 dias, nao so "ontem". O pos-venda so tem chance de rodar na
+  // execucao das 9h; se ela falhar (deploy no ar, timeout), com janela de um
+  // dia exato aquela turma nunca mais seria alcancada — no dia seguinte a
+  // query olha outra data. Com 3 dias o tick se recupera sozinho, e nao ha
+  // risco de duplicata porque a chave_dedup e `posvenda:{cliente_id}`: uma
+  // por cliente pra sempre, independente da data da entrega.
+  const ate = new Date(Date.now() - 24 * 3600_000).toISOString().slice(0, 10);
+  const de = new Date(Date.now() - 72 * 3600_000).toISOString().slice(0, 10);
 
   const { data, error } = await supabaseAdmin
     .from('orcamentos')
     .select('id, codigo, total, data_entrega, cliente_id, clientes (id, nome, telefone)')
     .eq('status', 'completo')
-    .eq('data_entrega', ontem);
+    .gte('data_entrega', de)
+    .lte('data_entrega', ate)
+    .order('data_entrega', { ascending: false });
 
   if (error) throw new Error(`posvenda: ${error.message}`);
 
@@ -190,7 +199,7 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
       orcamentoId: orc.id,
       template: TEMPLATES['posvenda:check'],
       variaveis: [primeiroNome(cli.nome)],
-      contexto: `Pedido ${orc.codigo || ''} de ${brl(orc.total)} entregue ontem.`,
+      contexto: `Pedido ${orc.codigo || ''} de ${brl(orc.total)} entregue em ${(orc as any).data_entrega}.`,
       exigeJanelaAberta: false,
       iaTipo: 'review',
       iaMomento: 'pergunta',
