@@ -75,6 +75,47 @@ async function buscarLog(params: URLSearchParams): Promise<LogResposta | { error
   }
 }
 
+type Previa = { mensagem?: string; error?: string };
+
+// Previa da copy da IA: o formulario e GET (sem JS) e a chamada acontece aqui
+// no servidor, via /api/automacoes/preview — a chave de admin nunca sai do
+// servidor e NADA e enviado ao cliente.
+async function buscarPrevia(telefone: string, tipo: string, momento: string): Promise<Previa> {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) return { error: 'ADMIN_API_KEY não configurada no servidor.' };
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+  try {
+    const q = new URLSearchParams({ telefone, tipo, momento });
+    const resp = await fetch(`${appUrl}/api/automacoes/preview?${q.toString()}`, {
+      headers: { 'x-admin-key': adminKey },
+      cache: 'no-store',
+    });
+    const json = await resp.json();
+    if (!resp.ok) return { error: json?.error || `Erro ${resp.status} ao gerar a prévia.` };
+    return { mensagem: json?.mensagem || '' };
+  } catch (e: any) {
+    return { error: e?.message || 'Falha ao gerar a prévia.' };
+  }
+}
+
+const MOMENTOS_PREVIA: Array<{ grupo: string; tipo: string; opcoes: Array<[string, string]> }> = [
+  {
+    grupo: 'Follow-up de orçamento',
+    tipo: 'followup',
+    opcoes: [['quente', 'quente (3–8h)'], ['dia1', 'dia 1'], ['dia4', 'dia 4'], ['dia7', 'dia 7']],
+  },
+  {
+    grupo: 'Pós-venda',
+    tipo: 'posvenda',
+    opcoes: [['pergunta', 'pergunta (deu tudo certo?)'], ['positivo', 'resposta positiva'], ['negativo', 'resposta negativa']],
+  },
+  {
+    grupo: 'Reativação',
+    tipo: 'reativacao',
+    opcoes: [['semanal', 'semanal (obra ativa)'], ['quinzenal', 'quinzenal'], ['mensal', 'mensal (sumiu)']],
+  },
+];
+
 export default async function AutomacoesPage({
   searchParams,
 }: {
@@ -95,6 +136,11 @@ export default async function AutomacoesPage({
   if (de) params.set('de', de);
   if (ate) params.set('ate', ate);
   params.set('pagina', String(pagina));
+
+  const pTelefone = primeiro(sp.p_telefone).trim();
+  const pAlvo = primeiro(sp.p_alvo) || 'followup:quente';
+  const [pTipo, pMomento] = pAlvo.split(':');
+  const previa = pTelefone ? await buscarPrevia(pTelefone, pTipo || 'followup', pMomento || '') : null;
 
   const log = await buscarLog(params);
   const erro = 'error' in log && log.error ? log.error : null;
@@ -135,6 +181,63 @@ export default async function AutomacoesPage({
             )}
           </div>
         )}
+
+        {/* Previa da copy da IA — le o contexto real do cliente e mostra o
+            texto que a IA escreveria. Nao envia nada. */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+          <h2 className="text-sm font-semibold text-gray-900">Prévia da copy da IA</h2>
+          <p className="text-xs text-gray-500 mt-1 mb-3">
+            Veja o que a IA escreveria para um cliente antes de ligar o envio. Só leitura — nada é enviado.
+          </p>
+          <form method="GET" className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Telefone do cliente</label>
+              <input
+                type="text"
+                name="p_telefone"
+                defaultValue={pTelefone}
+                placeholder="11999999999"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Automação / momento</label>
+              <select
+                name="p_alvo"
+                defaultValue={pAlvo}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white"
+              >
+                {MOMENTOS_PREVIA.map(g => (
+                  <optgroup key={g.tipo} label={g.grupo}>
+                    {g.opcoes.map(([v, l]) => (
+                      <option key={v} value={`${g.tipo}:${v}`}>{l}</option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </div>
+            <button
+              type="submit"
+              className="bg-[#F7941D] text-white px-5 py-2 rounded-lg text-sm font-semibold hover:bg-[#E8850A] transition"
+            >
+              Gerar prévia
+            </button>
+          </form>
+          {previa && (
+            previa.error ? (
+              <div className="mt-4 bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 text-sm">
+                {previa.error}
+              </div>
+            ) : (
+              <div className="mt-4 bg-green-50 border border-green-200 rounded-xl p-4">
+                <p className="text-xs text-green-700 mb-2">
+                  O que a IA escreveria para {pTelefone} ({pAlvo.replace(':', ' · ')}) — <strong>não foi enviado</strong>:
+                </p>
+                <p className="text-sm text-gray-900 whitespace-pre-wrap">{previa.mensagem || '(vazio)'}</p>
+              </div>
+            )
+          )}
+        </div>
 
         {dados && (
           <>
@@ -234,7 +337,7 @@ export default async function AutomacoesPage({
                   {dados.envios.length === 0 && (
                     <tr>
                       <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
-                        Nenhum registro ainda. O tick roda todo dia pelo cron — ou dispare manualmente para testar.
+                        Nenhum registro ainda. O tick roda de hora em hora pelo cron (dentro do horário comercial) — ou dispare manualmente para testar.
                       </td>
                     </tr>
                   )}
