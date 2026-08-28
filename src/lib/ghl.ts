@@ -128,3 +128,39 @@ export async function sincronizarClienteGHL(
 
   return { ok: true };
 }
+
+// Janela de 24h do WhatsApp: so esta aberta se o CLIENTE mandou mensagem nas
+// ultimas 24h. Com ela aberta a IA escreve livre; fechada, so template
+// aprovado pela Meta. Retorna false em qualquer duvida (fail-safe: prefere
+// mandar template a arriscar uma mensagem bloqueada).
+export async function janelaAbertaEm(contactId: string): Promise<boolean> {
+  if (!GHL_API_KEY || !contactId) return false;
+  try {
+    const busca = await fetch(
+      `${GHL_API_BASE}/conversations/search?locationId=${GHL_LOCATION_ID}&contactId=${contactId}&limit=5`,
+      { headers: ghlHeaders(), cache: 'no-store' },
+    );
+    if (!busca.ok) return false;
+    const conversas = (await busca.json())?.conversations || [];
+    if (conversas.length === 0) return false;
+
+    const limite = Date.now() - 24 * 3600_000;
+
+    for (const conv of conversas) {
+      const msgs = await fetch(
+        `${GHL_API_BASE}/conversations/${conv.id}/messages?type=TYPE_WHATSAPP&limit=20`,
+        { headers: ghlHeaders(), cache: 'no-store' },
+      );
+      if (!msgs.ok) continue;
+      const lista = (await msgs.json())?.messages?.messages || [];
+      for (const m of lista) {
+        if (m?.direction !== 'inbound') continue;
+        const quando = new Date(m?.dateAdded || m?.dateUpdated || 0).getTime();
+        if (quando >= limite) return true;
+      }
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
