@@ -6,14 +6,14 @@ Como funciona a régua de mensagens automáticas, como conferir a simulação e 
 
 São 4 automações, todas rodando dentro do próprio app (o GHL é só o canal de envio — a API dele não permite criar workflow, e o gatilho de verdade está no Supabase):
 
-1. **Follow-up de orçamento** — orçamento emitido e sem resposta recebe mensagem em 4 momentos: `quente` (3–24h, só se o cliente falou com a gente nas últimas 24h), `dia1`, `dia4` e `dia7`. Sai da régua sozinho quando o status do orçamento muda. Se o campo *Data Follow-up* do cliente estiver preenchido, a régua respeita essa data.
+1. **Follow-up de orçamento** — orçamento emitido e sem resposta recebe mensagem em 4 momentos: `quente` (3–8h, só se o cliente falou com a gente nas últimas 24h), `dia1`, `dia4` e `dia7`. Sai da régua sozinho quando o status do orçamento muda. Se o campo *Data Follow-up* do cliente estiver preenchido, a régua respeita essa data.
 2. **Pós-venda** — 1 dia depois da entrega, pergunta se deu tudo certo. Uma vez por cliente, para sempre.
-3. **Reativação** — cliente sem comprar há um tempo recebe um toque: obra ativa a cada 7 dias, 31–60 dias sem comprar a cada 15, mais que isso a cada 30. Não dispara para quem tem orçamento aberto.
+3. **Reativação** — cliente sem comprar há um tempo recebe um toque: obra ativa a cada 7 dias (`reativacao_semanal`), 31–60 dias sem comprar a cada 15 (`reativacao_geral`), mais que isso a cada 30 (`reativacao_retorno`). Cada cadência tem template próprio para o texto não repetir; se o id do template novo ainda não estiver configurado, sai o `reativacao_geral` no lugar. Não dispara para quem tem orçamento aberto.
 4. **Contexto (IA)** — a IA lê a conversa do cliente no WhatsApp (via GHL) e escreve um resumo de 2 linhas em *notas de contexto* do cliente. **Não envia nada** — esse resumo é o que deixa as outras três automações personalizadas.
 
 **A regra que manda em tudo:** a janela de 24h do WhatsApp abre quando **o cliente** manda mensagem. Com a janela aberta, a IA escreve uma mensagem personalizada. Fechada, só sai template aprovado pela Meta. Quem decide é o sistema, sozinho, a cada envio.
 
-Tudo roda uma vez por dia pelo cron da Vercel: contexto às 8h e a régua de mensagens às 9h (horário de Brasília). Cada mensagem tem uma trava no banco (`chave_dedup`) que garante que ela nunca sai duas vezes.
+**Quando roda:** a régua de mensagens roda **de hora em hora** (é o que faz o momento `quente` chegar ainda quente), mas **só envia entre 8h e 18h de Brasília, segunda a sábado — domingo não sai nada**. Fora desse horário o tick conta o que está pendente e espera o próximo horário útil. O follow-up roda toda hora; reativação e pós-venda rodam uma vez por dia, no tick das 9h (não precisam de mais). O resumo de contexto roda às 8h. Cada mensagem tem uma trava no banco (`chave_dedup`) que garante que ela nunca sai duas vezes.
 
 ## Onde conferir
 
@@ -30,7 +30,7 @@ Página **`/automacoes`** no próprio sistema (faça login normal). Mostra os to
 | Variável | O que faz |
 |---|---|
 | `AUTOMACOES_DRY_RUN` | **A chave geral.** `true` (ou ausente) = simulação, nada é enviado. `false` = envio real. |
-| `GHL_TEMPLATE_IDS` | JSON com o id de cada template aprovado na Meta, ex.: `{"followup_dia1":"...","posvenda_check":"..."}`. Sem o id, o envio por template daquele momento falha. |
+| `GHL_TEMPLATE_IDS` | JSON com o id de cada template aprovado na Meta, ex.: `{"followup_dia1":"...","posvenda_check":"..."}`. Sem o id, o envio por template daquele momento falha. **Duas regras automáticas:** (1) se existir a chave com sufixo `_util` (ex.: `followup_dia1_util`, a versão Utility do template, que entrega melhor que Marketing), ela é usada no lugar da versão normal — basta adicionar o id, sem mexer em código; (2) se `reativacao_semanal` ou `reativacao_retorno` ainda não tiverem id, a reativação cai para o `reativacao_geral` em vez de falhar. |
 | `CRON_SECRET` | Senha que a Vercel usa para chamar os ticks. Já usada pelos outros crons. |
 | `ADMIN_API_KEY` | Chave para disparar os ticks manualmente e para a página `/automacoes` ler o log. |
 | `AUTOMACAO_SECRET` | Protege os endpoints de IA (`/api/ia/mensagem` e `/api/ia/contexto`). |
@@ -40,7 +40,7 @@ Página **`/automacoes`** no próprio sistema (faça login normal). Mostra os to
 
 ## Como rodar em simulação
 
-É o estado de fábrica: com `AUTOMACOES_DRY_RUN=true` (ou sem a variável), o cron diário já calcula tudo e grava no log com status `simulado`. Deixe alguns dias rodando e confira em `/automacoes` se as decisões fazem sentido — quem receberia, quando, por IA ou template.
+É o estado de fábrica: com `AUTOMACOES_DRY_RUN=true` (ou sem a variável), o cron de hora em hora já calcula tudo e grava no log com status `simulado` (dentro do horário comercial — fora dele nem o log é gravado). Deixe alguns dias rodando e confira em `/automacoes` se as decisões fazem sentido — quem receberia, quando, por IA ou template.
 
 Para não esperar o cron, dispare na mão (troque a chave e o domínio):
 
@@ -54,6 +54,17 @@ O resumo de contexto (que não envia nada e por isso roda de verdade mesmo em si
 ```
 curl -H "x-admin-key: SUA_ADMIN_API_KEY" \
   "https://SEU-DOMINIO/api/automacoes/tick-contexto"
+```
+
+## Prévia da copy da IA
+
+Antes de ligar o envio, dá para ler o que a IA escreveria para um cliente de verdade: na página **`/automacoes`**, preencha o telefone no cartão *Prévia da copy da IA*, escolha a automação/momento e clique em *Gerar prévia*. O texto aparece na tela e **nada é enviado** — a prévia é só leitura, mesmo com o envio real ligado.
+
+Por curl, se preferir:
+
+```
+curl -H "x-admin-key: SUA_ADMIN_API_KEY" \
+  "https://SEU-DOMINIO/api/automacoes/preview?telefone=11999999999&tipo=followup&momento=quente"
 ```
 
 ## Teste com um número só
@@ -73,6 +84,6 @@ Em simulação, isso só gera a linha no log. Com o envio real ligado, a mensage
 2. Confira os templates aprovados na Meta e preencha `GHL_TEMPLATE_IDS` na Vercel com os ids do GHL.
 3. Deixe alguns dias em simulação e revise o log em `/automacoes`.
 4. Faça o teste de um número só (acima) com `AUTOMACOES_DRY_RUN=false` **e** `?telefone=seu número`.
-5. Ficou bom? `AUTOMACOES_DRY_RUN=false` na Vercel, redeploy, e a régua passa a enviar no cron diário.
+5. Ficou bom? `AUTOMACOES_DRY_RUN=false` na Vercel, redeploy, e a régua passa a enviar sozinha — de hora em hora, só em horário comercial.
 
 Para desligar tudo a qualquer momento: volte `AUTOMACOES_DRY_RUN` para `true` (ou remova os crons do `vercel.json`).
