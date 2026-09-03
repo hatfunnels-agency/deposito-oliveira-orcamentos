@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { buscarContatoId, formatPhoneBR, janelaAbertaEm } from '@/lib/ghl';
+import {
+  buscarContatoId,
+  formatPhoneBR,
+  janelaAbertaEm,
+  adicionarAoWorkflow,
+} from '@/lib/ghl';
 import {
   candidatosFollowup,
   candidatosPosvenda,
   candidatosReativacao,
   dentroHorarioComercial,
   horaBrasilia,
-  resolverTemplate,
+  resolverWorkflow,
   type Candidato,
 } from '@/lib/automacoes';
 
@@ -116,30 +121,6 @@ async function enviarTexto(
     }),
     cache: 'no-store',
   });
-  if (!resp.ok) {
-    const txt = await resp.text().catch(() => '');
-    return { ok: false, motivo: `GHL ${resp.status}: ${txt.slice(0, 300)}` };
-  }
-  return { ok: true };
-}
-
-async function enviarTemplate(
-  contactId: string,
-  telefone: string,
-  id: string, // id do template no GHL, ja resolvido por resolverTemplate()
-): Promise<{ ok: boolean; motivo?: string }> {
-  const resp = await fetch(`${GHL_API_BASE}/conversations/messages`, {
-    method: 'POST',
-    headers: ghlHeaders(),
-    body: JSON.stringify({
-      type: 'WhatsApp',
-      contactId,
-      toNumber: formatPhoneBR(telefone),
-      templateId: id,
-    }),
-    cache: 'no-store',
-  });
-
   if (!resp.ok) {
     const txt = await resp.text().catch(() => '');
     return { ok: false, motivo: `GHL ${resp.status}: ${txt.slice(0, 300)}` };
@@ -257,17 +238,17 @@ export async function GET(request: NextRequest) {
           via = 'template';
         }
 
-        // Resolve nome -> id ANTES de decidir enviar (e tambem em simulacao,
-        // pro log mostrar qual template sairia — inclusive a preferencia por
-        // Utility e o fallback de reativacao pra reativacao_geral).
+        // Resolve template -> workflow ANTES de decidir enviar (e tambem em
+        // simulacao, pro log mostrar qual workflow dispararia).
         if (via === 'template' && status !== 'pulado') {
-          templateResolvido = resolverTemplate(c.template);
+          templateResolvido = await resolverWorkflow(c.template);
           if (!templateResolvido) {
+            const falta = `sem workflow no GHL para o template ${c.template}`;
             if (dryRun) {
-              motivo = `sem id em GHL_TEMPLATE_IDS pro template ${c.template} (no envio real isso seria erro)`;
+              motivo = `${falta} (no envio real isso seria erro)`;
             } else {
               status = 'erro';
-              motivo = `sem id em GHL_TEMPLATE_IDS pro template ${c.template}`;
+              motivo = falta;
             }
           }
         }
@@ -281,7 +262,7 @@ export async function GET(request: NextRequest) {
             const envio =
               via === 'ia' && texto
                 ? await enviarTexto(contactId, c.telefone, texto)
-                : await enviarTemplate(contactId, c.telefone, templateResolvido!.id);
+                : await adicionarAoWorkflow(contactId, templateResolvido!.id);
             if (!envio.ok) {
               status = 'erro';
               motivo = envio.motivo;

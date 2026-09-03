@@ -2,11 +2,14 @@
 // A regua (quem recebe o que, e quando) mora aqui. O disparo mora em
 // /api/automacoes/tick, chamado pelo cron da Vercel.
 //
-// Por que nao usamos workflow do GHL: a API do GHL so expoe GET /workflows/,
-// nao da pra criar workflow por API. E o gatilho de verdade esta no Supabase
-// (status do orcamento, data de entrega, ultima compra), nao no CRM.
+// Divisao de responsabilidade com o GHL: a regua (quem, quando, dedup,
+// horario, opt-out) e daqui, porque o gatilho de verdade esta no Supabase
+// (status do orcamento, data de entrega, ultima compra), nao no CRM. O GHL
+// so executa o envio — e, para template, isso passa por um workflow, porque
+// a API dele nao expoe template de WhatsApp. Ver resolverWorkflow().
 import { supabaseAdmin } from '@/lib/supabase';
 import { isObraAtivaActive } from '@/lib/tags';
+import { listarWorkflows } from '@/lib/ghl';
 
 export type TipoAutomacao = 'followup' | 'posvenda' | 'reativacao';
 
@@ -32,8 +35,8 @@ export type Candidato = {
   iaMomento: string;
 };
 
-// Nome do template aprovado na Meta por momento da regua.
-// O ID numerico do GHL vai em GHL_TEMPLATE_IDS (env) — ver resolverTemplate().
+// Nome do template aprovado na Meta por momento da regua. O nome e a chave
+// que casa com o workflow correspondente no GHL — ver resolverWorkflow().
 export const TEMPLATES: Record<string, string> = {
   'followup:dia1': 'followup_dia1',
   'followup:dia4': 'followup_dia4',
@@ -46,27 +49,49 @@ export const TEMPLATES: Record<string, string> = {
   'reativacao:mensal': 'reativacao_retorno',
 };
 
-// Resolve o nome do template pro id que o GHL espera, lendo GHL_TEMPLATE_IDS.
-// Ordem de preferencia:
-//   1. a versao Utility (`<nome>_util`), se o id dela estiver configurado —
+// Resolve o template para o WORKFLOW do GHL que dispara aquele template.
+//
+// A API do GHL nao expoe template de WhatsApp — nao existe id pra passar em
+// /conversations/messages. O caminho suportado e por workflow: cada template
+// tem um workflow de um passo so ("contato adicionado" -> "enviar template X"),
+// e workflow tem id acessivel por API.
+//
+// Ordem de resolucao:
+//   1. GHL_WORKFLOW_IDS no env, se alguem quiser fixar o mapeamento na mao;
+//   2. o workflow cujo NOME contem o nome do template (ex.: um workflow
+//      chamado "followup_dia1" ou "WhatsApp - followup_dia1" casa com
+//      followup_dia1). E o caminho normal: nao exige configurar nada;
+//   3. a versao Utility (`<nome>_util`) tem preferencia quando existe —
 //      Utility entrega melhor que Marketing e nao e barrada por opt-out;
-//   2. o proprio nome;
-//   3. reativacao degrada pra `reativacao_geral` (os templates novos de
-//      cadencia podem ainda nao existir na Meta — nao pode falhar por isso).
-// null = nenhum id configurado; quem chama decide o que fazer.
-export function resolverTemplate(nome: string): { nome: string; id: string } | null {
-  if (!nome) return null;
-  let ids: Record<string, string> = {};
+//   4. reativacao degrada pra reativacao_geral quando o workflow da cadencia
+//      especifica ainda nao foi criado.
+// null = nao achou; quem chama decide o que fazer.
+export async function resolverWorkflow(
+  nomeTemplate: string,
+): Promise<{ nome: string; id: string } | null> {
+  if (!nomeTemplate) return null;
+
+  let fixos: Record<string, string> = {};
   try {
-    ids = JSON.parse(process.env.GHL_TEMPLATE_IDS || '{}');
+    fixos = JSON.parse(process.env.GHL_WORKFLOW_IDS || '{}');
   } catch {
-    ids = {};
+    fixos = {};
   }
-  const util = `${nome}_util`;
-  if (ids[util]) return { nome: util, id: ids[util] };
-  if (ids[nome]) return { nome, id: ids[nome] };
-  if (nome.startsWith('reativacao_') && nome !== 'reativacao_geral' && ids['reativacao_geral']) {
-    return { nome: 'reativacao_geral', id: ids['reativacao_geral'] };
+  const util = `${nomeTemplate}_util`;
+  if (fixos[util]) return { nome: util, id: fixos[util] };
+  if (fixos[nomeTemplate]) return { nome: nomeTemplate, id: fixos[nomeTemplate] };
+
+  const wfs = await listarWorkflows();
+  const acha = (alvo: string) =>
+    wfs.find(w => w.name.toLowerCase().includes(alvo.toLowerCase()));
+
+  const porUtil = acha(util);
+  if (porUtil) return { nome: porUtil.name, id: porUtil.id };
+  const direto = acha(nomeTemplate);
+  if (direto) return { nome: direto.name, id: direto.id };
+
+  if (nomeTemplate.startsWith('reativacao_') && nomeTemplate !== 'reativacao_geral') {
+    return resolverWorkflow('reativacao_geral');
   }
   return null;
 }
