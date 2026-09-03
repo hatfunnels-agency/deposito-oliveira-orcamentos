@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const base = process.env.NEXT_PUBLIC_APP_URL || '';
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
   if (!base) {
     return NextResponse.json({ error: 'NEXT_PUBLIC_APP_URL nao configurada' }, { status: 500 });
   }

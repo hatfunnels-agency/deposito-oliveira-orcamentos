@@ -79,8 +79,9 @@ async function copyDaIa(
   tipo: string,
   momento: string,
 ): Promise<string | null> {
-  const base = process.env.NEXT_PUBLIC_APP_URL || '';
-  if (!base) return null;
+  // Fallback explicito: sem ele, a variavel ausente fazia a copy da IA voltar
+  // null em silencio e o toque 'quente' era descartado (14 casos em 4 dias).
+  const base = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
   try {
     const resp = await fetch(`${base}/api/ia/mensagem`, {
       method: 'POST',
@@ -182,15 +183,22 @@ export async function GET(request: NextRequest) {
       candidatos = candidatos.filter(c => c.telefone.replace(/\D/g, '').endsWith(alvo.slice(-8)));
     }
 
-    // Tira o que ja foi processado antes (a chave e UNIQUE no banco, mas
-    // filtrar aqui evita chamada desnecessaria ao GHL).
+    // Tira o que ja foi de fato concluido. So 'enviado' (mensagem saiu) e
+    // 'concluido' (contexto gravado) bloqueiam a chave para sempre.
+    //
+    // 'simulado', 'pulado' e 'erro' NAO bloqueiam, de proposito: sao tentativas
+    // que nao chegaram no cliente. Sem esse filtro, cada dia rodando em
+    // simulacao queimava a safra do dia — no momento em que o envio ligasse,
+    // aqueles candidatos jamais sairiam porque ja existia linha no log.
+    const CONCLUIDOS = ['enviado', 'concluido'];
     const chaves = candidatos.map(c => c.chaveDedup);
     const jaEnviados = new Set<string>();
     for (let i = 0; i < chaves.length; i += 200) {
       const { data } = await supabaseAdmin
         .from('automacao_envios')
         .select('chave_dedup')
-        .in('chave_dedup', chaves.slice(i, i + 200));
+        .in('chave_dedup', chaves.slice(i, i + 200))
+        .in('status', CONCLUIDOS);
       for (const r of data || []) jaEnviados.add((r as any).chave_dedup);
     }
     candidatos = candidatos.filter(c => !jaEnviados.has(c.chaveDedup)).slice(0, limite);
@@ -298,7 +306,10 @@ export async function GET(request: NextRequest) {
           status,
           motivo: motivo || null,
         },
-        { onConflict: 'chave_dedup', ignoreDuplicates: true },
+        // ignoreDuplicates: false — a linha e ATUALIZADA na retentativa, senao
+        // um candidato reprocessado ficaria com o status antigo ('simulado')
+        // mesmo depois de ter sido enviado de verdade.
+        { onConflict: 'chave_dedup', ignoreDuplicates: false },
       );
 
       resultados.push({
