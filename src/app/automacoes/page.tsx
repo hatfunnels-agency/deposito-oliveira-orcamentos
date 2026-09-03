@@ -75,6 +75,38 @@ async function buscarLog(params: URLSearchParams): Promise<LogResposta | { error
   }
 }
 
+type MapWorkflow = {
+  template: string;
+  workflow: string | null;
+  workflowId: string | null;
+  situacao: string;
+};
+type Workflows = {
+  workflowsNoGhl?: number;
+  mapeamento?: MapWorkflow[];
+  pendentes?: string[];
+  error?: string;
+};
+
+// Conferencia do mapeamento template -> workflow do GHL. A chave de admin
+// fica no servidor; a tela so mostra o resultado.
+async function buscarWorkflows(): Promise<Workflows> {
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) return { error: 'ADMIN_API_KEY não configurada no servidor.' };
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+  try {
+    const resp = await fetch(`${appUrl}/api/automacoes/workflows`, {
+      headers: { 'x-admin-key': adminKey },
+      cache: 'no-store',
+    });
+    const json = await resp.json();
+    if (!resp.ok) return { error: json?.error || `Erro ${resp.status} ao listar workflows.` };
+    return json as Workflows;
+  } catch (e: any) {
+    return { error: e?.message || 'Falha ao listar os workflows.' };
+  }
+}
+
 type Previa = { mensagem?: string; error?: string };
 
 // Previa da copy da IA: o formulario e GET (sem JS) e a chamada acontece aqui
@@ -142,6 +174,7 @@ export default async function AutomacoesPage({
   const [pTipo, pMomento] = pAlvo.split(':');
   const previa = pTelefone ? await buscarPrevia(pTelefone, pTipo || 'followup', pMomento || '') : null;
 
+  const wf = await buscarWorkflows();
   const log = await buscarLog(params);
   const erro = 'error' in log && log.error ? log.error : null;
   const dados = erro ? null : (log as LogResposta);
@@ -181,6 +214,73 @@ export default async function AutomacoesPage({
             )}
           </div>
         )}
+
+        {/* Mapeamento template -> workflow do GHL. E o que diz se o envio
+            real tem pra onde ir; sem workflow o template nao sai. */}
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-6">
+          <div className="flex items-baseline justify-between gap-3 flex-wrap">
+            <h2 className="text-sm font-semibold text-gray-900">Workflows do GHL</h2>
+            {!wf.error && (
+              <span className="text-xs text-gray-500">
+                {wf.workflowsNoGhl ?? 0} workflow(s) na conta ·{' '}
+                {(wf.mapeamento?.length ?? 0) - (wf.pendentes?.length ?? 0)} de{' '}
+                {wf.mapeamento?.length ?? 0} templates mapeados
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-gray-500 mt-1 mb-3">
+            Cada template precisa de um workflow com o nome dele no título. É o workflow que dispara
+            o template — a API do GHL não permite enviar template direto.
+          </p>
+
+          {wf.error ? (
+            <div className="bg-red-50 border border-red-200 text-red-800 rounded-lg p-3 text-sm">{wf.error}</div>
+          ) : (
+            <>
+              {wf.pendentes && wf.pendentes.length > 0 ? (
+                <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-lg p-3 text-sm mb-3">
+                  Falta criar workflow para: <strong>{wf.pendentes.join(', ')}</strong>
+                </div>
+              ) : (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-900 rounded-lg p-3 text-sm mb-3">
+                  Todos os templates têm workflow. O envio real tem para onde ir.
+                </div>
+              )}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs uppercase tracking-wide text-gray-400">
+                      <th className="py-2 pr-4 font-medium">Template</th>
+                      <th className="py-2 pr-4 font-medium">Workflow no GHL</th>
+                      <th className="py-2 font-medium">Situação</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(wf.mapeamento ?? []).map(m => (
+                      <tr key={m.template} className="border-t border-gray-100">
+                        <td className="py-2 pr-4 font-mono text-xs text-gray-700">{m.template}</td>
+                        <td className="py-2 pr-4 text-gray-700">{m.workflow ?? '—'}</td>
+                        <td className="py-2">
+                          <span
+                            className={
+                              m.situacao === 'ok'
+                                ? 'text-emerald-700'
+                                : m.workflowId
+                                  ? 'text-amber-700'
+                                  : 'text-red-700'
+                            }
+                          >
+                            {m.situacao}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
 
         {/* Previa da copy da IA — le o contexto real do cliente e mostra o
             texto que a IA escreveria. Nao envia nada. */}
