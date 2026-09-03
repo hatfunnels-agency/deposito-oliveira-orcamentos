@@ -164,3 +164,58 @@ export async function janelaAbertaEm(contactId: string): Promise<boolean> {
     return false;
   }
 }
+
+// ---------------------------------------------------------------- workflows
+// Por que workflow e nao template direto: a API do GHL NAO expoe endpoint de
+// template de WhatsApp (so a interface, em Settings > WhatsApp > Templates),
+// entao nao existe id de template pra passar em /conversations/messages.
+// O caminho suportado e adicionar o contato a um workflow que tem a acao
+// "enviar template X". Workflow, esse sim, tem id acessivel por API.
+
+type Workflow = { id: string; name: string };
+let cacheWorkflows: { em: number; lista: Workflow[] } | null = null;
+const TTL_WORKFLOWS = 10 * 60 * 1000;
+
+export async function listarWorkflows(forcar = false): Promise<Workflow[]> {
+  if (!forcar && cacheWorkflows && Date.now() - cacheWorkflows.em < TTL_WORKFLOWS) {
+    return cacheWorkflows.lista;
+  }
+  if (!GHL_API_KEY || !GHL_LOCATION_ID) return [];
+  try {
+    const resp = await fetch(
+      `${GHL_API_BASE}/workflows/?locationId=${GHL_LOCATION_ID}`,
+      { headers: ghlHeaders(), cache: 'no-store' },
+    );
+    if (!resp.ok) return cacheWorkflows?.lista || [];
+    const lista = ((await resp.json())?.workflows || []).map((w: any) => ({
+      id: String(w.id), name: String(w.name || ''),
+    }));
+    cacheWorkflows = { em: Date.now(), lista };
+    return lista;
+  } catch {
+    return cacheWorkflows?.lista || [];
+  }
+}
+
+// Coloca o contato no workflow — o workflow e quem dispara o template.
+// Atencao: este endpoint exige Version: v3, diferente do resto da API (2021-07-28).
+export async function adicionarAoWorkflow(
+  contactId: string,
+  workflowId: string,
+): Promise<{ ok: boolean; motivo?: string }> {
+  if (!GHL_API_KEY) return { ok: false, motivo: 'GHL_API_KEY ausente' };
+  const resp = await fetch(
+    `${GHL_API_BASE}/contacts/${contactId}/workflow/${workflowId}`,
+    {
+      method: 'POST',
+      headers: { ...ghlHeaders(), Version: 'v3' },
+      body: JSON.stringify({ eventStartTime: new Date().toISOString() }),
+      cache: 'no-store',
+    },
+  );
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    return { ok: false, motivo: `GHL ${resp.status}: ${txt.slice(0, 300)}` };
+  }
+  return { ok: true };
+}
