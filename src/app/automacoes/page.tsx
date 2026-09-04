@@ -1,8 +1,11 @@
-// Pagina de acompanhamento das automacoes de WhatsApp (read-only).
+// Pagina de acompanhamento das automacoes de WhatsApp.
+// Quase tudo aqui e read-only; a unica acao que muda o mundo e o teste de
+// envio, que manda UMA mensagem real pro numero digitado e exige confirmacao.
 // Server component: busca o log via /api/automacoes/log (a chave de admin
 // fica no servidor, nunca chega ao navegador). Protegida pelo proxy de auth
 // como as demais paginas.
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 
 export const dynamic = 'force-dynamic';
 
@@ -148,6 +151,40 @@ const MOMENTOS_PREVIA: Array<{ grupo: string; tipo: string; opcoes: Array<[strin
   },
 ];
 
+// Envia UMA mensagem real pro numero digitado. Server action: o POST nao
+// vira URL, entao nao da pra disparar por link, prefetch ou refresh.
+async function enviarTeste(formData: FormData) {
+  'use server';
+  const telefone = String(formData.get('telefone') || '').replace(/\D/g, '');
+  const modo = String(formData.get('modo') || 'ia');
+  const template = String(formData.get('template') || 'followup_dia1');
+  const confirmado = formData.get('confirmar') === 'on';
+
+  const volta = (ok: string, msg: string) =>
+    redirect(`/automacoes?t_ok=${ok}&t_msg=${encodeURIComponent(msg.slice(0, 220))}`);
+
+  if (!confirmado) volta('0', 'Marque a confirmacao — o teste envia mensagem de verdade.');
+  if (telefone.length < 10) volta('0', 'Informe o telefone com DDD.');
+
+  const adminKey = process.env.ADMIN_API_KEY;
+  if (!adminKey) volta('0', 'ADMIN_API_KEY nao configurada no servidor.');
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://orcamentos.depositooliveira.com';
+
+  let resposta: { ok?: boolean; detalhe?: string } = {};
+  try {
+    const r = await fetch(`${appUrl}/api/automacoes/teste-envio`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-admin-key': adminKey as string },
+      body: JSON.stringify({ telefone, modo, template }),
+      cache: 'no-store',
+    });
+    resposta = await r.json().catch(() => ({}));
+  } catch (e: any) {
+    volta('0', e?.message || 'Falha ao chamar o teste de envio.');
+  }
+  volta(resposta.ok ? '1' : '0', resposta.detalhe || 'Sem detalhe na resposta.');
+}
+
 export default async function AutomacoesPage({
   searchParams,
 }: {
@@ -174,6 +211,8 @@ export default async function AutomacoesPage({
   const [pTipo, pMomento] = pAlvo.split(':');
   const previa = pTelefone ? await buscarPrevia(pTelefone, pTipo || 'followup', pMomento || '') : null;
 
+  const tOk = primeiro(sp.t_ok);
+  const tMsg = primeiro(sp.t_msg);
   const wf = await buscarWorkflows();
   const log = await buscarLog(params);
   const erro = 'error' in log && log.error ? log.error : null;
@@ -280,6 +319,76 @@ export default async function AutomacoesPage({
               </div>
             </>
           )}
+        </div>
+
+        {/* Teste de envio real. E a UNICA coisa nesta tela que fala com o
+            cliente — por isso confirmacao obrigatoria e um destinatario so. */}
+        <div className="bg-white rounded-2xl border-2 border-amber-300 shadow-sm p-5 mb-6">
+          <h2 className="text-sm font-semibold text-gray-900">Teste de envio real</h2>
+          <p className="text-xs text-gray-500 mt-1 mb-3">
+            Manda <strong>uma mensagem de verdade</strong> para o número digitado — use o seu.
+            Não depende do modo simulação: serve justamente para provar o envio antes de ligar o resto.
+          </p>
+
+          {tMsg && (
+            <div
+              className={`rounded-lg p-3 text-sm mb-3 border ${
+                tOk === '1'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                  : 'bg-red-50 border-red-200 text-red-800'
+              }`}
+            >
+              {tOk === '1' ? '✓ ' : '✕ '}
+              {tMsg}
+            </div>
+          )}
+
+          <form action={enviarTeste} className="flex flex-wrap items-end gap-3">
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Seu telefone (com DDD)</label>
+              <input
+                type="text"
+                name="telefone"
+                placeholder="11999999999"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">O que testar</label>
+              <select
+                name="modo"
+                defaultValue="workflow"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              >
+                <option value="workflow">Template via workflow (fora da janela)</option>
+                <option value="ia">Mensagem da IA (só com janela aberta)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs text-gray-500 mb-1">Template</label>
+              <select
+                name="template"
+                defaultValue="followup_dia1"
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              >
+                <option value="followup_dia1">followup_dia1</option>
+                <option value="followup_dia4">followup_dia4</option>
+                <option value="followup_dia7">followup_dia7</option>
+                <option value="posvenda_check">posvenda_check</option>
+                <option value="reativacao_geral">reativacao_geral</option>
+              </select>
+            </div>
+            <label className="flex items-center gap-2 text-xs text-gray-600 pb-2">
+              <input type="checkbox" name="confirmar" className="w-4 h-4" />
+              Entendo que isso envia mensagem de verdade
+            </label>
+            <button
+              type="submit"
+              className="bg-amber-600 text-white text-sm font-medium rounded-lg px-4 py-2 hover:bg-amber-700 transition"
+            >
+              Enviar teste
+            </button>
+          </form>
         </div>
 
         {/* Previa da copy da IA — le o contexto real do cliente e mostra o
