@@ -227,3 +227,38 @@ export async function adicionarAoWorkflow(
   }
   return { ok: true };
 }
+
+// Ultimas mensagens da conversa de WhatsApp, da mais antiga pra mais nova.
+// E o que dá memoria ao robo: sem isso ele repete pergunta ja respondida.
+export async function historicoConversa(
+  contactId: string,
+  limite = 20,
+): Promise<Array<{ de: 'cliente' | 'nos'; texto: string; quando: string }>> {
+  if (!GHL_API_KEY || !contactId) return [];
+  try {
+    const busca = await fetch(
+      `${GHL_API_BASE}/conversations/search?locationId=${GHL_LOCATION_ID}&contactId=${contactId}&limit=1`,
+      { headers: ghlHeaders(), cache: 'no-store' },
+    );
+    if (!busca.ok) return [];
+    const conv = ((await busca.json())?.conversations || [])[0];
+    if (!conv?.id) return [];
+
+    const resp = await fetch(
+      `${GHL_API_BASE}/conversations/${conv.id}/messages?type=TYPE_WHATSAPP&limit=${limite}`,
+      { headers: ghlHeaders(), cache: 'no-store' },
+    );
+    if (!resp.ok) return [];
+    const msgs = (await resp.json())?.messages?.messages || [];
+    return msgs
+      .filter((m: any) => (m?.body || '').trim())
+      .map((m: any) => ({
+        de: m.direction === 'inbound' ? ('cliente' as const) : ('nos' as const),
+        texto: String(m.body).slice(0, 500),
+        quando: String(m.dateAdded || ''),
+      }))
+      .reverse();
+  } catch {
+    return [];
+  }
+}
