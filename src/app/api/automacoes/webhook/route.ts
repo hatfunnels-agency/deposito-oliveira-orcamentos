@@ -51,6 +51,15 @@ function extrair(body: any): { telefone: string; texto: string; direcao: string;
   };
 }
 
+// O GHL manda o tipo de duas formas conforme a origem: a string
+// "TYPE_WHATSAPP" na API de conversas, e o codigo NUMERICO 19 no webhook.
+// Sao o mesmo canal — na resposta da API de mensagens os dois vem juntos.
+// Tipo vazio passa: outras travas (direcao, texto, telefone) ja filtram.
+function ehWhatsApp(tipo: string): boolean {
+  if (!tipo) return true;
+  return tipo.includes('WHATSAPP') || tipo === '19';
+}
+
 async function pensar(
   contexto: string,
 ): Promise<{ mensagem: string; acao: AcaoRobo } | null> {
@@ -168,8 +177,8 @@ export async function POST(request: NextRequest) {
     await registrar(telefone, 'pulado', `direcao "${direcao}" — so processo mensagem de entrada`);
     return NextResponse.json({ ignorado: 'nao e mensagem de entrada', direcao });
   }
-  if (tipo && !tipo.includes('WHATSAPP')) {
-    await registrar(telefone, 'pulado', `tipo "${tipo}" — so processo WhatsApp`);
+  if (!ehWhatsApp(tipo)) {
+    await registrar(telefone, 'pulado', `tipo "${tipo}" nao e WhatsApp — ignorado`);
     return NextResponse.json({ ignorado: `tipo ${tipo}` });
   }
   if (!telefone || !texto) {
