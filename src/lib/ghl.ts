@@ -197,6 +197,14 @@ export async function listarWorkflows(forcar = false): Promise<Workflow[]> {
   }
 }
 
+// ISO 8601 com offset NUMERICO (-03:00). O GHL recusa com 422 o formato
+// com 'Z' que o toISOString() devolve: "The event start time must be a date
+// and time with timezone offset". Brasilia e UTC-3 fixo desde 2019.
+function isoComOffsetBrasilia(d = new Date()): string {
+  const local = new Date(d.getTime() - 3 * 3600_000);
+  return local.toISOString().replace(/\.\d{3}Z$/, '') + '-03:00';
+}
+
 // Coloca o contato no workflow — o workflow e quem dispara o template.
 // Atencao: este endpoint exige Version: v3, diferente do resto da API (2021-07-28).
 export async function adicionarAoWorkflow(
@@ -209,7 +217,7 @@ export async function adicionarAoWorkflow(
     {
       method: 'POST',
       headers: { ...ghlHeaders(), Version: 'v3' },
-      body: JSON.stringify({ eventStartTime: new Date().toISOString() }),
+      body: JSON.stringify({ eventStartTime: isoComOffsetBrasilia() }),
       cache: 'no-store',
     },
   );
