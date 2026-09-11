@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buscarContatoId, formatPhoneBR, historicoConversa } from '@/lib/ghl';
 import { dentroHorarioComercial, horaBrasilia } from '@/lib/automacoes';
+import { candidatosTelefone } from '@/lib/contexto';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
 
 export const dynamic = 'force-dynamic';
@@ -191,9 +192,13 @@ export async function POST(request: NextRequest) {
   const dentroDaJanelaDeResposta = dentroHorarioComercial() || (hora >= 18 && hora < 20);
 
   const digitos = telefone.replace(/\D/g, '');
+  // Casamento EXATO pelas formas possiveis do numero (com e sem 55), nunca
+  // por "contem os ultimos 8 digitos": ha cadastro com digito a mais no banco,
+  // e o ilike atribuia a conversa ao cliente errado — com o contexto errado,
+  // e pior, gravando nao_perturbe e data de retorno na pessoa errada.
   const { data: cliente } = await supabaseAdmin
     .from('clientes').select('id, nome, notas_contexto')
-    .ilike('telefone', `%${digitos.slice(-8)}%`).limit(1).maybeSingle();
+    .in('telefone', candidatosTelefone(digitos)).limit(1).maybeSingle();
 
   // nao_perturbe cala o robo, sempre.
   if (cliente?.id) {
