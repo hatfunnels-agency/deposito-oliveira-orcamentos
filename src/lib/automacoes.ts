@@ -137,11 +137,23 @@ function horasAtras(h: number): string {
   return new Date(Date.now() - h * 3600_000).toISOString();
 }
 
+
+// Clientes que pediram pra nao receber mais. Bloqueia as tres automacoes.
+// Uma consulta por execucao do tick, nao uma por candidato.
+async function clientesNaoPerturbe(): Promise<Set<string>> {
+  const { data } = await supabaseAdmin
+    .from('cliente_tags')
+    .select('cliente_id')
+    .eq('tag', 'nao_perturbe');
+  return new Set((data || []).map((r: any) => String(r.cliente_id)));
+}
+
 // ---------------------------------------------------------------- follow-up
 // Orcamento emitido e nao respondido. Sai da regua sozinho quando o status
 // muda (converteu ou cancelou) — por isso o filtro status='orcamento'.
 export async function candidatosFollowup(): Promise<Candidato[]> {
   const saida: Candidato[] = [];
+  const bloqueados = await clientesNaoPerturbe();
 
   for (const janela of JANELAS_FOLLOWUP) {
     const { data, error } = await supabaseAdmin
@@ -155,7 +167,7 @@ export async function candidatosFollowup(): Promise<Candidato[]> {
 
     for (const orc of data || []) {
       const cli = (orc as any).clientes;
-      if (!cli?.telefone || !cli?.id) continue;
+      if (!cli?.telefone || !cli?.id || bloqueados.has(String(cli.id))) continue;
 
       // Data Follow-up preenchida pausa a regua: so dispara no dia marcado.
       if (cli.data_followup) {
@@ -206,12 +218,14 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 
   if (error) throw new Error(`posvenda: ${error.message}`);
 
+  const bloqueados = await clientesNaoPerturbe();
   const vistos = new Set<string>();
   const saida: Candidato[] = [];
 
   for (const orc of data || []) {
     const cli = (orc as any).clientes;
     if (!cli?.telefone || !cli?.id || vistos.has(cli.id)) continue;
+    if (bloqueados.has(String(cli.id))) continue;
     vistos.add(cli.id);
 
     saida.push({
@@ -274,11 +288,13 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     if (r.cliente_id && !ultimoEnvio.has(r.cliente_id)) ultimoEnvio.set(r.cliente_id, r.criado_em);
   }
 
+  const bloqueados = await clientesNaoPerturbe();
   const hoje = new Date();
   const saida: Candidato[] = [];
 
   for (const [clienteId, { quando, cli }] of ultimaCompra) {
     if (temOrcamentoAberto.has(clienteId)) continue;
+    if (bloqueados.has(clienteId)) continue;
     if (!cli?.telefone) continue;
 
     const diasSemComprar = Math.floor((hoje.getTime() - new Date(quando).getTime()) / 86_400_000);
