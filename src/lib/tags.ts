@@ -1,4 +1,7 @@
 // Taxonomia fixa de tags de cliente.
+//
+// 'nao_perturbe': o cliente pediu para nao receber mais mensagem. Bloqueia
+// TODAS as automacoes — ver clientesNaoPerturbe() em automacoes.ts.
 // DEVE ser identica ao CHECK constraint chk_tag_valida da tabela cliente_tags.
 // Se mudar aqui, atualizar o constraint no banco (e vice-versa).
 export const TAGS_VALIDAS = [
@@ -10,6 +13,7 @@ export const TAGS_VALIDAS = [
   'vip',
   'em_negociacao',
   'inadimplente',
+  'nao_perturbe',
 ] as const;
 
 export type TagValida = typeof TAGS_VALIDAS[number];
