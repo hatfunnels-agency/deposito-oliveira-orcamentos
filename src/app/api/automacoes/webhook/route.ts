@@ -129,6 +129,31 @@ async function executar(acao: AcaoRobo, ctx: {
   }
 }
 
+
+// Toda saida do webhook deixa rastro. Sem isso, "nao apareceu nada no log"
+// e indistinguivel de "o GHL nunca chamou" — foi exatamente o que aconteceu
+// no primeiro teste.
+async function registrar(
+  telefone: string,
+  status: 'simulado' | 'enviado' | 'erro' | 'pulado',
+  motivo: string,
+  extra: Record<string, unknown> = {},
+) {
+  try {
+    await supabaseAdmin.from('automacao_envios').insert({
+      chave_dedup: `resposta:${telefone || 'sem-telefone'}:${Date.now()}`,
+      tipo: 'followup',
+      momento: 'resposta',
+      telefone: telefone || null,
+      status,
+      motivo: motivo.slice(0, 300),
+      ...extra,
+    });
+  } catch {
+    // log nunca derruba o webhook
+  }
+}
+
 export async function POST(request: NextRequest) {
   const segredo = process.env.AUTOMACAO_SECRET;
   if (segredo && request.headers.get('x-automacao-secret') !== segredo) {
@@ -139,9 +164,19 @@ export async function POST(request: NextRequest) {
   const { telefone, texto, direcao, tipo } = extrair(body);
 
   // ANTI-LOOP: so mensagem de entrada, so WhatsApp, so com texto.
-  if (direcao !== 'inbound') return NextResponse.json({ ignorado: 'nao e mensagem de entrada' });
-  if (tipo && !tipo.includes('WHATSAPP')) return NextResponse.json({ ignorado: `tipo ${tipo}` });
-  if (!telefone || !texto) return NextResponse.json({ ignorado: 'sem telefone ou sem texto' });
+  if (direcao !== 'inbound') {
+    await registrar(telefone, 'pulado', `direcao "${direcao}" — so processo mensagem de entrada`);
+    return NextResponse.json({ ignorado: 'nao e mensagem de entrada', direcao });
+  }
+  if (tipo && !tipo.includes('WHATSAPP')) {
+    await registrar(telefone, 'pulado', `tipo "${tipo}" — so processo WhatsApp`);
+    return NextResponse.json({ ignorado: `tipo ${tipo}` });
+  }
+  if (!telefone || !texto) {
+    await registrar(telefone, 'pulado',
+      `payload sem ${!telefone ? 'telefone' : 'texto'} — chaves recebidas: ${Object.keys(body || {}).join(', ')}`);
+    return NextResponse.json({ ignorado: 'sem telefone ou sem texto', chaves: Object.keys(body || {}) });
+  }
 
   const { hora } = horaBrasilia();
   const dentroDaJanelaDeResposta = dentroHorarioComercial() || (hora >= 18 && hora < 20);
@@ -155,7 +190,10 @@ export async function POST(request: NextRequest) {
   if (cliente?.id) {
     const { data: tag } = await supabaseAdmin.from('cliente_tags')
       .select('tag').eq('cliente_id', cliente.id).eq('tag', 'nao_perturbe').limit(1).maybeSingle();
-    if (tag) return NextResponse.json({ ignorado: 'cliente com nao_perturbe' });
+    if (tag) {
+      await registrar(digitos, 'pulado', 'cliente com nao_perturbe', { cliente_id: cliente.id });
+      return NextResponse.json({ ignorado: 'cliente com nao_perturbe' });
+    }
   }
 
   // Teto por contato: se ja respondeu demais na ultima hora, para e escala.
@@ -165,6 +203,7 @@ export async function POST(request: NextRequest) {
     .eq('telefone', digitos).eq('momento', 'resposta')
     .gte('criado_em', new Date(Date.now() - 3600_000).toISOString());
   if ((count || 0) >= TETO_RESPOSTAS_HORA) {
+    await registrar(digitos, 'pulado', `teto de ${TETO_RESPOSTAS_HORA} respostas/hora atingido`);
     return NextResponse.json({ ignorado: `teto de ${TETO_RESPOSTAS_HORA} respostas/hora atingido` });
   }
 
@@ -204,6 +243,7 @@ export async function POST(request: NextRequest) {
 
   const pensado = await pensar(contexto);
   if (!pensado) {
+    await registrar(digitos, 'erro', 'a IA nao devolveu JSON valido', { cliente_id: cliente?.id || null });
     return NextResponse.json({ erro: 'IA nao respondeu', telefone: digitos });
   }
 
