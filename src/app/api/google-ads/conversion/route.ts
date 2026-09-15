@@ -62,17 +62,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ skipped: true, reason: 'valor zero' });
     }
 
-    // gclid vive no GHL (capturado na landing). Sem gclid => cliente nao veio
-    // de anuncio Google; nada a enviar.
+    // gclid vive no GHL (capturado na landing) — e o casamento mais forte, mas
+    // e OPCIONAL. Enviamos toda venda com o telefone hasheado (enhanced
+    // conversions): o Google casa por identificador quem clicou no anuncio,
+    // pegando tambem ligacao/Maps/recompra (que nao tem gclid). Assim o retorno
+    // fica consolidado, nao so o funil do formulario.
     const gclid = await buscarGclidPorTelefone(telefone);
-    if (!gclid) {
-      console.log('[GAds Conv] Sem gclid pro cliente, skip (origem nao-Google)');
-      return NextResponse.json({ skipped: true, reason: 'sem gclid' });
-    }
 
     const codigo: string | undefined = o.codigo;
     const r = await uploadConversaoOffline({
-      gclid,
+      gclid: gclid || undefined,
+      phone: telefone,
       value: valor,
       orderId: codigo || String(orcamento_id), // dedupe por pedido no Google
     });

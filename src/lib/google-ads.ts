@@ -7,6 +7,8 @@
 // Server-only: usa o refresh token OAuth (escopo .../auth/datamanager).
 // Nunca importar de um componente 'use client'.
 
+import { createHash } from "crypto";
+
 const GOOGLE_OAUTH_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DATA_MANAGER_INGEST_URL = "https://datamanager.googleapis.com/v1/events:ingest";
 
@@ -55,9 +57,29 @@ export function agoraSaoPaulo(): string {
   );
 }
 
+// Normaliza um telefone BR para E.164 ("+55DDDNUMERO"). Retorna null se vazio.
+function normalizarTelefoneE164(phone: string): string | null {
+  const digits = phone.replace(/\D/g, "");
+  if (!digits) return null;
+  if (digits.startsWith("55") && digits.length >= 12) return "+" + digits;
+  if (digits.length === 10 || digits.length === 11) return "+55" + digits;
+  return "+55" + digits;
+}
+
+// Hash SHA-256 (hex minusculo) do telefone em E.164, como exige a Data Manager
+// API para "enhanced conversions" (casamento por identificador do usuario).
+// Telefone nao tem caixa/espacos apos normalizar, entao nao ha lowercase/trim
+// extra — so o hash do E.164. Exportada para o teste de validacao.
+export function hashTelefone(phone: string): string | null {
+  const e164 = normalizarTelefoneE164(phone);
+  if (!e164) return null;
+  return createHash("sha256").update(e164).digest("hex");
+}
+
 export type OfflineConversionInput = {
-  gclid: string;
   value: number;
+  gclid?: string; // melhor sinal de casamento; opcional
+  phone?: string; // telefone do cliente -> enviado com hash (enhanced conversions)
   orderId?: string; // vira transactionId (dedupe da venda no Google)
   conversionDateTime?: string; // RFC 3339; default: agora (Sao Paulo)
   validateOnly?: boolean; // true = só valida, não grava (para testes)
@@ -68,6 +90,12 @@ export async function uploadConversaoOffline(
 ): Promise<{ ok: boolean; detail?: string }> {
   if (!googleAdsConfigurado()) return { ok: false, detail: "google ads nao configurado" };
 
+  // Precisa de pelo menos um identificador de casamento: gclid OU telefone.
+  const telHash = input.phone ? hashTelefone(input.phone) : null;
+  if (!input.gclid && !telHash) {
+    return { ok: false, detail: "sem gclid nem telefone valido" };
+  }
+
   const token = await getAccessToken();
 
   const event: Record<string, unknown> = {
@@ -76,11 +104,15 @@ export async function uploadConversaoOffline(
     eventTimestamp: input.conversionDateTime || agoraSaoPaulo(),
     currency: "BRL",
     conversionValue: input.value,
-    adIdentifiers: { gclid: input.gclid },
   };
   if (input.orderId) event.transactionId = input.orderId;
+  // gclid = casamento direto pelo clique (mais forte); enviado quando existir.
+  if (input.gclid) event.adIdentifiers = { gclid: input.gclid };
+  // telefone hasheado = casamento por identificador (pega ligacao/Maps/recompra,
+  // que nao tem gclid). E o que torna o retorno consolidado, nao so o funil de form.
+  if (telHash) event.userData = { userIdentifiers: [{ phoneNumber: telHash }] };
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     destinations: [
       {
         reference: "dest1",
@@ -92,6 +124,9 @@ export async function uploadConversaoOffline(
     events: [event],
     validateOnly: input.validateOnly ?? false,
   };
+  // Quando enviamos identificador hasheado (telefone), a Data Manager API exige
+  // declarar a codificacao do hash no nivel do request. Usamos HEX (SHA-256 hex).
+  if (telHash) payload.encoding = "HEX";
 
   const headers: Record<string, string> = {
     Authorization: `Bearer ${token}`,
