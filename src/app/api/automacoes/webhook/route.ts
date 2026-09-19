@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buscarContatoId, formatPhoneBR, historicoConversa } from '@/lib/ghl';
-import { dentroHorarioComercial, horaBrasilia } from '@/lib/automacoes';
+import { dentroJanelaResposta } from '@/lib/automacoes';
 import { candidatosTelefone } from '@/lib/contexto';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
 
@@ -188,8 +188,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ignorado: 'sem telefone ou sem texto', chaves: Object.keys(body || {}) });
   }
 
-  const { hora } = horaBrasilia();
-  const dentroDaJanelaDeResposta = dentroHorarioComercial() || (hora >= 18 && hora < 20);
+  const dentroDaJanelaDeResposta = dentroJanelaResposta();
 
   const digitos = telefone.replace(/\D/g, '');
   // Casamento EXATO pelas formas possiveis do numero (com e sem 55), nunca
@@ -286,7 +285,7 @@ export async function POST(request: NextRequest) {
     });
     envio = r.ok ? 'enviado' : `erro GHL ${r.status}`;
   } else if (!dentroDaJanelaDeResposta) {
-    envio = 'fora do horario de resposta (8h-20h, seg a sab)';
+    envio = 'fora da janela de resposta (17h30-20h, seg a sab) — a Mariana atende ate 17h30';
   } else if (!podeResponder(digitos)) {
     envio = 'numero fora da allowlist — so registrado';
   }
