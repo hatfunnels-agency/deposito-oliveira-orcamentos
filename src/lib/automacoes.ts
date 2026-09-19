@@ -98,9 +98,23 @@ export async function resolverWorkflow(
 
 // ------------------------------------------------------- horario comercial
 // Brasilia e UTC-3 fixo (o Brasil nao tem horario de verao desde 2019).
-export function horaBrasilia(agora = new Date()): { hora: number; diaSemana: number } {
+export function horaBrasilia(agora = new Date()): { hora: number; minuto: number; diaSemana: number } {
   const brt = new Date(agora.getTime() - 3 * 3600_000);
-  return { hora: brt.getUTCHours(), diaSemana: brt.getUTCDay() }; // diaSemana: 0=domingo
+  return { hora: brt.getUTCHours(), minuto: brt.getUTCMinutes(), diaSemana: brt.getUTCDay() };
+}
+
+// Janela em que o ROBO responde quem mandou mensagem — diferente da janela
+// em que ele INICIA conversa (dentroHorarioComercial, 8h-18h).
+//
+// Das 8h as 17h30 quem atende e a Mariana: o robo fica calado de proposito,
+// para nao atropelar o atendimento humano. Das 17h30 as 20h ela ja saiu, e
+// o robo entra para nao perder o lead que chega no fim do dia. Domingo nao
+// responde — o deposito esta fechado.
+export function dentroJanelaResposta(agora = new Date()): boolean {
+  const { hora, minuto, diaSemana } = horaBrasilia(agora);
+  if (diaSemana === 0) return false;
+  const emMinutos = hora * 60 + minuto;
+  return emMinutos >= 17 * 60 + 30 && emMinutos < 20 * 60;
 }
 
 // Guarda de envio: 8h–18h de Brasilia, segunda a sabado. Domingo nada.
