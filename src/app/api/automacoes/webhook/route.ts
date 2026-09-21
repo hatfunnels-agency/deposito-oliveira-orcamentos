@@ -267,7 +267,21 @@ export async function POST(request: NextRequest) {
     origem: 'resposta',
   });
 
-  const liberado = podeResponder(digitos) && dentroDaJanelaDeResposta;
+  // Cada trava e avaliada e relatada em separado. Antes isto era uma cadeia
+  // de else-if: fora do horario, a resposta so dizia "fora da janela" e nao
+  // dava pra saber se a allowlist estava certa. Agora diz as duas coisas.
+  const naAllowlist = podeResponder(digitos);
+  const { modo, lista } = alvosPermitidos();
+  const diagnostico = {
+    janela: dentroDaJanelaDeResposta ? 'aberta (17h30-20h)' : 'fechada — responde so das 17h30 as 20h, seg a sab',
+    allowlist:
+      modo === 'ninguem' ? 'vazia — nao responde ninguem'
+      : modo === 'todos' ? 'aberta a todos (*)'
+      : `${lista.length} numero(s) configurado(s) — este ${naAllowlist ? 'ESTA na lista' : 'NAO esta na lista'}`,
+    contatoNoGhl: contactId ? 'encontrado' : 'nao encontrado',
+  };
+
+  const liberado = naAllowlist && dentroDaJanelaDeResposta;
   let envio = 'nao enviado';
 
   if (liberado && contactId) {
@@ -284,10 +298,13 @@ export async function POST(request: NextRequest) {
       cache: 'no-store',
     });
     envio = r.ok ? 'enviado' : `erro GHL ${r.status}`;
-  } else if (!dentroDaJanelaDeResposta) {
-    envio = 'fora da janela de resposta (17h30-20h, seg a sab) — a Mariana atende ate 17h30';
-  } else if (!podeResponder(digitos)) {
-    envio = 'numero fora da allowlist — so registrado';
+  } else {
+    const barrou = [
+      !dentroDaJanelaDeResposta ? 'fora da janela (a Mariana atende ate 17h30)' : '',
+      !naAllowlist ? 'numero fora da allowlist' : '',
+      naAllowlist && dentroDaJanelaDeResposta && !contactId ? 'contato nao existe no GHL' : '',
+    ].filter(Boolean);
+    envio = `nao enviado — ${barrou.join(' + ')}`;
   }
 
   await supabaseAdmin.from('automacao_envios').insert({
@@ -310,5 +327,6 @@ export async function POST(request: NextRequest) {
     acao: pensado.acao.tipo,
     acaoResultado: resultadoAcao,
     envio,
+    diagnostico,
   });
 }
