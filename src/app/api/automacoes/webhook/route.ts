@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { buscarContatoId, formatPhoneBR, historicoConversa } from '@/lib/ghl';
+import {
+  buscarContatoId,
+  formatPhoneBR,
+  historicoConversa,
+  contatoEmDnd,
+  marcarDndNoGhl,
+} from '@/lib/ghl';
 import { dentroJanelaResposta } from '@/lib/automacoes';
 import { candidatosTelefone } from '@/lib/contexto';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
@@ -124,6 +130,7 @@ async function pensar(
 // O robo PEDE a acao; quem valida e executa e este codigo.
 async function executar(acao: AcaoRobo, ctx: {
   clienteId: string | null; telefone: string; orcamentoId: string | null; origem: string;
+  contactId: string | null;
 }): Promise<string> {
   if (!ctx.clienteId) return 'sem cliente no banco — acao ignorada';
   switch (acao.tipo) {
@@ -138,7 +145,10 @@ async function executar(acao: AcaoRobo, ctx: {
     case 'nao_perturbe': {
       await supabaseAdmin.from('cliente_tags')
         .upsert({ cliente_id: ctx.clienteId, tag: 'nao_perturbe' }, { onConflict: 'cliente_id,tag', ignoreDuplicates: true });
-      return 'cliente marcado como nao_perturbe';
+      // Espelha no CRM pra Mariana ver a tag no perfil — senao o pedido do
+      // cliente valeria so pra automacao e nao pro atendimento na mao.
+      await marcarDndNoGhl(ctx.contactId);
+      return 'cliente marcado como nao_perturbe (e no GHL)';
     }
     case 'passar_humano': {
       await supabaseAdmin.from('atendimento_fila').insert({
@@ -272,6 +282,20 @@ export async function POST(request: NextRequest) {
   }
 
   const contactId = await buscarContatoId(digitos);
+
+  // DND marcado pela Mariana no CRM. O check do Supabase la em cima e o
+  // caminho rapido; este aqui pega quem ela acabou de marcar no GHL e ainda
+  // nao foi espelhado. Cala e pronto: sem resposta e sem abrir caso na fila.
+  if (contactId) {
+    const dnd = await contatoEmDnd(contactId);
+    if (dnd.dnd) {
+      await supabaseAdmin.from('automacao_envios')
+        .update({ status: 'pulado', motivo: `nao perturbe — ${dnd.motivo}`, ghl_contact_id: contactId })
+        .eq('id', vaga.id);
+      return NextResponse.json({ ignorado: 'cliente em nao perturbe', motivo: dnd.motivo });
+    }
+  }
+
   const [historico, orcRes] = await Promise.all([
     contactId ? historicoConversa(contactId, 16) : Promise.resolve([]),
     cliente?.id
@@ -317,6 +341,7 @@ export async function POST(request: NextRequest) {
     telefone: digitos,
     orcamentoId: orc?.id || null,
     origem: 'resposta',
+    contactId,
   });
 
   // Cada trava e avaliada e relatada em separado. Antes isto era uma cadeia
