@@ -134,3 +134,38 @@ resolver na hora, passa para a Mariana.
 
 **Se o cliente pedir para não receber mais:** recebe a tag `nao_perturbe` e sai
 de todas as automações, para sempre. A régua passa a ignorar quem tem essa tag.
+
+---
+
+## Não perturbe (DND) — como a atendente marca
+
+Quando um cliente pedir pra parar de receber mensagem, abra o perfil dele no
+GHL e faça **qualquer uma** destas três coisas:
+
+1. **Ligue o toggle DND** do contato (jeito nativo do GHL), ou
+2. Ligue o **DND de WhatsApp ou SMS** nas configurações por canal, ou
+3. Adicione a **tag `nao_perturbe`** no contato.
+
+Qualquer uma delas cala o sistema inteiro na hora: as três automações de saída
+(follow-up, pós-venda e reativação) param, e a Evellyn não responde mais nem se
+o cliente escrever.
+
+A tag não precisa ser escrita com precisão. `nao_perturbe`, `Não Perturbe`,
+`NAO PERTURBE`, `nao-perturbe`, `DND`, `descadastrar` e `opt-out` funcionam
+igual — acento, maiúscula, hífen e underline são ignorados. Isso é de
+propósito: errar a grafia não pode ser o motivo do cliente continuar recebendo
+mensagem.
+
+**Para desfazer, tire a marca no mesmo lugar.** O sistema lê o GHL ao vivo a
+cada verificação, então não guarda cópia — desmarcou lá, volta a funcionar aqui.
+
+### Quando o próprio cliente pede
+
+Se o cliente falar direto com a Evellyn que não quer mais receber mensagem, ela
+marca sozinha: grava no nosso banco **e** põe a tag `nao_perturbe` no contato do
+GHL, pra que o pedido apareça no perfil e valha também para o atendimento na
+mão.
+
+Esse caso é o único que **não** se desfaz pelo GHL, porque foi o cliente que
+pediu, não uma decisão de atendimento. Para reverter, é preciso tirar a tag do
+cliente dentro do app de orçamentos.

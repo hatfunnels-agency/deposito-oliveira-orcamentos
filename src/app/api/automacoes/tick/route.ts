@@ -5,6 +5,7 @@ import {
   formatPhoneBR,
   janelaAbertaEm,
   adicionarAoWorkflow,
+  contatoEmDnd,
 } from '@/lib/ghl';
 import {
   candidatosFollowup,
@@ -60,22 +61,6 @@ function ghlHeaders() {
     'Content-Type': 'application/json',
     Accept: 'application/json',
   };
-}
-
-// Le o contato completo pra checar DND antes de mandar qualquer coisa.
-async function contatoPodeReceber(contactId: string): Promise<{ ok: boolean; motivo?: string }> {
-  try {
-    const resp = await fetch(`${GHL_API_BASE}/contacts/${contactId}`, {
-      headers: ghlHeaders(),
-      cache: 'no-store',
-    });
-    if (!resp.ok) return { ok: true }; // nao da pra checar: segue, o GHL barra depois
-    const c = (await resp.json())?.contact;
-    if (c?.dnd === true) return { ok: false, motivo: 'contato em DND' };
-    return { ok: true };
-  } catch {
-    return { ok: true };
-  }
 }
 
 // Copy escrita pela IA — so vale com a janela de 24h aberta.
@@ -253,20 +238,29 @@ export async function GET(request: NextRequest) {
           }
         }
 
-        if (!dryRun && status !== 'pulado' && status !== 'erro') {
-          const permitido = await contatoPodeReceber(contactId);
-          if (!permitido.ok) {
+        // DND do CRM. Lido AO VIVO do GHL a cada tick, de proposito: o que a
+        // Mariana marca no perfil ela tem que poder desmarcar no perfil. Se
+        // copiassemos pra nossa base, virava porta de mao unica — o cliente
+        // ficaria calado pra sempre mesmo depois dela tirar a marca.
+        //
+        // Roda TAMBEM em simulacao: a previa tem que mostrar 'pulado' e nao
+        // uma mensagem que nunca sairia.
+        if (status !== 'pulado' && status !== 'erro') {
+          const dnd = await contatoEmDnd(contactId);
+          if (dnd.dnd) {
             status = 'pulado';
-            motivo = permitido.motivo;
-          } else {
-            const envio =
-              via === 'ia' && texto
-                ? await enviarTexto(contactId, c.telefone, texto)
-                : await adicionarAoWorkflow(contactId, templateResolvido!.id);
-            if (!envio.ok) {
-              status = 'erro';
-              motivo = envio.motivo;
-            }
+            motivo = dnd.motivo;
+          }
+        }
+
+        if (!dryRun && status !== 'pulado' && status !== 'erro') {
+          const envio =
+            via === 'ia' && texto
+              ? await enviarTexto(contactId, c.telefone, texto)
+              : await adicionarAoWorkflow(contactId, templateResolvido!.id);
+          if (!envio.ok) {
+            status = 'erro';
+            motivo = envio.motivo;
           }
         }
       }
