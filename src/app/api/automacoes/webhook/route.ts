@@ -40,6 +40,24 @@ function podeResponder(telefone: string): boolean {
   return lista.some(l => d.endsWith(l.slice(-8)));
 }
 
+// IDEMPOTENCIA — o GHL entrega a MESMA mensagem do cliente varias vezes.
+// Nao e teoria: no log de 25/09, das 12h03 as 12h05, a mesma cliente gerou
+// CINCO respostas quase identicas ("Poxa Aline, sinto muito por isso...").
+// Com a allowlist fechada isso era so ruido no log; aberta, seriam cinco
+// mensagens de verdade no zap dela — a mesma cara do incidente de 04/09.
+//
+// A chave abaixo e deterministica (telefone + texto + faixa de 10 min) e a
+// UNIQUE em chave_dedup e a trava de verdade: a segunda entrega do mesmo
+// texto nao consegue inserir e o webhook desiste antes de chamar a IA.
+// Limite conhecido: uma rajada que atravesse a virada dos 10 min passa uma
+// vez. O teto por hora continua sendo o segundo cinto.
+function chaveResposta(digitos: string, texto: string): string {
+  const faixa = Math.floor(Date.now() / (10 * 60_000));
+  let h = 0;
+  for (let i = 0; i < texto.length; i++) h = (Math.imul(h, 31) + texto.charCodeAt(i)) | 0;
+  return `resposta:${digitos}:${faixa}:${h >>> 0}`;
+}
+
 // O GHL varia o formato do payload conforme a origem. Procura nos campos
 // mais provaveis em vez de assumir um formato so.
 function extrair(body: any): { telefone: string; texto: string; direcao: string; tipo: string } {
@@ -220,6 +238,39 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ignorado: `teto de ${TETO_RESPOSTAS_HORA} respostas/hora atingido` });
   }
 
+  // Reserva a vaga ANTES de pensar. Se a chave ja existe, esta e uma entrega
+  // repetida do mesmo texto: sai calado, sem gastar IA e sem responder de novo.
+  // A linha nasce como 'pulado'/'processando' e e atualizada no fim — quem
+  // ficar como 'processando' no log e chamada que morreu no meio.
+  const chave = chaveResposta(digitos, texto);
+  const { data: vaga, error: erroVaga } = await supabaseAdmin
+    .from('automacao_envios')
+    .insert({
+      chave_dedup: chave,
+      tipo: 'followup',
+      momento: 'resposta',
+      cliente_id: cliente?.id || null,
+      telefone: digitos,
+      status: 'pulado',
+      motivo: 'processando',
+    })
+    .select('id')
+    .single();
+
+  if (erroVaga) {
+    // 23505 = violacao de UNIQUE, ou seja, mensagem repetida. Qualquer outro
+    // erro e problema nosso de banco: registra e para, nunca responde as cegas.
+    const repetida = (erroVaga as { code?: string }).code === '23505';
+    if (!repetida) {
+      await registrar(digitos, 'erro', `falha ao reservar a vaga: ${erroVaga.message}`.slice(0, 300));
+    }
+    return NextResponse.json({
+      ignorado: repetida
+        ? 'mensagem repetida — o GHL entregou o mesmo texto de novo'
+        : 'erro ao reservar a vaga no log',
+    });
+  }
+
   const contactId = await buscarContatoId(digitos);
   const [historico, orcRes] = await Promise.all([
     contactId ? historicoConversa(contactId, 16) : Promise.resolve([]),
@@ -256,7 +307,8 @@ export async function POST(request: NextRequest) {
 
   const pensado = await pensar(contexto);
   if (!pensado) {
-    await registrar(digitos, 'erro', 'a IA nao devolveu JSON valido', { cliente_id: cliente?.id || null });
+    await supabaseAdmin.from('automacao_envios')
+      .update({ status: 'erro', motivo: 'a IA nao devolveu JSON valido' }).eq('id', vaga.id);
     return NextResponse.json({ erro: 'IA nao respondeu', telefone: digitos });
   }
 
@@ -307,17 +359,12 @@ export async function POST(request: NextRequest) {
     envio = `nao enviado — ${barrou.join(' + ')}`;
   }
 
-  await supabaseAdmin.from('automacao_envios').insert({
-    chave_dedup: `resposta:${digitos}:${Date.now()}`,
-    tipo: 'followup',
-    momento: 'resposta',
-    cliente_id: cliente?.id || null,
-    telefone: digitos,
+  await supabaseAdmin.from('automacao_envios').update({
     ghl_contact_id: contactId,
     mensagem: pensado.mensagem,
     status: envio === 'enviado' ? 'enviado' : 'simulado',
     motivo: `${envio} | acao: ${pensado.acao.tipo} -> ${resultadoAcao}`,
-  });
+  }).eq('id', vaga.id);
 
   return NextResponse.json({
     ok: true,
