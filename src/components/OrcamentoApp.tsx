@@ -4804,9 +4804,20 @@ export default function OrcamentoApp() {  // Auth state
                         <p className="text-xs text-gray-500">{formatarTelefoneBR(c.telefone)}</p>
                         {c.tags.length > 0 && (
                           <div className="flex flex-wrap gap-1 mt-1">
-                            {c.tags.slice(0, 3).map(t => (
-                              <span key={t} className="text-[10px] bg-orange-100 text-orange-800 rounded-full px-1.5 py-0.5">{t.replace(/_/g, ' ')}</span>
-                            ))}
+                            {/* nao_perturbe vai na frente: e a unica tag que muda o
+                                que o sistema faz com o cliente, e o corte de 3 nao
+                                pode ser o motivo de ela ficar escondida. */}
+                            {[...c.tags]
+                              .sort((a, b) => Number(b === 'nao_perturbe') - Number(a === 'nao_perturbe'))
+                              .slice(0, 3)
+                              .map(t => (
+                                <span
+                                  key={t}
+                                  className={`text-[10px] rounded-full px-1.5 py-0.5 ${
+                                    t === 'nao_perturbe' ? 'bg-red-100 text-red-800 font-semibold' : 'bg-orange-100 text-orange-800'
+                                  }`}
+                                >{t === 'nao_perturbe' ? 'não perturbe' : t.replace(/_/g, ' ')}</span>
+                              ))}
                           </div>
                         )}
                       </div>

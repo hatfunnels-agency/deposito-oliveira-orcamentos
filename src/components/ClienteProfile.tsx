@@ -501,6 +501,18 @@ function EnderecosSecao({
 
 // ---- Seção de Tags ----
 
+// nao_perturbe não é uma etiqueta descritiva como as outras. É um
+// interruptor: cala as três automações de saída e o robô de resposta.
+// Por isso aparece escrita por extenso, com o efeito explicado e em
+// vermelho — quem marca precisa saber o que está desligando, e quem bate
+// o olho no perfil precisa ver na hora.
+const TAG_DND = 'nao_perturbe';
+const DND_DETALHE = 'para todas as mensagens automáticas';
+
+function rotuloTag(t: string): string {
+  return t === TAG_DND ? 'não perturbe' : t.replace(/_/g, ' ');
+}
+
 function TagsSecao({
   clienteId,
   tags,
@@ -593,9 +605,14 @@ function TagsSecao({
                     key={t}
                     onClick={() => adicionar(t)}
                     disabled={processando}
-                    className="block w-full px-3 py-1.5 text-left text-sm text-gray-700 hover:bg-orange-50 disabled:opacity-50"
+                    className={`block w-full px-3 py-1.5 text-left text-sm hover:bg-orange-50 disabled:opacity-50 ${
+                      t === TAG_DND ? 'font-semibold text-red-700' : 'text-gray-700'
+                    }`}
                   >
-                    {t}
+                    {rotuloTag(t)}
+                    {t === TAG_DND && (
+                      <span className="block text-[10px] font-normal text-gray-400">{DND_DETALHE}</span>
+                    )}
                   </button>
                 ))}
               </div>
@@ -611,9 +628,11 @@ function TagsSecao({
           {tags.map(t => (
             <span
               key={t.tag}
-              className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-medium text-orange-800"
+              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ${
+                t.tag === TAG_DND ? 'bg-red-100 text-red-800' : 'bg-orange-100 text-orange-800'
+              }`}
             >
-              {t.tag}
+              {rotuloTag(t.tag)}
               {t.origem === 'auto' && (
                 <span className="rounded bg-gray-300 px-1 text-[10px] font-bold text-gray-700">
                   AUTO
@@ -636,7 +655,9 @@ function TagsSecao({
                 <button
                   onClick={() => setConfirmandoTag(t.tag)}
                   title="Remover tag"
-                  className="ml-0.5 text-orange-500 hover:text-orange-800"
+                  className={`ml-0.5 ${
+                    t.tag === TAG_DND ? 'text-red-500 hover:text-red-800' : 'text-orange-500 hover:text-orange-800'
+                  }`}
                 >
                   ✕
                 </button>

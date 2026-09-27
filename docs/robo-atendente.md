@@ -139,25 +139,38 @@ de todas as automações, para sempre. A régua passa a ignorar quem tem essa ta
 
 ## Não perturbe (DND) — como a atendente marca
 
-Quando um cliente pedir pra parar de receber mensagem, abra o perfil dele no
-GHL e faça **qualquer uma** destas três coisas:
+Quando um cliente pedir pra parar de receber mensagem, marque no **app de
+orçamentos**:
 
-1. **Ligue o toggle DND** do contato (jeito nativo do GHL), ou
-2. Ligue o **DND de WhatsApp ou SMS** nas configurações por canal, ou
-3. Adicione a **tag `nao_perturbe`** no contato.
+> aba **Clientes** → clique no cliente → seção **Tags** → **+ Adicionar tag**
+> → **não perturbe**
 
-Qualquer uma delas cala o sistema inteiro na hora: as três automações de saída
-(follow-up, pós-venda e reativação) param, e a Evellyn não responde mais nem se
-o cliente escrever.
+A tag fica vermelha no perfil e também na lista de clientes, pra dar pra ver
+sem abrir. Para desfazer, clique no **✕** da tag e confirme.
 
-A tag não precisa ser escrita com precisão. `nao_perturbe`, `Não Perturbe`,
-`NAO PERTURBE`, `nao-perturbe`, `DND`, `descadastrar` e `opt-out` funcionam
-igual — acento, maiúscula, hífen e underline são ignorados. Isso é de
-propósito: errar a grafia não pode ser o motivo do cliente continuar recebendo
-mensagem.
+Isso cala o sistema inteiro na hora: as três automações de saída (follow-up,
+pós-venda e reativação) param, e a Evellyn não responde mais nem se o cliente
+escrever.
 
-**Para desfazer, tire a marca no mesmo lugar.** O sistema lê o GHL ao vivo a
-cada verificação, então não guarda cópia — desmarcou lá, volta a funcionar aqui.
+Dá pra ver quem está marcado sem abrir um por um: na aba Clientes, clique no
+chip **não perturbe** na linha de filtros.
+
+### Pelo GHL também vale
+
+Se alguém mexer direto no CRM, o sistema respeita do mesmo jeito: o toggle DND
+nativo do contato, o DND de WhatsApp/SMS por canal, ou a tag `nao_perturbe`.
+Serve principalmente para o caso em que o próprio WhatsApp registra a recusa —
+quando o cliente responde "SAIR" a um template, a operadora marca o contato e
+nós obedecemos sem ninguém precisar fazer nada.
+
+Quando a tag é escrita à mão no GHL, a grafia não precisa ser exata:
+`nao_perturbe`, `Não Perturbe`, `NAO PERTURBE`, `nao-perturbe`, `DND`,
+`descadastrar` e `opt-out` funcionam igual — acento, maiúscula, hífen e
+underline são ignorados. Errar a grafia não pode ser o motivo do cliente
+continuar recebendo mensagem que pediu pra parar.
+
+O DND do CRM é lido ao vivo a cada verificação, sem cópia na nossa base:
+desmarcou lá, volta a funcionar aqui.
 
 ### Quando o próprio cliente pede
 
