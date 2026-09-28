@@ -7,7 +7,7 @@ import {
   contatoEmDnd,
   marcarDndNoGhl,
 } from '@/lib/ghl';
-import { dentroJanelaResposta } from '@/lib/automacoes';
+import { dentroJanelaResposta, dentroHorarioComercial } from '@/lib/automacoes';
 import { candidatosTelefone } from '@/lib/contexto';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
 
@@ -29,7 +29,9 @@ export const maxDuration = 60;
 // ja respondeu demais, ele para e passa pra humano em vez de insistir.
 
 const GHL_API_BASE = 'https://services.leadconnectorhq.com';
-const TETO_RESPOSTAS_HORA = 6;
+// Uma negociacao de material vai e volta bastante em poucos minutos — 6 cortava
+// o cliente no meio do fechamento (20 vezes em 28/09). 15 ainda barra loop.
+const TETO_RESPOSTAS_HORA = 15;
 
 function alvosPermitidos(): { modo: 'ninguem' | 'lista' | 'todos'; lista: string[] } {
   const raw = (process.env.AUTOMACOES_WEBHOOK_ALLOWLIST || '').trim();
@@ -62,6 +64,40 @@ function chaveResposta(digitos: string, texto: string): string {
   let h = 0;
   for (let i = 0; i < texto.length; i++) h = (Math.imul(h, 31) + texto.charCodeAt(i)) | 0;
   return `resposta:${digitos}:${faixa}:${h >>> 0}`;
+}
+
+// A conversa e NOSSA quando fomos nos que batemos na porta: follow-up,
+// pos-venda ou reativacao enviados nas ultimas 24h — ou uma resposta que o
+// proprio robo ja mandou, pra conversa nao morrer no meio.
+//
+// Nesses casos ele responde durante o dia. Quem chega sozinho continua com a
+// Mariana ate as 17h30: o robo nao disputa a conversa dela.
+//
+// 24h nao e numero solto — e a mesma janela do WhatsApp.
+async function reguaCutucou(digitos: string): Promise<boolean> {
+  const { count } = await supabaseAdmin
+    .from('automacao_envios')
+    .select('id', { count: 'exact', head: true })
+    .eq('telefone', digitos)
+    .eq('status', 'enviado')
+    .gte('criado_em', new Date(Date.now() - 24 * 3600_000).toISOString());
+  return (count || 0) > 0;
+}
+
+// Anexo: o GHL preenche `attachments` e poe o nome do arquivo no `body`.
+// Visto em producao num PDF: body = "comprovante_picpay_pix_28-09-2026.pdf".
+const EXT_ANEXO = /\.(ogg|opus|mp3|m4a|wav|amr|aac|jpg|jpeg|png|webp|gif|pdf|mp4|mov|3gp|docx?|xlsx?)$/i;
+const EXT_AUDIO = /\.(ogg|opus|mp3|m4a|wav|amr|aac)$/i;
+
+function ehAudio(texto: string): boolean {
+  return EXT_AUDIO.test((texto || '').trim());
+}
+
+function ehAnexo(texto: string, body: any): boolean {
+  const p = body?.message || body?.data || body;
+  const anexos = p?.attachments || body?.attachments;
+  if (Array.isArray(anexos) && anexos.length > 0) return true;
+  return EXT_ANEXO.test((texto || '').trim());
 }
 
 // O GHL varia o formato do payload conforme a origem. Procura nos campos
@@ -132,6 +168,17 @@ async function executar(acao: AcaoRobo, ctx: {
   clienteId: string | null; telefone: string; orcamentoId: string | null; origem: string;
   contactId: string | null;
 }): Promise<string> {
+  // nao_perturbe vale ANTES da guarda de cadastro. Lead de anuncio que nunca
+  // comprou nao esta em `clientes` — em 28/09 foram 60 acoes descartadas assim.
+  // Para as outras acoes isso e inofensivo (sem cadastro ele nao entra em
+  // regua nenhuma), mas descartar um "para de me mandar mensagem" nao e.
+  // A tag no GHL e lida de volta por contatoEmDnd(), entao o pedido vale.
+  if (acao.tipo === 'nao_perturbe' && !ctx.clienteId) {
+    await marcarDndNoGhl(ctx.contactId);
+    return ctx.contactId
+      ? 'sem cadastro — nao perturbe gravado no GHL'
+      : 'sem cadastro e sem contato no GHL — nao perturbe nao pode ser gravado';
+  }
   if (!ctx.clienteId) return 'sem cliente no banco — acao ignorada';
   switch (acao.tipo) {
     case 'marcar_retorno': {
@@ -210,13 +257,41 @@ export async function POST(request: NextRequest) {
     await registrar(telefone, 'pulado', `tipo "${tipo}" nao e WhatsApp — ignorado`);
     return NextResponse.json({ ignorado: `tipo ${tipo}` });
   }
+  // Anexo sem texto (audio, foto, PDF). O GHL manda o NOME DO ARQUIVO no body,
+  // entao sem isto a IA receberia "audio_2026-09-28.ogg" como se fosse a fala
+  // do cliente e responderia bobagem. A IA nao ouve audio — ate termos
+  // transcricao, o caminho honesto e passar pra humano em vez de sumir.
+  if (telefone && ehAnexo(texto, body)) {
+    const contactIdAnexo = await buscarContatoId(telefone.replace(/\D/g, ''));
+    const { data: cli } = await supabaseAdmin
+      .from('clientes').select('id')
+      .in('telefone', candidatosTelefone(telefone.replace(/\D/g, ''))).limit(1).maybeSingle();
+    // Em nao_perturbe nao abre caso: o combinado e calar, nao redirecionar.
+    const { data: tagDnd } = cli?.id
+      ? await supabaseAdmin.from('cliente_tags')
+          .select('tag').eq('cliente_id', cli.id).eq('tag', 'nao_perturbe').limit(1).maybeSingle()
+      : { data: null };
+    if (cli?.id && !tagDnd) {
+      await supabaseAdmin.from('atendimento_fila').insert({
+        cliente_id: cli.id,
+        telefone: telefone.replace(/\D/g, ''),
+        motivo: 'nao_sabe_responder',
+        resumo: `Cliente mandou ${ehAudio(texto) ? 'um audio' : 'um anexo'} — o robo nao consegue ouvir/ler. Precisa de atendimento humano.`,
+        origem: 'anexo',
+        status: 'aberto',
+      });
+    }
+    await registrar(telefone.replace(/\D/g, ''), 'pulado',
+      `${ehAudio(texto) ? 'audio' : 'anexo'} recebido — IA nao processa; ${cli?.id ? 'caso aberto na fila' : 'sem cadastro, nao foi pra fila'}`,
+      { cliente_id: cli?.id || null, ghl_contact_id: contactIdAnexo });
+    return NextResponse.json({ ignorado: 'anexo — passado para humano' });
+  }
+
   if (!telefone || !texto) {
     await registrar(telefone, 'pulado',
       `payload sem ${!telefone ? 'telefone' : 'texto'} — chaves recebidas: ${Object.keys(body || {}).join(', ')}`);
     return NextResponse.json({ ignorado: 'sem telefone ou sem texto', chaves: Object.keys(body || {}) });
   }
-
-  const dentroDaJanelaDeResposta = dentroJanelaResposta();
 
   const digitos = telefone.replace(/\D/g, '');
   // Casamento EXATO pelas formas possiveis do numero (com e sem 55), nunca
@@ -226,6 +301,16 @@ export async function POST(request: NextRequest) {
   const { data: cliente } = await supabaseAdmin
     .from('clientes').select('id, nome, notas_contexto')
     .in('telefone', candidatosTelefone(digitos)).limit(1).maybeSingle();
+
+  // Duas portas pra falar:
+  //   1. a janela da noite (17h30-20h), quando a Mariana ja saiu; ou
+  //   2. horario comercial, mas SO se a conversa foi a regua que comecou.
+  // Sem a porta 2, toda resposta a um follow-up morria no log: em 28/09 foram
+  // 229 respostas escritas e nenhuma enviada, porque o cliente responde na
+  // hora e o robo so podia falar 3h depois.
+  const janelaNoturna = dentroJanelaResposta();
+  const nossaConversa = janelaNoturna ? false : await reguaCutucou(digitos);
+  const dentroDaJanelaDeResposta = janelaNoturna || (nossaConversa && dentroHorarioComercial());
 
   // nao_perturbe cala o robo, sempre.
   if (cliente?.id) {
@@ -350,7 +435,13 @@ export async function POST(request: NextRequest) {
   const naAllowlist = podeResponder(digitos);
   const { modo, lista } = alvosPermitidos();
   const diagnostico = {
-    janela: dentroDaJanelaDeResposta ? 'aberta (17h30-20h)' : 'fechada — responde so das 17h30 as 20h, seg a sab',
+    janela: janelaNoturna
+      ? 'aberta (janela da noite 17h30-20h)'
+      : nossaConversa && dentroHorarioComercial()
+        ? 'aberta (conversa iniciada pela regua, horario comercial)'
+        : nossaConversa
+          ? 'fechada — a regua cutucou, mas esta fora de 8h-18h'
+          : 'fechada — conversa nao iniciada por nos; responde so das 17h30 as 20h',
     allowlist:
       modo === 'ninguem' ? 'vazia — nao responde ninguem'
       : modo === 'todos' ? 'aberta a todos (*)'
@@ -377,7 +468,9 @@ export async function POST(request: NextRequest) {
     envio = r.ok ? 'enviado' : `erro GHL ${r.status}`;
   } else {
     const barrou = [
-      !dentroDaJanelaDeResposta ? 'fora da janela (a Mariana atende ate 17h30)' : '',
+      !dentroDaJanelaDeResposta
+        ? (nossaConversa ? 'conversa nossa, mas fora de 8h-18h' : 'fora da janela — quem chega sozinho e da Mariana ate 17h30')
+        : '',
       !naAllowlist ? 'numero fora da allowlist' : '',
       naAllowlist && dentroDaJanelaDeResposta && !contactId ? 'contato nao existe no GHL' : '',
     ].filter(Boolean);
