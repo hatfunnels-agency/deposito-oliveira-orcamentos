@@ -88,6 +88,11 @@ export async function POST(request: Request) {
     const momento = String(body?.momento || '');
     const telefone = String(body?.telefone || '');
     const mensagemCliente = body?.mensagem_cliente ? String(body.mensagem_cliente) : '';
+    // Qual orcamento motivou o toque. Sem isto a copy pegava sempre o MAIS
+    // RECENTE do cliente — e em 28/09 a Ire recebeu "conseguiu dar uma olhada
+    // no orcamento de R$ 636?" sobre um pedido que ela ja tinha fechado e
+    // agendado, porque a regua disparou por OUTRO orcamento, de R$ 584.
+    const orcamentoId = body?.orcamento_id ? String(body.orcamento_id) : '';
 
     if (!telefone) {
       return NextResponse.json({ error: 'telefone obrigatorio' }, { status: 400 });
@@ -104,13 +109,17 @@ export async function POST(request: Request) {
 
     let contexto = '';
     if (cliente) {
+      const colunasOrc =
+        'codigo, total, status, criado_em, tipo_entrega, orcamento_itens (produto_nome, quantidade)';
       const [orcRes, tagsRes] = await Promise.all([
-        supabaseAdmin
-          .from('orcamentos')
-          .select('codigo, total, status, criado_em, tipo_entrega, orcamento_itens (produto_nome, quantidade)')
-          .eq('cliente_id', cliente.id)
-          .order('criado_em', { ascending: false })
-          .limit(1),
+        orcamentoId
+          ? supabaseAdmin.from('orcamentos').select(colunasOrc).eq('id', orcamentoId).limit(1)
+          : supabaseAdmin
+              .from('orcamentos')
+              .select(colunasOrc)
+              .eq('cliente_id', cliente.id)
+              .order('criado_em', { ascending: false })
+              .limit(1),
         supabaseAdmin
           .from('cliente_tags')
           .select('tag')

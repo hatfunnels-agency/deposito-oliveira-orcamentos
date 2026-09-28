@@ -174,12 +174,31 @@ async function clientesNaoPerturbe(): Promise<Set<string>> {
   return new Set((data || []).map((r: any) => String(r.cliente_id)));
 }
 
+// Data do pedido fechado mais recente de cada cliente (qualquer status que
+// nao seja orcamento nem cancelado). Uma consulta por tick, nao uma por
+// candidato.
+async function ultimaCompraFechadaPorCliente(): Promise<Map<string, string>> {
+  const { data } = await supabaseAdmin
+    .from('orcamentos')
+    .select('cliente_id, criado_em')
+    .not('cliente_id', 'is', null)
+    .not('status', 'in', '(orcamento,cancelado)')
+    .order('criado_em', { ascending: false })
+    .limit(6000);
+  const mapa = new Map<string, string>();
+  for (const r of (data || []) as Array<{ cliente_id: string; criado_em: string }>) {
+    if (!mapa.has(r.cliente_id)) mapa.set(r.cliente_id, r.criado_em);
+  }
+  return mapa;
+}
+
 // ---------------------------------------------------------------- follow-up
 // Orcamento emitido e nao respondido. Sai da regua sozinho quando o status
 // muda (converteu ou cancelou) — por isso o filtro status='orcamento'.
 export async function candidatosFollowup(): Promise<Candidato[]> {
   const saida: Candidato[] = [];
   const bloqueados = await clientesNaoPerturbe();
+  const fechouDepois = await ultimaCompraFechadaPorCliente();
 
   for (const janela of JANELAS_FOLLOWUP) {
     const { data, error } = await supabaseAdmin
@@ -197,6 +216,13 @@ export async function candidatosFollowup(): Promise<Candidato[]> {
 
       // Data Follow-up preenchida pausa a regua: so dispara no dia marcado.
       if (retornoAindaNaoChegou(cli.data_followup)) continue;
+
+      // Orcamento superado: o cliente fechou OUTRO pedido depois deste. E o
+      // caso classico de refazer o carrinho — pede retirada, muda de ideia e
+      // fecha com entrega 1h depois. O primeiro vira lixo, e cobrar resposta
+      // dele soa como se nao soubessemos que ele ja comprou.
+      const fechado = fechouDepois.get(String(cli.id));
+      if (fechado && fechado > String((orc as any).criado_em)) continue;
 
       saida.push({
         chaveDedup: `followup:${orc.id}:${janela.momento}`,

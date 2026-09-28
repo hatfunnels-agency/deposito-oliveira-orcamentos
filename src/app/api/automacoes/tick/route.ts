@@ -68,6 +68,7 @@ async function copyDaIa(
   telefone: string,
   tipo: string,
   momento: string,
+  orcamentoId: string | null,
 ): Promise<string | null> {
   // Fallback explicito: sem ele, a variavel ausente fazia a copy da IA voltar
   // null em silencio e o toque 'quente' era descartado (14 casos em 4 dias).
@@ -79,7 +80,7 @@ async function copyDaIa(
         'Content-Type': 'application/json',
         'x-automacao-secret': process.env.AUTOMACAO_SECRET || '',
       },
-      body: JSON.stringify({ tipo, momento, telefone }),
+      body: JSON.stringify({ tipo, momento, telefone, orcamento_id: orcamentoId }),
       cache: 'no-store',
     });
     if (!resp.ok) return null;
@@ -210,7 +211,7 @@ export async function GET(request: NextRequest) {
           motivo = 'janela de 24h fechada e este momento nao tem template';
         } else if (janelaAberta) {
           via = 'ia';
-          texto = await copyDaIa(c.telefone, c.iaTipo, c.iaMomento);
+          texto = await copyDaIa(c.telefone, c.iaTipo, c.iaMomento, c.orcamentoId);
           if (!texto) {
             // IA indisponivel: cai pro template, se existir.
             via = c.template ? 'template' : '—';
