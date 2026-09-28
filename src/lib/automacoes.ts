@@ -152,6 +152,18 @@ function horasAtras(h: number): string {
 }
 
 
+// Data de retorno combinada com o cliente ("me chama semana que vem").
+// Enquanto nao chegar o dia, NENHUMA regua fala com ele.
+//
+// Antes isto so existia dentro do follow-up: o cliente pedia pra ser chamado
+// dia 20, o follow-up respeitava, e no dia seguinte a reativacao mandava
+// mensagem assim mesmo. Combinar uma data e nao cumprir e pior que nao
+// perguntar.
+export function retornoAindaNaoChegou(dataFollowup: string | null | undefined): boolean {
+  if (!dataFollowup) return false;
+  return dataFollowup > new Date().toISOString().slice(0, 10);
+}
+
 // Clientes que pediram pra nao receber mais. Bloqueia as tres automacoes.
 // Uma consulta por execucao do tick, nao uma por candidato.
 async function clientesNaoPerturbe(): Promise<Set<string>> {
@@ -184,10 +196,7 @@ export async function candidatosFollowup(): Promise<Candidato[]> {
       if (!cli?.telefone || !cli?.id || bloqueados.has(String(cli.id))) continue;
 
       // Data Follow-up preenchida pausa a regua: so dispara no dia marcado.
-      if (cli.data_followup) {
-        const hoje = new Date().toISOString().slice(0, 10);
-        if (cli.data_followup > hoje) continue;
-      }
+      if (retornoAindaNaoChegou(cli.data_followup)) continue;
 
       saida.push({
         chaveDedup: `followup:${orc.id}:${janela.momento}`,
@@ -224,7 +233,7 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 
   const { data, error } = await supabaseAdmin
     .from('orcamentos')
-    .select('id, codigo, total, data_entrega, cliente_id, clientes (id, nome, telefone)')
+    .select('id, codigo, total, data_entrega, cliente_id, clientes (id, nome, telefone, data_followup)')
     .eq('status', 'completo')
     .gte('data_entrega', de)
     .lte('data_entrega', ate)
@@ -240,6 +249,7 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
     const cli = (orc as any).clientes;
     if (!cli?.telefone || !cli?.id || vistos.has(cli.id)) continue;
     if (bloqueados.has(String(cli.id))) continue;
+    if (retornoAindaNaoChegou(cli.data_followup)) continue;
     vistos.add(cli.id);
 
     saida.push({
@@ -268,7 +278,7 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
   const { data: compras, error } = await supabaseAdmin
     .from('orcamentos')
-    .select('cliente_id, criado_em, status, clientes (id, nome, telefone)')
+    .select('cliente_id, criado_em, status, clientes (id, nome, telefone, data_followup)')
     .not('cliente_id', 'is', null)
     .order('criado_em', { ascending: false })
     .limit(6000);
@@ -310,6 +320,7 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     if (temOrcamentoAberto.has(clienteId)) continue;
     if (bloqueados.has(clienteId)) continue;
     if (!cli?.telefone) continue;
+    if (retornoAindaNaoChegou(cli.data_followup)) continue;
 
     const diasSemComprar = Math.floor((hoje.getTime() - new Date(quando).getTime()) / 86_400_000);
     if (diasSemComprar < 7) continue;
