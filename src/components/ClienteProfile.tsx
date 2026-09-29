@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { ClienteCompleto, EnderecoCliente, TagCliente, CompraResumo } from '@/lib/types';
+import BuscaEndereco from '@/components/BuscaEndereco';
 
 const LARANJA = '#F7941D';
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -155,6 +156,10 @@ function EnderecosSecao({
   const [buscandoCep, setBuscandoCep] = useState(false);
   const [confirmandoRemover, setConfirmandoRemover] = useState<string | null>(null);
   const [removendo, setRemovendo] = useState(false);
+  // Pedidos em andamento que usam o endereco que esta sendo removido
+  // (vem do 409 do DELETE). Quando preenchido, o "Sim" reenvia com
+  // ?confirmar=1.
+  const [pedidosAfetados, setPedidosAfetados] = useState<Array<{ codigo: string; status: string }>>([]);
 
   function abrirNovo() {
     setForm(FORM_ENDERECO_VAZIO);
@@ -260,17 +265,19 @@ function EnderecosSecao({
   async function remover(id: string) {
     setRemovendo(true);
     try {
-      const res = await fetch(`/api/clientes/${clienteId}/enderecos/${id}`, {
+      const confirmar = pedidosAfetados.length > 0 ? '?confirmar=1' : '';
+      const res = await fetch(`/api/clientes/${clienteId}/enderecos/${id}${confirmar}`, {
         method: 'DELETE',
         cache: 'no-store',
       });
       const data = await res.json().catch(() => ({}));
-      if (res.status === 400) {
-        mostrarToast('erro', 'Cliente precisa de pelo menos 1 endereço cadastrado');
+      if (res.status === 409 && Array.isArray(data?.pedidos_em_aberto)) {
+        setPedidosAfetados(data.pedidos_em_aberto);
       } else if (!res.ok || data?.error) {
         mostrarToast('erro', data?.error || 'Erro ao remover o endereço');
       } else {
         setConfirmandoRemover(null);
+        setPedidosAfetados([]);
         await onMudou();
         mostrarToast('sucesso', 'Endereço removido');
       }
@@ -331,8 +338,16 @@ function EnderecosSecao({
                     </button>
                   )}
                   {confirmandoRemover === e.id ? (
-                    <span className="flex items-center gap-1">
-                      <span className="text-xs text-gray-600">Tem certeza?</span>
+                    <span className="flex flex-wrap items-center gap-1">
+                      {pedidosAfetados.length > 0 ? (
+                        <span className="w-full text-xs text-red-700">
+                          ⚠️ Usado em {pedidosAfetados.length === 1 ? 'pedido em andamento' : `${pedidosAfetados.length} pedidos em andamento`}:{' '}
+                          <strong>{pedidosAfetados.map(p => p.codigo).join(', ')}</strong>.
+                          {' '}{pedidosAfetados.length === 1 ? 'Ele vai ficar' : 'Eles vão ficar'} sem endereço e sair da rota. Remover mesmo assim?
+                        </span>
+                      ) : (
+                        <span className="text-xs text-gray-600">Tem certeza?</span>
+                      )}
                       <button
                         onClick={() => remover(e.id)}
                         disabled={removendo}
@@ -341,7 +356,7 @@ function EnderecosSecao({
                         {removendo ? '...' : 'Sim'}
                       </button>
                       <button
-                        onClick={() => setConfirmandoRemover(null)}
+                        onClick={() => { setConfirmandoRemover(null); setPedidosAfetados([]); }}
                         disabled={removendo}
                         className="rounded border border-gray-200 px-2 py-1 text-xs text-gray-600"
                       >
@@ -350,7 +365,7 @@ function EnderecosSecao({
                     </span>
                   ) : (
                     <button
-                      onClick={() => setConfirmandoRemover(e.id)}
+                      onClick={() => { setConfirmandoRemover(e.id); setPedidosAfetados([]); }}
                       className="rounded border border-red-200 px-2 py-1 text-xs text-red-600 hover:bg-red-50"
                     >
                       Remover
@@ -388,6 +403,17 @@ function EnderecosSecao({
                   className={INPUT_CLS}
                 />
               </Campo>
+              <BuscaEndereco
+                onSelecionar={end => setForm(f => ({
+                  ...f,
+                  cep: end.cep ? mascaraCep(end.cep) : f.cep,
+                  rua: end.rua || f.rua,
+                  numero: end.numero || f.numero,
+                  bairro: end.bairro || f.bairro,
+                  cidade: end.cidade || f.cidade,
+                  estado: end.estado || f.estado,
+                }))}
+              />
               <Campo label="CEP">
                 <div className="flex items-center gap-2">
                   <input

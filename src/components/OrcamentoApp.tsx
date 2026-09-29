@@ -9,6 +9,7 @@ import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
 import ExtratosTab from './ExtratosTab';
 import ClienteProfile from './ClienteProfile';
+import BuscaEndereco from './BuscaEndereco';
 import MapaEntregas from './MapaEntregas';
 import Sidebar, { type AbaKey } from './Sidebar';
 import { Menu, LogOut } from 'lucide-react';
@@ -3472,6 +3473,17 @@ export default function OrcamentoApp() {  // Auth state
                       {enderecosDoCliente.length > 0 && modoEndereco === 'novo' && (
                         <div className="space-y-2 rounded-lg border border-dashed border-[#F7941D] bg-[#FFF3E0]/40 p-3">
                           <p className="text-xs font-medium text-[#E8850A]">Novo endereço para {clienteEncontrado?.nome || nomeCliente || 'este cliente'}</p>
+                          <BuscaEndereco
+                            onSelecionar={end => setEnderecoNovoForm(f => ({
+                              ...f,
+                              cep: end.cep || f.cep,
+                              rua: end.rua || f.rua,
+                              numero: end.numero || f.numero,
+                              bairro: end.bairro || f.bairro,
+                              cidade: end.cidade || f.cidade,
+                              estado: end.estado || f.estado,
+                            }))}
+                          />
                           <div className="grid grid-cols-2 gap-2">
                             <input type="text" placeholder="Apelido (ex: Obra, Casa)" value={enderecoNovoForm.apelido}
                               onChange={ev => setEnderecoNovoForm(f => ({ ...f, apelido: ev.target.value }))}

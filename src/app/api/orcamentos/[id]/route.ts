@@ -3,7 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted, reverterBaixaItem } from '@/lib/estoque-baixa';
 import { aplicarBaixaFerro, reverterBaixaFerro } from '@/lib/baixa-ferro';
-import { criarEnderecoCliente } from '@/lib/enderecos';
+import { criarEnderecoCliente, CAMPOS_ENDERECO } from '@/lib/enderecos';
 
 export async function GET(
     request: NextRequest,
@@ -118,15 +118,63 @@ export async function PATCH(
               return orcOriginal;
       };
 
+      // Update client info — endereco vive em enderecos_clientes (Step 4);
+      // nao mais sobrescreve clientes.cep/endereco/numero/complemento aqui.
+      // Recebedor permanece em clientes.* (atributo per-cliente).
+      // Roda ANTES da resolucao do endereco: corrigir o telefone faz o
+      // upsert cair em outro cliente (novo ou ja existente), e o endereco
+      // do pedido precisa ser validado/vinculado contra esse cliente final.
+      let clienteIdNovo: string | null = null;
+      if (cliente_nome && cliente_telefone) {
+              const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
+              const clienteData: Record<string, unknown> = {
+                        nome: cliente_nome,
+                        telefone: telefoneLimpo,
+                        atualizado_em: new Date().toISOString(),
+              };
+              if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
+
+            const { data: cliente } = await supabaseAdmin
+                .from('clientes')
+                .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
+                .select('id')
+                .single();
+
+            if (cliente) {
+                      clienteIdNovo = cliente.id as string;
+            }
+      }
+
+      // Copia um endereco de outro cliente pro cliente final do pedido
+      // (dedup do helper evita duplicar em edicoes repetidas). Usado quando
+      // o telefone foi corrigido: o endereco ficou no cadastro antigo.
+      const copiarEnderecoPara = async (enderecoId: string, clienteDestino: string) => {
+              const { data: origem } = await supabaseAdmin
+                .from('enderecos_clientes')
+                .select('*')
+                .eq('id', enderecoId)
+                .single();
+              if (!origem) return null;
+              const dados: Record<string, unknown> = {};
+              for (const campo of CAMPOS_ENDERECO) dados[campo] = (origem as Record<string, unknown>)[campo] ?? null;
+              const r = await criarEnderecoCliente(clienteDestino, dados);
+              if (!r.ok) {
+                      console.error('[PATCH orcamentos] copiar endereco falhou', r);
+                      return null;
+              }
+              return r.endereco.id;
+      };
+
       let enderecoIdValidado: string | null | undefined = undefined;
       const querMexerEndereco =
         enderecoIdBody !== undefined ||
         (enderecoNovoBody && typeof enderecoNovoBody === 'object');
-      if (querMexerEndereco) {
+      if (querMexerEndereco || clienteIdNovo) {
               const orc = await fetchOrcOriginal();
-              if (!orc?.cliente_id) {
+              if (!orc?.cliente_id && !clienteIdNovo) {
                       return NextResponse.json({ error: 'Orcamento sem cliente' }, { status: 400 });
               }
+              const clienteFinal = (clienteIdNovo ?? orc?.cliente_id) as string;
               if (enderecoIdBody === null) {
                       enderecoIdValidado = null;
               } else if (typeof enderecoIdBody === 'string' && enderecoIdBody.length > 0) {
@@ -135,7 +183,15 @@ export async function PATCH(
                         .select('id, cliente_id')
                         .eq('id', enderecoIdBody)
                         .single();
-                      if (!end || end.cliente_id !== orc.cliente_id) {
+                      // Aceita endereco do cliente final, do cliente anterior
+                      // do pedido, ou o endereco que o pedido ja tinha (pedidos
+                      // antigos cujo telefone foi corrigido antes deste fix).
+                      const permitido = !!end && (
+                        end.cliente_id === clienteFinal ||
+                        end.cliente_id === orc?.cliente_id ||
+                        end.id === orc?.endereco_id
+                      );
+                      if (!end || !permitido) {
                               return NextResponse.json(
                                 { error: 'endereco_id invalido ou nao pertence ao cliente do orcamento' },
                                 { status: 400 },
@@ -143,7 +199,7 @@ export async function PATCH(
                       }
                       enderecoIdValidado = end.id as string;
               } else if (enderecoNovoBody && typeof enderecoNovoBody === 'object') {
-                      const r = await criarEnderecoCliente(orc.cliente_id as string, enderecoNovoBody);
+                      const r = await criarEnderecoCliente(clienteFinal, enderecoNovoBody);
                       if (!r.ok) {
                               console.error('[PATCH orcamentos] criar endereco_novo falhou', r);
                               return NextResponse.json(
@@ -152,6 +208,28 @@ export async function PATCH(
                               );
                       }
                       enderecoIdValidado = r.endereco.id;
+              }
+
+              // Garante que o endereco final pertence ao cliente final.
+              const enderecoAlvo = enderecoIdValidado !== undefined
+                ? enderecoIdValidado
+                : (orc?.endereco_id ?? null);
+              if (enderecoAlvo) {
+                      const { data: dono } = await supabaseAdmin
+                        .from('enderecos_clientes')
+                        .select('cliente_id')
+                        .eq('id', enderecoAlvo)
+                        .single();
+                      if (dono && dono.cliente_id !== clienteFinal) {
+                              const copiado = await copiarEnderecoPara(enderecoAlvo, clienteFinal);
+                              if (!copiado) {
+                                      return NextResponse.json(
+                                        { error: 'Falha ao vincular endereco ao cliente' },
+                                        { status: 500 },
+                                      );
+                              }
+                              enderecoIdValidado = copiado;
+                      }
               }
       }
 
@@ -209,6 +287,7 @@ export async function PATCH(
           // em POST /api/pagamentos.
           if (ferragem_status !== undefined) updateData.ferragem_status = ferragem_status;
           if (enderecoIdValidado !== undefined) updateData.endereco_id = enderecoIdValidado;
+          if (clienteIdNovo) updateData.cliente_id = clienteIdNovo;
 
       // Reschedule logic
       if (data_entrega !== undefined) {
@@ -232,29 +311,6 @@ export async function PATCH(
                                           updateData.status = 'entrega_pendente';
                             }
                 }
-            }
-      }
-
-      // Update client info — endereco vive em enderecos_clientes (Step 4);
-      // nao mais sobrescreve clientes.cep/endereco/numero/complemento aqui.
-      // Recebedor permanece em clientes.* (atributo per-cliente).
-      if (cliente_nome && cliente_telefone) {
-              const telefoneLimpo = cliente_telefone.replace(/\D/g, '');
-              const clienteData: Record<string, unknown> = {
-                        nome: cliente_nome,
-                        telefone: telefoneLimpo,
-                        atualizado_em: new Date().toISOString(),
-              };
-              if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
-
-            const { data: cliente } = await supabaseAdmin
-                .from('clientes')
-                .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
-                .select('id')
-                .single();
-
-            if (cliente) {
-                      updateData.cliente_id = cliente.id;
             }
       }
 
