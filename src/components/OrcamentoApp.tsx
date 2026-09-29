@@ -1597,6 +1597,47 @@ export default function OrcamentoApp() {  // Auth state
     else window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  // Telefone do cliente pronto pro wa.me (com DDI 55). null quando nao
+  // da pra mandar: vazio, placeholder de PDV ou 00000000000.
+  const telefoneWhatsApp = (tel: string | null | undefined): string | null => {
+    const digits = (tel || '').replace(/\D/g, '');
+    if (digits.length < 10 || /^0+$/.test(digits)) return null;
+    return digits.startsWith('55') && digits.length >= 12 ? digits : `55${digits}`;
+  };
+
+  // Aviso "caminhao a caminho" pra entregas em rota. Nao promete horario
+  // (mesma regra do robo de atendimento).
+  const avisarCaminhaoACaminho = (e: EntregaRota) => {
+    const numero = telefoneWhatsApp(e.cliente_telefone);
+    if (!numero) return;
+    const primeiroNome = (e.cliente_nome || '').trim().split(/\s+/)[0] || '';
+    const endereco = [
+      [e.endereco, e.numero].filter(Boolean).join(', '),
+      e.bairro,
+    ].filter(Boolean).join(' - ');
+    const aCobrar = e.a_cobrar ?? 0;
+    const formaLabel: Record<string, string> = {
+      pix: 'Pix', dinheiro: 'dinheiro', debito: 'cartão de débito', credito: 'cartão de crédito',
+      cartao: 'cartão', boleto: 'boleto',
+    };
+    const forma = e.forma_pagamento && e.forma_pagamento !== 'pagamento_na_entrega'
+      ? (formaLabel[e.forma_pagamento] || e.forma_pagamento)
+      : '';
+    const linhas = [
+      primeiroNome ? `Olá, ${primeiroNome}! 🚚` : 'Olá! 🚚',
+      '',
+      `Aqui é do *Depósito Oliveira*. Seu pedido *${e.codigo}* já saiu para entrega e o caminhão está a caminho.`,
+      endereco ? `📍 ${endereco}` : null,
+      aCobrar > 0.01
+        ? `💰 Valor a pagar na entrega: *${aCobrar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}*${forma ? ` (${forma})` : ''}`
+        : null,
+      '',
+      `Por favor, deixe alguém no local para receber${e.recebedor ? ` (${e.recebedor})` : ''}.`,
+      'Qualquer dúvida, é só chamar aqui!',
+    ].filter((l): l is string => l !== null);
+    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(linhas.join('\n'))}`, '_blank');
+  };
+
   const imprimirOrcamento = (detalhe?: OrcamentoDetalhe | null) => {
     const d = detalhe || null;
     const printWindow = window.open('', '_blank');
@@ -4619,6 +4660,15 @@ export default function OrcamentoApp() {  // Auth state
                             className="text-xs text-purple-500 hover:text-purple-700 px-2 py-1 rounded hover:bg-purple-50 whitespace-nowrap"
                           >
                             {expandedEmRota.includes(e.id) ? '▲ Fechar' : '📦 Ver'}
+                          </button>
+                          {/* Avisa o cliente no WhatsApp que o caminhao saiu. */}
+                          <button
+                            onClick={() => avisarCaminhaoACaminho(e)}
+                            disabled={!telefoneWhatsApp(e.cliente_telefone)}
+                            className="text-xs bg-[#25D366] text-white px-2 py-1 rounded hover:bg-[#1EBE57] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap font-medium"
+                            title={telefoneWhatsApp(e.cliente_telefone) ? 'Avisar no WhatsApp que o caminhão está a caminho' : 'Cliente sem telefone válido'}
+                          >
+                            📲 Avisar
                           </button>
                           {/* Volta pra Pendentes sem precisar caçar o pedido. */}
                           <button
