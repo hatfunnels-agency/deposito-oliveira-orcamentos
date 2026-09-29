@@ -71,10 +71,11 @@ export async function GET(request: NextRequest) {
 }
 
 function extrairComponentes(result: GeocodingResult) {
-    let logradouro = '', bairro = '', cidade = '', estado = '', cep = '';
+    let logradouro = '', numero = '', bairro = '', cidade = '', estado = '', cep = '';
 
   for (const component of result.address_components) {
         if (component.types.includes('route')) logradouro = component.long_name;
+        if (component.types.includes('street_number')) numero = component.long_name;
         if (component.types.includes('sublocality_level_1') || component.types.includes('sublocality')) bairro = component.long_name;
         if (component.types.includes('administrative_area_level_2')) cidade = component.long_name;
         if (component.types.includes('administrative_area_level_1')) estado = component.short_name;
@@ -84,6 +85,7 @@ function extrairComponentes(result: GeocodingResult) {
   return {
         endereco_completo: result.formatted_address,
         logradouro,
+        numero,
         bairro,
         cidade,
         estado,

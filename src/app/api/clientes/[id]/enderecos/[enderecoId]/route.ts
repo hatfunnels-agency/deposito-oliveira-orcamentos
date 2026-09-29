@@ -107,16 +107,28 @@ export async function DELETE(
       return NextResponse.json({ error: 'Endereco nao encontrado' }, { status: 404 });
     }
 
-    // Nao deixa o cliente sem nenhum endereco: bloqueia a remocao do ultimo.
-    const { count } = await supabaseAdmin
-      .from('enderecos_clientes')
-      .select('*', { count: 'exact', head: true })
-      .eq('cliente_id', params.id);
-    if ((count || 0) <= 1) {
-      return NextResponse.json(
-        { error: 'Cliente precisa de pelo menos 1 endereço cadastrado' },
-        { status: 400 },
-      );
+    // Cliente pode ficar sem endereco (ex.: apagar o unico endereco
+    // cadastrado errado). Pedidos que apontavam pra ele ficam com
+    // endereco_id NULL (FK ON DELETE SET NULL).
+    // Sem ?confirmar=1, avisa antes se ha pedidos em andamento (ainda vao
+    // sair pra entrega) usando este endereco — eles sumiriam da rota.
+    // Orcamentos, completos e cancelados nao contam.
+    const confirmado = request.nextUrl.searchParams.get('confirmar') === '1';
+    if (!confirmado) {
+      const { data: emAberto } = await supabaseAdmin
+        .from('orcamentos')
+        .select('codigo, status')
+        .eq('endereco_id', params.enderecoId)
+        .not('status', 'in', '(orcamento,completo,cancelado)');
+      if (emAberto && emAberto.length > 0) {
+        return NextResponse.json(
+          {
+            error: 'Endereco usado por pedidos em andamento',
+            pedidos_em_aberto: emAberto,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const { error: delErr } = await supabaseAdmin
