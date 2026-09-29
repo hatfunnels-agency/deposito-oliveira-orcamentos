@@ -7,8 +7,9 @@ import {
   contatoEmDnd,
   marcarDndNoGhl,
 } from '@/lib/ghl';
-import { dentroJanelaResposta, dentroHorarioComercial } from '@/lib/automacoes';
+import { dentroJanelaResposta, dentroHorarioComercial, horaBrasilia } from '@/lib/automacoes';
 import { candidatosTelefone } from '@/lib/contexto';
+import { catalogoParaPrompt } from '@/lib/catalogo';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
 
 export const dynamic = 'force-dynamic';
@@ -123,6 +124,7 @@ function ehWhatsApp(tipo: string): boolean {
 
 async function pensar(
   contexto: string,
+  catalogo: string,
 ): Promise<{ mensagem: string; acao: AcaoRobo } | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) return null;
@@ -142,7 +144,7 @@ async function pensar(
         system: [
           {
             type: 'text',
-            text: `${regrasComLink()}\n\n${INSTRUCAO_SAIDA}`,
+            text: `${regrasComLink()}\n\n${catalogo}\n\n${INSTRUCAO_SAIDA}`,
             // As regras nao mudam entre chamadas — cacheia e fica ~90% mais barato.
             cache_control: { type: 'ephemeral' },
           },
@@ -411,10 +413,16 @@ export async function POST(request: NextRequest) {
     'CONVERSA ATE AGORA:',
     ...historico.map(h => `${h.de === 'cliente' ? 'CLIENTE' : 'NOS'}: ${h.texto}`),
     '',
+    '',
+    `AGORA: ${String(horaBrasilia().hora).padStart(2, '0')}h${String(horaBrasilia().minuto).padStart(2, '0')} de Brasilia. ` +
+      (janelaNoturna
+        ? 'A Mariana JA SAIU — quem passar pra ela so tem retorno amanha cedo.'
+        : 'A Mariana ESTA no atendimento agora — quem voce passar pra ela tem retorno HOJE, nao amanha.'),
+    '',
     `O CLIENTE ACABOU DE DIZER: ${texto}`,
   ].filter(Boolean).join('\n');
 
-  const pensado = await pensar(contexto);
+  const pensado = await pensar(contexto, await catalogoParaPrompt());
   if (!pensado) {
     await supabaseAdmin.from('automacao_envios')
       .update({ status: 'erro', motivo: 'a IA nao devolveu JSON valido' }).eq('id', vaga.id);
