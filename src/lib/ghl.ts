@@ -344,8 +344,38 @@ function ehMensagemDeHumano(m: any): boolean {
   return true;
 }
 
+// Midia do WhatsApp chega no GHL com o body VAZIO e o arquivo so em
+// `attachments` — o tipo esta na extensao da URL. Em 02/10 tres notas de voz
+// de um cliente viraram "payload sem texto" e foram descartadas junto com o
+// lixo dos workflows, porque o detector olhava o body.
+export type TipoMidia = 'audio' | 'imagem' | 'figurinha' | 'video' | 'arquivo';
+
+function tipoDaMidia(url: string): TipoMidia {
+  const ext = (url.split('?')[0].split('.').pop() || '').toLowerCase();
+  if (['ogg', 'oga', 'opus', 'mp3', 'm4a', 'aac', 'amr', 'wav'].includes(ext)) return 'audio';
+  if (ext === 'webp') return 'figurinha';
+  if (['jpg', 'jpeg', 'png', 'gif', 'heic'].includes(ext)) return 'imagem';
+  if (['mp4', 'mov', '3gp'].includes(ext)) return 'video';
+  return 'arquivo';
+}
+
+const ROTULO_MIDIA: Record<TipoMidia, string> = {
+  audio: '[audio]',
+  imagem: '[imagem]',
+  figurinha: '[figurinha]',
+  video: '[video]',
+  arquivo: '[arquivo]',
+};
+
+export type MensagemHistorico = {
+  de: 'cliente' | 'nos';
+  texto: string;
+  quando: string;
+  midia?: { url: string; tipo: TipoMidia };
+};
+
 export type HistoricoConversa = {
-  mensagens: Array<{ de: 'cliente' | 'nos'; texto: string; quando: string }>;
+  mensagens: MensagemHistorico[];
   // Quando um humano do deposito falou por ultimo. null = so o robo falou.
   humanoFalouEm: string | null;
 };
@@ -379,13 +409,24 @@ export async function historicoConversa(
       if (q && (!humanoFalouEm || q > humanoFalouEm)) humanoFalouEm = q;
     }
 
-    const mensagens = msgs
-      .filter((m: any) => (m?.body || '').trim())
-      .map((m: any) => ({
-        de: m.direction === 'inbound' ? ('cliente' as const) : ('nos' as const),
-        texto: String(m.body).slice(0, 500),
-        quando: String(m.dateAdded || ''),
-      }))
+    const mensagens: MensagemHistorico[] = msgs
+      .filter((m: any) => (m?.body || '').trim() || (Array.isArray(m?.attachments) && m.attachments.length))
+      .map((m: any) => {
+        const url = Array.isArray(m?.attachments) && m.attachments.length ? String(m.attachments[0]) : '';
+        const midia = url ? { url, tipo: tipoDaMidia(url) } : undefined;
+        let corpo = String(m?.body || '').trim();
+        // Em documento o GHL poe o NOME DO ARQUIVO no body
+        // ("comprovante_picpay_pix_28-09-2026.pdf"). Isso nao e fala do
+        // cliente — vira rotulo com o nome, pra IA nao ler como mensagem.
+        if (midia && /^\S+\.[a-z0-9]{2,5}$/i.test(corpo)) corpo = `[arquivo: ${corpo}]`;
+        return {
+          de: m.direction === 'inbound' ? ('cliente' as const) : ('nos' as const),
+          // Midia sem legenda vira um rotulo; com legenda, a legenda vale.
+          texto: (corpo || (midia ? ROTULO_MIDIA[midia.tipo] : '')).slice(0, 500),
+          quando: String(m.dateAdded || ''),
+          ...(midia ? { midia } : {}),
+        };
+      })
       .reverse();
 
     return { mensagens, humanoFalouEm };
