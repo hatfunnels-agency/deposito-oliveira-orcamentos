@@ -43,6 +43,9 @@ const TETO_RESPOSTAS_HORA = 15;
 // pra outra coisa e o robo pode voltar.
 const MINUTOS_CALADO_APOS_HUMANO = 120;
 
+// Tem que bater com o CHECK chk_categoria_valida em atendimento_fila.
+const CATEGORIAS_RECLAMACAO = ['entrega', 'material', 'atendimento', 'outro'];
+
 function alvosPermitidos(): { modo: 'ninguem' | 'lista' | 'todos'; lista: string[] } {
   const raw = (process.env.AUTOMACOES_WEBHOOK_ALLOWLIST || '').trim();
   if (!raw) return { modo: 'ninguem', lista: [] };
@@ -221,6 +224,11 @@ async function executar(acao: AcaoRobo, ctx: {
         orcamento_id: ctx.orcamentoId,
         telefone: ctx.telefone,
         motivo: String(acao.motivo || 'outro').slice(0, 60),
+        // Categoria so entra se for uma das validas — o CHECK do banco recusa
+        // o resto, e um insert barrado aqui perderia o caso inteiro.
+        categoria: CATEGORIAS_RECLAMACAO.includes(String(acao.categoria || ''))
+          ? String(acao.categoria)
+          : 'outro',
         resumo: String(acao.resumo || '').slice(0, 500),
         origem: ctx.origem,
         status: 'aberto',

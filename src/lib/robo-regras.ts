@@ -195,7 +195,7 @@ export function regrasComLink(): string {
 export type AcaoRobo =
   | { tipo: 'nenhuma' }
   | { tipo: 'marcar_retorno'; data: string }          // YYYY-MM-DD
-  | { tipo: 'passar_humano'; motivo: string; resumo: string }
+  | { tipo: 'passar_humano'; motivo: string; resumo: string; categoria?: string }
   | { tipo: 'nao_perturbe' };
 
 export const INSTRUCAO_SAIDA = `
@@ -207,7 +207,14 @@ Responda SOMENTE com um JSON valido, sem texto antes ou depois:
 O campo "acao" e um destes:
 {"tipo":"nenhuma"}
 {"tipo":"marcar_retorno","data":"AAAA-MM-DD"}
-{"tipo":"passar_humano","motivo":"reclamacao|desconto_acima_regra|juridico|cliente_irritado|nao_sabe_responder|outro","resumo":"1 frase do que aconteceu"}
+{"tipo":"passar_humano","motivo":"reclamacao|desconto_acima_regra|juridico|cliente_irritado|nao_sabe_responder|outro","resumo":"1 frase do que aconteceu","categoria":"entrega|material|atendimento|outro"}
+
+"categoria" e sobre O QUE e o problema, nao por que escalou:
+- entrega: atrasou, nao chegou, "cade o caminhao", fora do dia combinado
+- material: veio errado, faltando, quebrado, trocado
+- atendimento: ninguem respondeu, prometeram retorno e nao voltaram
+- outro: qualquer coisa que nao caiba acima, inclusive valor e cobranca
+Sempre preencha quando a acao for passar_humano.
 {"tipo":"nao_perturbe"}
 
 Se a acao for passar_humano, a "mensagem" deve ser a frase de transferencia.
