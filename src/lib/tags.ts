@@ -2,6 +2,10 @@
 //
 // 'nao_perturbe': o cliente pediu para nao receber mais mensagem. Bloqueia
 // TODAS as automacoes — ver clientesNaoPerturbe() em automacoes.ts.
+//
+// 'ia_pausada': tira SO o robo da conversa; as reguas continuam disparando.
+// E pra quando a equipe quer tocar o cliente na mao sem o robo entrando por
+// cima. Nao expira sozinha — some quando tirarem a tag.
 // DEVE ser identica ao CHECK constraint chk_tag_valida da tabela cliente_tags.
 // Se mudar aqui, atualizar o constraint no banco (e vice-versa).
 export const TAGS_VALIDAS = [
@@ -14,6 +18,7 @@ export const TAGS_VALIDAS = [
   'em_negociacao',
   'inadimplente',
   'nao_perturbe',
+  'ia_pausada',
 ] as const;
 
 export type TagValida = typeof TAGS_VALIDAS[number];

@@ -322,27 +322,51 @@ export async function adicionarAoWorkflow(
 
 // Ultimas mensagens da conversa de WhatsApp, da mais antiga pra mais nova.
 // E o que dá memoria ao robo: sem isso ele repete pergunta ja respondida.
+// Mensagem que SAIU pelo nosso robo carrega meta.marketplace.appId (e o id do
+// nosso app no GHL). A que a Mariana manda do painel nao tem esse campo. E a
+// unica forma confiavel de saber quem esta falando — ambas vem com
+// source: "app" e userId vazio, entao esses dois nao servem.
+function ehMensagemDeHumano(m: any): boolean {
+  if (m?.direction !== 'outbound') return false;
+  return !m?.meta?.marketplace?.appId;
+}
+
+export type HistoricoConversa = {
+  mensagens: Array<{ de: 'cliente' | 'nos'; texto: string; quando: string }>;
+  // Quando um humano do deposito falou por ultimo. null = so o robo falou.
+  humanoFalouEm: string | null;
+};
+
 export async function historicoConversa(
   contactId: string,
   limite = 20,
-): Promise<Array<{ de: 'cliente' | 'nos'; texto: string; quando: string }>> {
-  if (!GHL_API_KEY || !contactId) return [];
+): Promise<HistoricoConversa> {
+  const vazio: HistoricoConversa = { mensagens: [], humanoFalouEm: null };
+  if (!GHL_API_KEY || !contactId) return vazio;
   try {
     const busca = await fetch(
       `${GHL_API_BASE}/conversations/search?locationId=${GHL_LOCATION_ID}&contactId=${contactId}&limit=1`,
       { headers: ghlHeaders(), cache: 'no-store' },
     );
-    if (!busca.ok) return [];
+    if (!busca.ok) return vazio;
     const conv = ((await busca.json())?.conversations || [])[0];
-    if (!conv?.id) return [];
+    if (!conv?.id) return vazio;
 
     const resp = await fetch(
       `${GHL_API_BASE}/conversations/${conv.id}/messages?type=TYPE_WHATSAPP&limit=${limite}`,
       { headers: ghlHeaders(), cache: 'no-store' },
     );
-    if (!resp.ok) return [];
+    if (!resp.ok) return vazio;
     const msgs = (await resp.json())?.messages?.messages || [];
-    return msgs
+
+    let humanoFalouEm: string | null = null;
+    for (const m of msgs) {
+      if (!ehMensagemDeHumano(m)) continue;
+      const q = String(m?.dateAdded || '');
+      if (q && (!humanoFalouEm || q > humanoFalouEm)) humanoFalouEm = q;
+    }
+
+    const mensagens = msgs
       .filter((m: any) => (m?.body || '').trim())
       .map((m: any) => ({
         de: m.direction === 'inbound' ? ('cliente' as const) : ('nos' as const),
@@ -350,7 +374,9 @@ export async function historicoConversa(
         quando: String(m.dateAdded || ''),
       }))
       .reverse();
+
+    return { mensagens, humanoFalouEm };
   } catch {
-    return [];
+    return vazio;
   }
 }

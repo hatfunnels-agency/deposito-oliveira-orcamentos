@@ -7,7 +7,7 @@ import {
   contatoEmDnd,
   marcarDndNoGhl,
 } from '@/lib/ghl';
-import { dentroJanelaResposta, dentroHorarioComercial, horaBrasilia } from '@/lib/automacoes';
+import { dentroHorarioComercial, horaBrasilia } from '@/lib/automacoes';
 import { candidatosTelefone } from '@/lib/contexto';
 import { catalogoParaPrompt } from '@/lib/catalogo';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
@@ -33,6 +33,15 @@ const GHL_API_BASE = 'https://services.leadconnectorhq.com';
 // Uma negociacao de material vai e volta bastante em poucos minutos — 6 cortava
 // o cliente no meio do fechamento (20 vezes em 28/09). 15 ainda barra loop.
 const TETO_RESPOSTAS_HORA = 15;
+
+// Quanto tempo o robo fica calado depois que alguem do deposito manda
+// mensagem na mao. Em 01/10, na conversa da Edna, a Mariana escreveu as
+// 20h32 e as 20h33 e o robo entrou por cima as 20h46 dizendo quase a mesma
+// coisa, duas vezes. Quem assumiu a conversa fica com ela.
+//
+// 2h e tempo de quem esta ATENDENDO agora. Passou disso, a Mariana ja foi
+// pra outra coisa e o robo pode voltar.
+const MINUTOS_CALADO_APOS_HUMANO = 120;
 
 function alvosPermitidos(): { modo: 'ninguem' | 'lista' | 'todos'; lista: string[] } {
   const raw = (process.env.AUTOMACOES_WEBHOOK_ALLOWLIST || '').trim();
@@ -310,17 +319,25 @@ export async function POST(request: NextRequest) {
   // Sem a porta 2, toda resposta a um follow-up morria no log: em 28/09 foram
   // 229 respostas escritas e nenhuma enviada, porque o cliente responde na
   // hora e o robo so podia falar 3h depois.
-  const janelaNoturna = dentroJanelaResposta();
-  const nossaConversa = janelaNoturna ? false : await reguaCutucou(digitos);
-  const dentroDaJanelaDeResposta = janelaNoturna || (nossaConversa && dentroHorarioComercial());
+  // A janela da noite foi DESLIGADA em 01/10: lead que chega sozinho nao e
+  // respondido, nem depois das 17h30. Primeiro alinhar as automacoes, depois
+  // voltar a tratar o robo como atendente.
+  //
+  // Sobrou uma porta so: conversa que a REGUA comecou, em horario comercial.
+  const nossaConversa = await reguaCutucou(digitos);
+  const dentroDaJanelaDeResposta = nossaConversa && dentroHorarioComercial();
 
   // nao_perturbe cala o robo, sempre.
   if (cliente?.id) {
     const { data: tag } = await supabaseAdmin.from('cliente_tags')
-      .select('tag').eq('cliente_id', cliente.id).eq('tag', 'nao_perturbe').limit(1).maybeSingle();
+      .select('tag').eq('cliente_id', cliente.id)
+      .in('tag', ['nao_perturbe', 'ia_pausada']).limit(1).maybeSingle();
     if (tag) {
-      await registrar(digitos, 'pulado', 'cliente com nao_perturbe', { cliente_id: cliente.id });
-      return NextResponse.json({ ignorado: 'cliente com nao_perturbe' });
+      // nao_perturbe cala tudo. ia_pausada cala SO o robo — as reguas
+      // continuam, e e assim de proposito: serve pra tirar o robo de uma
+      // conversa que a equipe quer tocar na mao.
+      await registrar(digitos, 'pulado', `cliente com ${tag.tag}`, { cliente_id: cliente.id });
+      return NextResponse.json({ ignorado: `cliente com ${tag.tag}` });
     }
   }
 
@@ -383,8 +400,10 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const [historico, orcRes] = await Promise.all([
-    contactId ? historicoConversa(contactId, 16) : Promise.resolve([]),
+  const [hist, orcRes] = await Promise.all([
+    contactId
+      ? historicoConversa(contactId, 16)
+      : Promise.resolve({ mensagens: [], humanoFalouEm: null }),
     cliente?.id
       ? supabaseAdmin.from('orcamentos')
           .select('id, codigo, total, status, criado_em, orcamento_itens (produto_nome, quantidade)')
@@ -392,6 +411,22 @@ export async function POST(request: NextRequest) {
       : Promise.resolve({ data: null } as any),
   ]);
   const orc = (orcRes as any)?.data;
+  const historico = hist.mensagens;
+
+  // Humano assumiu: o robo sai de cena. Vale mesmo dentro da janela — se a
+  // Mariana esta escrevendo pro cliente agora, dois atendentes na mesma
+  // conversa e pior que nenhum.
+  if (hist.humanoFalouEm) {
+    const minutos = (Date.now() - new Date(hist.humanoFalouEm).getTime()) / 60_000;
+    if (minutos >= 0 && minutos < MINUTOS_CALADO_APOS_HUMANO) {
+      await supabaseAdmin.from('automacao_envios').update({
+        status: 'pulado',
+        ghl_contact_id: contactId,
+        motivo: `humano respondeu ha ${Math.round(minutos)} min — robo calado por ${MINUTOS_CALADO_APOS_HUMANO} min`,
+      }).eq('id', vaga.id);
+      return NextResponse.json({ ignorado: 'humano assumiu a conversa' });
+    }
+  }
 
   // Agenda de entrega: e o que autoriza (ou nao) prometer "proximo dia util".
   const amanha = new Date(Date.now() + 24 * 3600_000).toISOString().slice(0, 10);
@@ -415,9 +450,7 @@ export async function POST(request: NextRequest) {
     '',
     '',
     `AGORA: ${String(horaBrasilia().hora).padStart(2, '0')}h${String(horaBrasilia().minuto).padStart(2, '0')} de Brasilia. ` +
-      (janelaNoturna
-        ? 'A Mariana JA SAIU — quem passar pra ela so tem retorno amanha cedo.'
-        : 'A Mariana ESTA no atendimento agora — quem voce passar pra ela tem retorno HOJE, nao amanha.'),
+      'A Mariana ESTA no atendimento agora — quem voce passar pra ela tem retorno HOJE, nao amanha.',
     '',
     `O CLIENTE ACABOU DE DIZER: ${texto}`,
   ].filter(Boolean).join('\n');
@@ -443,13 +476,11 @@ export async function POST(request: NextRequest) {
   const naAllowlist = podeResponder(digitos);
   const { modo, lista } = alvosPermitidos();
   const diagnostico = {
-    janela: janelaNoturna
-      ? 'aberta (janela da noite 17h30-20h)'
-      : nossaConversa && dentroHorarioComercial()
-        ? 'aberta (conversa iniciada pela regua, horario comercial)'
-        : nossaConversa
-          ? 'fechada — a regua cutucou, mas esta fora de 8h-18h'
-          : 'fechada — conversa nao iniciada por nos; responde so das 17h30 as 20h',
+    janela: dentroDaJanelaDeResposta
+      ? 'aberta (conversa iniciada pela regua, horario comercial)'
+      : nossaConversa
+        ? 'fechada — a regua cutucou, mas esta fora de 8h-18h'
+        : 'fechada — conversa nao iniciada por nos (janela da noite desligada)',
     allowlist:
       modo === 'ninguem' ? 'vazia — nao responde ninguem'
       : modo === 'todos' ? 'aberta a todos (*)'
@@ -477,7 +508,7 @@ export async function POST(request: NextRequest) {
   } else {
     const barrou = [
       !dentroDaJanelaDeResposta
-        ? (nossaConversa ? 'conversa nossa, mas fora de 8h-18h' : 'fora da janela — quem chega sozinho e da Mariana ate 17h30')
+        ? (nossaConversa ? 'conversa nossa, mas fora de 8h-18h' : 'conversa nao iniciada por nos — e da Mariana')
         : '',
       !naAllowlist ? 'numero fora da allowlist' : '',
       naAllowlist && dentroDaJanelaDeResposta && !contactId ? 'contato nao existe no GHL' : '',
