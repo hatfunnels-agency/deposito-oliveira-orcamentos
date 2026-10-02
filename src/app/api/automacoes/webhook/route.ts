@@ -85,10 +85,15 @@ function chaveResposta(digitos: string, texto: string): string {
 //
 // 24h nao e numero solto — e a mesma janela do WhatsApp.
 async function reguaCutucou(digitos: string): Promise<boolean> {
+  // .in() com as formas do numero, nunca .eq(). A regua grava o telefone como
+  // esta no cadastro — 11 digitos, sem DDI ("11949913965") — e o webhook
+  // recebe do GHL com o 55 na frente ("5511949913965"). Com .eq() nenhuma
+  // conversa iniciada pela regua era reconhecida: em 01/10 tres clientes
+  // responderam ao pos-venda das 9h e o robo ficou mudo com todos.
   const { count } = await supabaseAdmin
     .from('automacao_envios')
     .select('id', { count: 'exact', head: true })
-    .eq('telefone', digitos)
+    .in('telefone', candidatosTelefone(digitos))
     .eq('status', 'enviado')
     .gte('criado_em', new Date(Date.now() - 24 * 3600_000).toISOString());
   return (count || 0) > 0;
