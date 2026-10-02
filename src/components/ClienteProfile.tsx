@@ -533,10 +533,16 @@ function EnderecosSecao({
 // vermelho — quem marca precisa saber o que está desligando, e quem bate
 // o olho no perfil precisa ver na hora.
 const TAG_DND = 'nao_perturbe';
-const DND_DETALHE = 'para todas as mensagens automáticas';
+const TAG_IA = 'ia_pausada';
+const DETALHE: Record<string, string> = {
+  [TAG_DND]: 'para todas as mensagens automáticas',
+  [TAG_IA]: 'tira só o robô — as automações continuam',
+};
 
 function rotuloTag(t: string): string {
-  return t === TAG_DND ? 'não perturbe' : t.replace(/_/g, ' ');
+  if (t === TAG_DND) return 'não perturbe';
+  if (t === TAG_IA) return 'pausar robô';
+  return t.replace(/_/g, ' ');
 }
 
 function TagsSecao({
@@ -636,8 +642,8 @@ function TagsSecao({
                     }`}
                   >
                     {rotuloTag(t)}
-                    {t === TAG_DND && (
-                      <span className="block text-[10px] font-normal text-gray-400">{DND_DETALHE}</span>
+                    {DETALHE[t] && (
+                      <span className="block text-[10px] font-normal text-gray-400">{DETALHE[t]}</span>
                     )}
                   </button>
                 ))}

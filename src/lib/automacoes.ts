@@ -110,6 +110,9 @@ export function horaBrasilia(agora = new Date()): { hora: number; minuto: number
 // para nao atropelar o atendimento humano. Das 17h30 as 20h ela ja saiu, e
 // o robo entra para nao perder o lead que chega no fim do dia. Domingo nao
 // responde — o deposito esta fechado.
+// DESLIGADA em 01/10 — nao e mais chamada por ninguem. Fica aqui porque a
+// janela da noite deve voltar quando as automacoes estiverem alinhadas e o
+// robo voltar a atender lead que chega sozinho.
 export function dentroJanelaResposta(agora = new Date()): boolean {
   const { hora, minuto, diaSemana } = horaBrasilia(agora);
   if (diaSemana === 0) return false;
