@@ -40,7 +40,24 @@ export const maxDuration = 300;
 // Teste:  ?telefone=11999999999 restringe o envio a um numero so.
 
 const GHL_API_BASE = 'https://services.leadconnectorhq.com';
-const LIMITE_PADRAO = 60;
+// Teto POR TICK, nao por dia. Sao 10 ticks dentro do horario comercial
+// (8h as 17h), entao o teto de 12 da ~120 mensagens/dia espalhadas — contra
+// pico medido de 83/dia, sobra folga de 45%.
+//
+// O motivo nao e o Meta: 33 num minuto e volume irrelevante pra API, e a nota
+// do numero esta High. O motivo e raio de alcance — se uma mensagem sair
+// errada, hoje 33 pessoas recebem antes de alguem perceber. Foi a forma do
+// incidente de 04/09. Com teto por tick da pra interromper no meio.
+//
+// Quem for cortado pelo teto NAO se perde: os candidatos sao montados na
+// ordem follow-up -> pos-venda -> reativacao, entao quem sobra e sempre a
+// reativacao, que e a unica que pode esperar uma hora (ou um dia) sem dano.
+const LIMITE_PADRAO = 12;
+
+// Respiro entre uma mensagem e outra dentro do mesmo tick. Com 10 por tick
+// sao ~20s — nao atrasa nada (maxDuration e 300s) e evita que as 10 saiam
+// no mesmo segundo.
+const PAUSA_ENTRE_ENVIOS_MS = 2000;
 
 type Resultado = {
   chave: string;
@@ -133,7 +150,11 @@ export async function GET(request: NextRequest) {
   const { hora, diaSemana } = horaBrasilia();
   // Sem ?tipos: as 9h da manha roda a regua inteira; no resto do dia so o
   // follow-up (reativacao e pos-venda nao precisam de granularidade de hora).
-  const tiposPadrao = hora === 9 ? 'followup,posvenda,reativacao' : 'followup';
+  // Antes: as 9h rodava a regua inteira e o resto do dia so follow-up — era
+  // isso que criava a rajada das 09:01. Agora as tres rodam a cada hora, com
+  // o teto baixo fazendo o espalhamento. Reativacao e pos-venda nao dependem
+  // de hora exata, entao nada se perde ao distribuir.
+  const tiposPadrao = 'followup,posvenda,reativacao';
   const tipos = (url.searchParams.get('tipos') || tiposPadrao)
     .split(',')
     .map(t => t.trim())
@@ -188,6 +209,7 @@ export async function GET(request: NextRequest) {
     }
 
     const resultados: Resultado[] = [];
+    let enviadosNesteTick = 0;
 
     for (const c of candidatos) {
       let status: Resultado['status'] = dryRun ? 'simulado' : 'enviado';
@@ -255,6 +277,12 @@ export async function GET(request: NextRequest) {
         }
 
         if (!dryRun && status !== 'pulado' && status !== 'erro') {
+          // Respiro antes de cada envio real. So entre envios de verdade:
+          // candidato pulado nao gasta espera.
+          if (enviadosNesteTick > 0) {
+            await new Promise(r => setTimeout(r, PAUSA_ENTRE_ENVIOS_MS));
+          }
+          enviadosNesteTick++;
           const envio =
             via === 'ia' && texto
               ? await enviarTexto(contactId, c.telefone, texto)
