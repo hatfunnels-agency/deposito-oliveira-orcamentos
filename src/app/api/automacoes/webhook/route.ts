@@ -43,6 +43,9 @@ const TETO_RESPOSTAS_HORA = 15;
 // pra outra coisa e o robo pode voltar.
 const MINUTOS_CALADO_APOS_HUMANO = 120;
 
+// Tem que bater com o CHECK chk_categoria_valida em atendimento_fila.
+const CATEGORIAS_RECLAMACAO = ['entrega', 'material', 'atendimento', 'outro'];
+
 function alvosPermitidos(): { modo: 'ninguem' | 'lista' | 'todos'; lista: string[] } {
   const raw = (process.env.AUTOMACOES_WEBHOOK_ALLOWLIST || '').trim();
   if (!raw) return { modo: 'ninguem', lista: [] };
@@ -172,8 +175,10 @@ async function pensar(
     const bruto = txt.slice(txt.indexOf('{'), txt.lastIndexOf('}') + 1);
     const j = JSON.parse(bruto);
     const acao: AcaoRobo = j?.acao?.tipo ? j.acao : { tipo: 'nenhuma' };
-    if (!j?.mensagem) return null;
-    return { mensagem: String(j.mensagem).slice(0, 600), acao };
+    // mensagem vazia e resposta VALIDA: quer dizer "a conversa acabou, nao
+    // responde". So trata como falha se o campo nem veio no JSON.
+    if (typeof j?.mensagem !== 'string') return null;
+    return { mensagem: String(j.mensagem).trim().slice(0, 600), acao };
   } catch {
     return null;
   }
@@ -214,7 +219,7 @@ async function executar(acao: AcaoRobo, ctx: {
       return 'cliente marcado como nao_perturbe (e no GHL)';
     }
     case 'passar_humano': {
-      await supabaseAdmin.from('atendimento_fila').insert({
+      const caso = {
         cliente_id: ctx.clienteId,
         orcamento_id: ctx.orcamentoId,
         telefone: ctx.telefone,
@@ -222,7 +227,20 @@ async function executar(acao: AcaoRobo, ctx: {
         resumo: String(acao.resumo || '').slice(0, 500),
         origem: ctx.origem,
         status: 'aberto',
-      });
+      };
+      // Categoria so entra se for uma das validas — o CHECK do banco recusa
+      // o resto, e um insert barrado aqui perderia o caso inteiro.
+      const categoria = CATEGORIAS_RECLAMACAO.includes(String(acao.categoria || ''))
+        ? String(acao.categoria)
+        : 'outro';
+      const { error } = await supabaseAdmin.from('atendimento_fila').insert({ ...caso, categoria });
+      if (error) {
+        // Sem a coluna `categoria` (migration ainda nao rodada) o insert falha
+        // inteiro. Perder o tema e aceitavel; perder a reclamacao, nao.
+        const { error: erro2 } = await supabaseAdmin.from('atendimento_fila').insert(caso);
+        if (erro2) return `falha ao abrir caso na fila: ${erro2.message}`;
+        return 'caso aberto na fila (sem categoria — rodar supabase-categoria-reclamacao.sql)';
+      }
       return 'caso aberto na fila de atendimento';
     }
     default:
@@ -440,6 +458,18 @@ export async function POST(request: NextRequest) {
     .eq('tipo_entrega', 'entrega').eq('data_entrega', amanha)
     .not('status', 'in', '(orcamento,cancelado)');
 
+  // Tudo que o cliente mandou depois da NOSSA ultima mensagem. O GHL as vezes
+  // nao chama o webhook pra uma das mensagens: em 29/09 a Ana Paula mandou
+  // "Oi bom dia" e "Consegue entregar 10 sacos de cimento" no mesmo minuto,
+  // so a primeira gerou chamada, e o robo respondeu "como posso te ajudar?"
+  // ignorando o pedido. Olhando o historico inteiro ele se recupera sozinho.
+  const semResposta: string[] = [];
+  for (let i = historico.length - 1; i >= 0; i--) {
+    if (historico[i].de !== 'cliente') break;
+    semResposta.unshift(historico[i].texto);
+  }
+  if (!semResposta.some(m => m.trim() === texto.trim())) semResposta.push(texto);
+
   const contexto = [
     `CLIENTE: ${cliente?.nome || 'desconhecido'} (${formatPhoneBR(digitos)})`,
     cliente?.notas_contexto ? `CONTEXTO: ${cliente.notas_contexto}` : '',
@@ -457,7 +487,10 @@ export async function POST(request: NextRequest) {
     `AGORA: ${String(horaBrasilia().hora).padStart(2, '0')}h${String(horaBrasilia().minuto).padStart(2, '0')} de Brasilia. ` +
       'A Mariana ESTA no atendimento agora — quem voce passar pra ela tem retorno HOJE, nao amanha.',
     '',
-    `O CLIENTE ACABOU DE DIZER: ${texto}`,
+    semResposta.length > 1
+      ? `O CLIENTE MANDOU ${semResposta.length} MENSAGENS DEPOIS DA NOSSA ULTIMA RESPOSTA — ` +
+        `responda TODAS numa mensagem so:\n` + semResposta.map(m => `- ${m}`).join('\n')
+      : `O CLIENTE ACABOU DE DIZER: ${texto}`,
   ].filter(Boolean).join('\n');
 
   const pensado = await pensar(contexto, await catalogoParaPrompt());
@@ -495,6 +528,16 @@ export async function POST(request: NextRequest) {
 
   const liberado = naAllowlist && dentroDaJanelaDeResposta;
   let envio = 'nao enviado';
+
+  if (!pensado.mensagem) {
+    // A IA leu a conversa e concluiu que nao ha o que responder.
+    await supabaseAdmin.from('automacao_envios').update({
+      status: 'pulado',
+      ghl_contact_id: contactId,
+      motivo: `nada a responder — conversa encerrada | acao: ${pensado.acao.tipo} -> ${resultadoAcao}`,
+    }).eq('id', vaga.id);
+    return NextResponse.json({ ok: true, envio: 'nao enviado — nada a responder' });
+  }
 
   if (liberado && contactId) {
     const r = await fetch(`${GHL_API_BASE}/conversations/messages`, {
