@@ -326,9 +326,22 @@ export async function adicionarAoWorkflow(
 // nosso app no GHL). A que a Mariana manda do painel nao tem esse campo. E a
 // unica forma confiavel de saber quem esta falando — ambas vem com
 // source: "app" e userId vazio, entao esses dois nao servem.
+// Saida de automacao no GHL. "workflow" e o template da regua (follow-up,
+// pos-venda, reativacao) — confirmado nas mensagens reais. Os outros sao
+// fontes automaticas do GHL que nao usamos hoje, mas que tambem nao sao
+// gente; listados pra uma campanha futura nao calar o robo por engano.
+const FONTES_AUTOMATICAS = new Set(['workflow', 'campaign', 'bulk_actions', 'automation', 'trigger']);
+
 function ehMensagemDeHumano(m: any): boolean {
   if (m?.direction !== 'outbound') return false;
-  return !m?.meta?.marketplace?.appId;
+  // Robo (nossa API): source "app" + meta.marketplace.appId.
+  if (m?.meta?.marketplace?.appId) return false;
+  // Template da regua: source "workflow", SEM marketplace. Era o furo: em
+  // 02/10 a reativacao saiu as 08h01, o Edinaldo respondeu as 08h06, e o robo
+  // calou achando que "um humano respondeu ha 5 min". O humano era a regua.
+  if (FONTES_AUTOMATICAS.has(String(m?.source || ''))) return false;
+  // Sobra a Mariana no painel: source "app", sem marketplace.
+  return true;
 }
 
 export type HistoricoConversa = {
