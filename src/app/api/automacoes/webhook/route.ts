@@ -219,20 +219,28 @@ async function executar(acao: AcaoRobo, ctx: {
       return 'cliente marcado como nao_perturbe (e no GHL)';
     }
     case 'passar_humano': {
-      await supabaseAdmin.from('atendimento_fila').insert({
+      const caso = {
         cliente_id: ctx.clienteId,
         orcamento_id: ctx.orcamentoId,
         telefone: ctx.telefone,
         motivo: String(acao.motivo || 'outro').slice(0, 60),
-        // Categoria so entra se for uma das validas — o CHECK do banco recusa
-        // o resto, e um insert barrado aqui perderia o caso inteiro.
-        categoria: CATEGORIAS_RECLAMACAO.includes(String(acao.categoria || ''))
-          ? String(acao.categoria)
-          : 'outro',
         resumo: String(acao.resumo || '').slice(0, 500),
         origem: ctx.origem,
         status: 'aberto',
-      });
+      };
+      // Categoria so entra se for uma das validas — o CHECK do banco recusa
+      // o resto, e um insert barrado aqui perderia o caso inteiro.
+      const categoria = CATEGORIAS_RECLAMACAO.includes(String(acao.categoria || ''))
+        ? String(acao.categoria)
+        : 'outro';
+      const { error } = await supabaseAdmin.from('atendimento_fila').insert({ ...caso, categoria });
+      if (error) {
+        // Sem a coluna `categoria` (migration ainda nao rodada) o insert falha
+        // inteiro. Perder o tema e aceitavel; perder a reclamacao, nao.
+        const { error: erro2 } = await supabaseAdmin.from('atendimento_fila').insert(caso);
+        if (erro2) return `falha ao abrir caso na fila: ${erro2.message}`;
+        return 'caso aberto na fila (sem categoria — rodar supabase-categoria-reclamacao.sql)';
+      }
       return 'caso aberto na fila de atendimento';
     }
     default:
