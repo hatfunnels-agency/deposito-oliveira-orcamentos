@@ -31,7 +31,7 @@ export type Candidato = {
   // true = so dispara com a janela de 24h aberta (nao tem template de fallback).
   exigeJanelaAberta: boolean;
   // tipo/momento aceitos por /api/ia/mensagem, que tem vocabulario proprio.
-  iaTipo: 'followup' | 'review' | 'reativacao';
+  iaTipo: 'followup' | 'review' | 'reativacao' | 'retorno';
   iaMomento: string;
 };
 
@@ -47,6 +47,11 @@ export const TEMPLATES: Record<string, string> = {
   'reativacao:semanal': 'reativacao_semanal',
   'reativacao:quinzenal': 'reativacao_geral',
   'reativacao:mensal': 'reativacao_retorno',
+  // Dia de retorno combinado com o cliente. Nao ha template proprio aprovado
+  // ainda ("combinamos de falar hoje") — usa o mais proximo de cada caso.
+  // Com a janela de 24h aberta a IA escreve livre e nada disso e usado.
+  'retorno:com_orcamento': 'followup_dia1',
+  'retorno:sem_orcamento': 'reativacao_geral',
 };
 
 // Resolve o template para o WORKFLOW do GHL que dispara aquele template.
@@ -162,9 +167,18 @@ function horasAtras(h: number): string {
 // dia 20, o follow-up respeitava, e no dia seguinte a reativacao mandava
 // mensagem assim mesmo. Combinar uma data e nao cumprir e pior que nao
 // perguntar.
+// Data de hoje em Brasilia (AAAA-MM-DD). toISOString() sozinho da a data em
+// UTC, que vira o dia seguinte depois das 21h.
+export function hojeBrasilia(): string {
+  return new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+}
+
+// true enquanto a data combinada NAO passou — inclusive NO PROPRIO DIA. No
+// dia, quem fala com o cliente e a regua de retorno (candidatosRetorno); as
+// outras ficam quietas pra ele nao receber duas mensagens.
 export function retornoAindaNaoChegou(dataFollowup: string | null | undefined): boolean {
   if (!dataFollowup) return false;
-  return dataFollowup > new Date().toISOString().slice(0, 10);
+  return dataFollowup >= hojeBrasilia();
 }
 
 // Clientes que pediram pra nao receber mais. Bloqueia as tres automacoes.
@@ -193,6 +207,63 @@ async function ultimaCompraFechadaPorCliente(): Promise<Map<string, string>> {
     if (!mapa.has(r.cliente_id)) mapa.set(r.cliente_id, r.criado_em);
   }
   return mapa;
+}
+
+// ---------------------------------------------------------------- retorno
+// O dia que o cliente combinou ("me chama semana que vem", "dia 20").
+//
+// Antes, a data so PAUSAVA as outras reguas ate o dia chegar — e quando
+// chegava, nada acontecia. O cliente que pediu pra ser chamado nunca era
+// chamado. Esta regua e quem chama, e tem prioridade sobre as outras no tick:
+// e uma promessa feita ao cliente.
+//
+// Vale pra data marcada pela IA (marcar_retorno) e pra data posta a mao no
+// perfil do cliente — as duas gravam em clientes.data_followup.
+export async function candidatosRetorno(): Promise<Candidato[]> {
+  const hoje = hojeBrasilia();
+  const { data: clientes, error } = await supabaseAdmin
+    .from('clientes')
+    .select('id, nome, telefone, data_followup')
+    .eq('data_followup', hoje);
+  if (error) throw new Error(`retorno: ${error.message}`);
+  if (!clientes?.length) return [];
+
+  const bloqueados = await clientesNaoPerturbe();
+
+  // Orcamento ainda em aberto de cada um (o mais recente). Perdido ou
+  // cancelado nao entra — status 'cancelado' sai deste filtro sozinho.
+  const { data: abertos } = await supabaseAdmin
+    .from('orcamentos')
+    .select('id, codigo, total, cliente_id')
+    .eq('status', 'orcamento')
+    .in('cliente_id', clientes.map(c => c.id))
+    .order('criado_em', { ascending: false });
+  const orcamentoDe = new Map<string, any>();
+  for (const o of abertos || []) if (!orcamentoDe.has(o.cliente_id)) orcamentoDe.set(o.cliente_id, o);
+
+  const saida: Candidato[] = [];
+  for (const cli of clientes) {
+    if (!cli.telefone || bloqueados.has(String(cli.id))) continue;
+    const orc = orcamentoDe.get(cli.id);
+    saida.push({
+      chaveDedup: `retorno:${cli.id}:${hoje}`,
+      tipo: 'followup',
+      momento: 'retorno',
+      clienteId: cli.id,
+      clienteNome: cli.nome || '',
+      telefone: cli.telefone,
+      orcamentoId: orc?.id || null,
+      template: TEMPLATES[orc ? 'retorno:com_orcamento' : 'retorno:sem_orcamento'],
+      variaveis: [primeiroNome(cli.nome)],
+      contexto: orc
+        ? `Combinamos com o cliente de voltar a falar HOJE sobre o orcamento ${orc.codigo || ''} de ${brl(orc.total)}.`
+        : 'Combinamos com o cliente de voltar a falar HOJE.',
+      exigeJanelaAberta: false,
+      iaTipo: 'retorno',
+      iaMomento: orc ? 'com_orcamento' : 'sem_orcamento',
+    });
+  }
+  return saida;
 }
 
 // ---------------------------------------------------------------- follow-up

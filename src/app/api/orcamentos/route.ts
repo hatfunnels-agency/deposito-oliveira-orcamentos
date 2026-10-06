@@ -410,6 +410,8 @@ export async function GET(request: NextRequest) {
                 status,
                 observacoes,
                 criado_em,
+                perdido_em,
+                motivo_perda,
                 data_entrega,
                 data_retirada,
                 fonte,

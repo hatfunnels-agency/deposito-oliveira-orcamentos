@@ -17,6 +17,7 @@ export async function GET(
                     id, codigo, tipo_entrega, valor_frete, subtotal, total,
                             desconto_percentual, desconto_valor,
                             status, observacoes, criado_em, atualizado_em,
+                            perdido_em, motivo_perda,
                                     data_entrega, data_retirada, fonte, forma_pagamento,
                                             status_pagamento, valor_pago, condicao_pagamento, vencimento,
                                             entregue_sem_pagamento, entregue_sem_pagamento_em,
@@ -75,6 +76,7 @@ export async function PATCH(
                   desconto_percentual, desconto_valor,
                   cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
+                  motivo_perda,
                   endereco_id: enderecoIdBody,
                   endereco_novo: enderecoNovoBody,
           } = body;
@@ -286,6 +288,12 @@ export async function PATCH(
           // aparecer como devendo. Pra marcar como pago, registre o dinheiro
           // em POST /api/pagamentos.
           if (ferragem_status !== undefined) updateData.ferragem_status = ferragem_status;
+          // Orcamento perdido = status 'cancelado' + motivo. Mandar motivo_perda
+          // vazio desmarca (perdido_em volta a null).
+          if (motivo_perda !== undefined) {
+                  updateData.motivo_perda = motivo_perda || null;
+                  updateData.perdido_em = motivo_perda ? new Date().toISOString() : null;
+          }
           if (enderecoIdValidado !== undefined) updateData.endereco_id = enderecoIdValidado;
           if (clienteIdNovo) updateData.cliente_id = clienteIdNovo;
 

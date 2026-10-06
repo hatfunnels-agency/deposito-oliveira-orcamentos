@@ -58,6 +58,20 @@ const BUFFER_SEGUNDOS = 25;
 
 const esperar = (ms: number) => new Promise(r => setTimeout(r, ms));
 
+// Hoje e os proximos 14 dias, com dia da semana. Sem isto a IA nao sabia em
+// que dia estava: de ~140 tentativas de marcar retorno, 122 sairam com data
+// no passado e foram descartadas. "Semana que vem" sem saber o hoje e chute.
+const DIAS_SEMANA = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+function linhaDeDatas(): string {
+  const base = Date.now() - 3 * 3600_000; // Brasilia
+  const dias: string[] = [];
+  for (let i = 0; i <= 14; i++) {
+    const d = new Date(base + i * 86_400_000);
+    dias.push(`${DIAS_SEMANA[d.getUTCDay()]} ${d.toISOString().slice(0, 10)}`);
+  }
+  return `DATA: hoje e ${dias[0]}. Proximos dias: ${dias.slice(1).join(', ')}.`;
+}
+
 function alvosPermitidos(): { modo: 'ninguem' | 'lista' | 'todos'; lista: string[] } {
   const raw = (process.env.AUTOMACOES_WEBHOOK_ALLOWLIST || '').trim();
   if (!raw) return { modo: 'ninguem', lista: [] };
@@ -515,6 +529,7 @@ async function responderDepoisDoBuffer({
     'CONVERSA ATE AGORA:',
     ...historico.map(h => `${h.de === 'cliente' ? 'CLIENTE' : 'NOS'}: ${h.texto}`),
     '',
+    linhaDeDatas(),
     `AGORA: ${String(horaBrasilia().hora).padStart(2, '0')}h${String(horaBrasilia().minuto).padStart(2, '0')} de Brasilia. ` +
       'A Mariana ESTA no atendimento agora — quem voce passar pra ela tem retorno HOJE, nao amanha.',
     '',
