@@ -183,7 +183,7 @@ export function retornoAindaNaoChegou(dataFollowup: string | null | undefined): 
 
 // Clientes que pediram pra nao receber mais. Bloqueia as tres automacoes.
 // Uma consulta por execucao do tick, nao uma por candidato.
-async function clientesNaoPerturbe(): Promise<Set<string>> {
+export async function clientesNaoPerturbe(): Promise<Set<string>> {
   const { data } = await supabaseAdmin
     .from('cliente_tags')
     .select('cliente_id')
@@ -191,10 +191,30 @@ async function clientesNaoPerturbe(): Promise<Set<string>> {
   return new Set((data || []).map((r: any) => String(r.cliente_id)));
 }
 
+// Clientes com quem a atendente acabou de trabalhar (pagina /tarefas). As
+// reguas ficam quietas com eles por 48h: ela acabou de ligar ou mandar
+// mensagem, e um template automatico logo em seguida soa como robo atropelando
+// gente. Tolerante a tabela ainda nao criada — sem ela, nao bloqueia ninguem.
+export async function clientesComTarefaRecente(horas = 48): Promise<Set<string>> {
+  const { data, error } = await supabaseAdmin
+    .from('tarefas_atendente')
+    .select('cliente_id')
+    .gte('criado_em', new Date(Date.now() - horas * 3600_000).toISOString());
+  if (error) return new Set();
+  return new Set((data || []).filter((r: any) => r.cliente_id).map((r: any) => String(r.cliente_id)));
+}
+
+// Quem as reguas NAO devem tocar agora: pediu pra parar, ou a atendente
+// acabou de falar com ele.
+async function clientesForaDasReguas(): Promise<Set<string>> {
+  const [dnd, tarefa] = await Promise.all([clientesNaoPerturbe(), clientesComTarefaRecente()]);
+  return new Set([...dnd, ...tarefa]);
+}
+
 // Data do pedido fechado mais recente de cada cliente (qualquer status que
 // nao seja orcamento nem cancelado). Uma consulta por tick, nao uma por
 // candidato.
-async function ultimaCompraFechadaPorCliente(): Promise<Map<string, string>> {
+export async function ultimaCompraFechadaPorCliente(): Promise<Map<string, string>> {
   const { data } = await supabaseAdmin
     .from('orcamentos')
     .select('cliente_id, criado_em')
@@ -228,7 +248,7 @@ export async function candidatosRetorno(): Promise<Candidato[]> {
   if (error) throw new Error(`retorno: ${error.message}`);
   if (!clientes?.length) return [];
 
-  const bloqueados = await clientesNaoPerturbe();
+  const bloqueados = await clientesForaDasReguas();
 
   // Orcamento ainda em aberto de cada um (o mais recente). Perdido ou
   // cancelado nao entra — status 'cancelado' sai deste filtro sozinho.
@@ -271,7 +291,7 @@ export async function candidatosRetorno(): Promise<Candidato[]> {
 // muda (converteu ou cancelou) — por isso o filtro status='orcamento'.
 export async function candidatosFollowup(): Promise<Candidato[]> {
   const saida: Candidato[] = [];
-  const bloqueados = await clientesNaoPerturbe();
+  const bloqueados = await clientesForaDasReguas();
   const fechouDepois = await ultimaCompraFechadaPorCliente();
 
   for (const janela of JANELAS_FOLLOWUP) {
@@ -341,7 +361,7 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 
   if (error) throw new Error(`posvenda: ${error.message}`);
 
-  const bloqueados = await clientesNaoPerturbe();
+  const bloqueados = await clientesForaDasReguas();
   const vistos = new Set<string>();
   const saida: Candidato[] = [];
 
@@ -412,7 +432,7 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     if (r.cliente_id && !ultimoEnvio.has(r.cliente_id)) ultimoEnvio.set(r.cliente_id, r.criado_em);
   }
 
-  const bloqueados = await clientesNaoPerturbe();
+  const bloqueados = await clientesForaDasReguas();
   const hoje = new Date();
   const saida: Candidato[] = [];
 

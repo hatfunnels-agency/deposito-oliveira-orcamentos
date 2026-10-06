@@ -3109,8 +3109,20 @@ export default function OrcamentoApp() {  // Auth state
           </button>
           <div className="hidden md:block" />
 
-          {/* Direita: badge nome+role + logout */}
+          {/* Direita: atalhos da atendente + badge nome+role + logout */}
           <div className="flex items-center gap-2">
+            {papelUsuario !== 'motorista' && (
+              <>
+                {/* Paginas fora das abas: tarefas do dia e fila do robo. A
+                    /atendimento nao tinha link em lugar nenhum — so por URL. */}
+                <a href="/tarefas" className="rounded-lg border border-[#F7941D] px-3 py-1.5 text-sm font-medium text-[#E8850A] hover:bg-[#FFF3E0]">
+                  📋 Tarefas do dia
+                </a>
+                <a href="/atendimento" className="hidden rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-100 sm:inline-block">
+                  Atendimento
+                </a>
+              </>
+            )}
             <span className="text-sm text-slate-600">
               {nomeUsuario}
               {papelUsuario && (
