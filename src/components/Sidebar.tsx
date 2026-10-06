@@ -11,6 +11,8 @@ import {
   Wallet,
   BarChart3,
   Sparkles,
+  ListChecks,
+  Headset,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -46,6 +48,13 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'financeiro', label: 'Financeiro', icon: Wallet },
   { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { key: 'ia', label: 'IA', icon: Sparkles },
+];
+
+// Paginas proprias (fora das abas): navegam pra outra rota. Ficam no topo
+// porque e por onde a atendente comeca o dia. Motorista nao ve.
+const PAGINAS: Array<{ href: string; label: string; icon: LucideIcon }> = [
+  { href: '/tarefas', label: 'Tarefas do dia', icon: ListChecks },
+  { href: '/atendimento', label: 'Atendimento', icon: Headset },
 ];
 
 interface SidebarProps {
@@ -104,6 +113,29 @@ export default function Sidebar({
             <X size={20} />
           </button>
         </div>
+
+        {/* Paginas proprias. Com orcamento em andamento abre em aba nova:
+            navegar na mesma aba apagaria o carrinho, que so vive em memoria. */}
+        {abasVisiveis.includes('orcamento') && (
+          <nav className="mb-3 flex flex-col gap-1 border-b border-slate-700 pb-3">
+            {PAGINAS.map(p => {
+              const Icone = p.icon;
+              const novaAba = quantidadeItens > 0;
+              return (
+                <a
+                  key={p.href}
+                  href={p.href}
+                  target={novaAba ? '_blank' : undefined}
+                  rel={novaAba ? 'noopener noreferrer' : undefined}
+                  className="flex items-center gap-3 rounded-lg px-4 py-3 text-sm font-medium text-slate-300 transition-colors hover:bg-slate-700"
+                >
+                  <Icone size={20} />
+                  <span className="flex-1 text-left">{p.label}</span>
+                </a>
+              );
+            })}
+          </nav>
+        )}
 
         {/* Items */}
         <nav className="flex flex-col gap-1">
