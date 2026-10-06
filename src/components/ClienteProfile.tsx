@@ -923,7 +923,7 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
                     const comDDI = digits.startsWith('55') ? digits : `55${digits}`;
                     const primeiroNome = (cliente.nome || '').trim().split(/\s+/)[0] || '';
                     const texto = primeiroNome ? `Olá ${primeiroNome}` : 'Olá';
-                    const href = `https://wa.me/${comDDI}?text=${encodeURIComponent(texto)}`;
+                    const href = `https://api.whatsapp.com/send?phone=${comDDI}&text=${encodeURIComponent(texto)}`; // wa.me estraga emoji no redirect
                     return (
                       <a
                         href={href}
