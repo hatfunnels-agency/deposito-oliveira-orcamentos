@@ -299,7 +299,7 @@ export default function FinanceiroTab({
                 </div>
                 {c.cliente_telefone && (
                   <a
-                    href={`https://wa.me/55${c.cliente_telefone.replace(/\D/g, '')}?text=${encodeURIComponent(
+                    href={`https://api.whatsapp.com/send?phone=55${c.cliente_telefone.replace(/\D/g, '')}&text=${encodeURIComponent(
                       `Olá ${c.cliente_nome}, tudo bem? Passando pra lembrar do saldo em aberto do pedido ${c.codigo}: ${brl(c.saldo)}. Qualquer dúvida é só chamar!`,
                     )}`}
                     target="_blank"

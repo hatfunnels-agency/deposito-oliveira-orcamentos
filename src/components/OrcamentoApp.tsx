@@ -1029,6 +1029,41 @@ export default function OrcamentoApp() {  // Auth state
     }
   }, []);
 
+  // Preenche o form com um cliente achado pelo telefone. Isto vivia COPIADO em
+  // tres buscas, e as copias divergiram: o campo "Numero do cliente" nunca
+  // carregava os enderecos (enderecos_clientes). O cliente aparecia como
+  // encontrado, o picker ficava vazio, e o form dizia "Informe o endereco de
+  // entrega antes de salvar" — obrigando a cadastrar de novo um endereco que
+  // ja existia. Uma das copias ja tinha sido corrigida antes; as outras nao.
+  // Agora as tres chamam esta.
+  const aplicarClienteEncontrado = useCallback(async (cli: any) => {
+    setClienteEncontrado(cli);
+    setClienteNomeNovo(cli.nome);
+    setClienteTelefoneNovo(cli.telefone);
+    setNomeCliente(cli.nome);
+    setWhatsappCliente(cli.telefone);
+    if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
+    if (cli.endereco) setEnderecoViaCEP(cli.endereco);
+    if (cli.numero) setNumeroEndereco(cli.numero);
+    if (cli.complemento) setComplementoEndereco(cli.complemento);
+    if (cli.recebedor) setRecebedor(cli.recebedor);
+    const ends = await carregarEnderecosDoCliente(cli.id);
+    const padrao = ends.find(e => e.is_padrao) ?? ends[0];
+    if (padrao) {
+      setEnderecoIdSelecionado(padrao.id);
+      setModoEndereco('existente');
+      // Espelha o endereco escolhido nos campos de preview/frete — o mesmo que
+      // acontece quando ele e escolhido a mao no seletor.
+      if (padrao.cep) { setCepDestino(padrao.cep.replace(/\D/g, '')); setBuscaEndereco(padrao.cep); }
+      setEnderecoViaCEP([padrao.rua, padrao.bairro, padrao.cidade ? `${padrao.cidade}-${padrao.estado || ''}` : null].filter(Boolean).join(', '));
+      setNumeroEndereco(padrao.numero || '');
+      setComplementoEndereco(padrao.complemento || '');
+    } else {
+      setEnderecoIdSelecionado(null);
+      setModoEndereco('novo');
+    }
+  }, [carregarEnderecosDoCliente]);
+
   // Abre o sub-picker de troca de endereco no modal de detalhe. Carrega
   // os enderecos do cliente do orcamento atual (se houver).
   const abrirTrocaEndereco = async () => {
@@ -1210,6 +1245,15 @@ export default function OrcamentoApp() {  // Auth state
   const total = subtotal;
   const totalFinal = descontoCustom > 0 ? total * (1 - descontoCustom / 100) : total;
 
+  // No modo R$ o desconto e um VALOR fixo. O total aplica sempre a %, entao
+  // a % precisa acompanhar o total — senao R$ 50 digitado vira "4,35%" e,
+  // ao mexer nos itens, passa a dar outro valor em reais.
+  useEffect(() => {
+    if (descontoModo !== 'valor' || total <= 0) return;
+    const pct = Math.min(100, (descontoValorInput / total) * 100);
+    if (Math.abs(pct - descontoCustom) > 1e-9) setDescontoCustom(pct);
+  }, [descontoModo, descontoValorInput, total, descontoCustom]);
+
   const pesoTotal = itens.reduce((acc, item) => {
     const unitLower = item.produto.unidade.toLowerCase();
     return acc + ((PESO_MEDIO_KG[unitLower] || 5) * item.quantidade);
@@ -1366,7 +1410,11 @@ export default function OrcamentoApp() {  // Auth state
         subtotal,
         total: totalFinal,
         desconto_percentual: descontoCustom > 0 ? descontoCustom : 0,
-        desconto_valor: descontoCustom > 0 ? (total - totalFinal) : 0,
+        // No modo R$ grava o valor DIGITADO (em centavos), nao total-totalFinal:
+        // ruido de ponto flutuante quebraria a deteccao do modo ao reabrir.
+        desconto_valor: descontoCustom > 0
+          ? (descontoModo === 'valor' ? Math.round(descontoValorInput * 100) / 100 : (total - totalFinal))
+          : 0,
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
@@ -1602,15 +1650,15 @@ export default function OrcamentoApp() {  // Auth state
   const compartilharWhatsApp = (texto?: string) => {
     const msg = texto || gerarTextoWhatsApp();
     const numLimpo = whatsappCliente.replace(/\D/g, '');
-    if (numLimpo) window.open(`https://wa.me/55${numLimpo}?text=${encodeURIComponent(msg)}`, '_blank');
-    else window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    if (numLimpo) window.open(`https://api.whatsapp.com/send?phone=55${numLimpo}&text=${encodeURIComponent(msg)}`, '_blank');
+    else window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
   const compartilharWhatsAppDetalhe = (detalhe: OrcamentoDetalhe) => {
     const msg = gerarTextoWhatsApp(detalhe);
     const numLimpo = (detalhe.clientes?.telefone || '').replace(/\D/g, '');
-    if (numLimpo) window.open(`https://wa.me/55${numLimpo}?text=${encodeURIComponent(msg)}`, '_blank');
-    else window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
+    if (numLimpo) window.open(`https://api.whatsapp.com/send?phone=55${numLimpo}&text=${encodeURIComponent(msg)}`, '_blank');
+    else window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
   // Telefone do cliente pronto pro wa.me (com DDI 55). null quando nao
@@ -1651,7 +1699,9 @@ export default function OrcamentoApp() {  // Auth state
       `Por favor, deixe alguém no local para receber${e.recebedor ? ` (${e.recebedor})` : ''}.`,
       'Qualquer dúvida, é só chamar aqui!',
     ].filter((l): l is string => l !== null);
-    window.open(`https://wa.me/${numero}?text=${encodeURIComponent(linhas.join('\n'))}`, '_blank');
+    // wa.me NAO: o redirect dele pro api.whatsapp.com troca emoji por "\uFFFD"
+    // (testado: 🚚 %F0%9F%9A%9A virava %EF%BF%BD). O link direto preserva.
+    window.open(`https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(linhas.join('\n'))}`, '_blank');
   };
 
   const imprimirOrcamento = (detalhe?: OrcamentoDetalhe | null) => {
@@ -2142,9 +2192,15 @@ export default function OrcamentoApp() {  // Auth state
     // desconto se perdia no total. descontoCustom e sempre em %; descontoValorInput
     // guarda o R$ pro modo=valor.
     const pctSalvo = Number(detalhe.desconto_percentual) || 0;
+    const valorSalvo = Number(detalhe.desconto_valor) || 0;
     setDescontoCustom(pctSalvo);
-    setDescontoValorInput(Number(detalhe.desconto_valor) || 0);
-    setDescontoModo('pct');
+    setDescontoValorInput(valorSalvo);
+    // Reabre no modo em que o desconto FOI DIGITADO. Antes reabria sempre em
+    // %, e R$ 50 virava "4,35%". Nao ha coluna de modo, mas o dado diz: o
+    // numero digitado e o redondo, o derivado e o quebrado — R$ 16 vira
+    // 4,371584699...%, e 5% vira R$ 114,70000000000027.
+    const redondo = (n: number) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6;
+    setDescontoModo(valorSalvo > 0 && redondo(valorSalvo) && !redondo(pctSalvo) ? 'valor' : 'pct');
     setStatusPedidoForm(detalhe.status || 'orcamento');
     setCondicaoPagamentoForm(detalhe.condicao_pagamento || 'a_vista');
     setVencimentoForm(detalhe.vencimento || '');
@@ -3108,31 +3164,7 @@ export default function OrcamentoApp() {  // Auth state
                             const res = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}&limite=1`);
                             const data = await res.json();
                             if (data.clientes && data.clientes.length > 0) {
-                              const cli = data.clientes[0];
-                              setClienteEncontrado(cli);
-                              setClienteNomeNovo(cli.nome);
-                              setClienteTelefoneNovo(cli.telefone);
-                              setNomeCliente(cli.nome);
-                              setWhatsappCliente(cli.telefone);
-                              if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
-                              if (cli.endereco) setEnderecoViaCEP(cli.endereco);
-                              if (cli.numero) setNumeroEndereco(cli.numero);
-                              if (cli.complemento) setComplementoEndereco(cli.complemento);
-                              if (cli.recebedor) setRecebedor(cli.recebedor);
-                              // Pre-fetch enderecos pro picker (Step 3 — UI mostra
-                              // dropdown se >0). Pre-seleciona is_padrao quando existe.
-                              const ends = await carregarEnderecosDoCliente(cli.id);
-                              const padrao = ends.find(e => e.is_padrao);
-                              if (padrao) {
-                                setEnderecoIdSelecionado(padrao.id);
-                                setModoEndereco('existente');
-                              } else if (ends.length > 0) {
-                                setEnderecoIdSelecionado(ends[0].id);
-                                setModoEndereco('existente');
-                              } else {
-                                setEnderecoIdSelecionado(null);
-                                setModoEndereco('novo');
-                              }
+                              await aplicarClienteEncontrado(data.clientes[0]);
                             } else {
                               setClienteEncontrado(null);
                               setEnderecosDoCliente([]);
@@ -3368,17 +3400,7 @@ export default function OrcamentoApp() {  // Auth state
                                   const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(digits)}`);
                                   const data = await r.json();
                                   if (data.clientes && data.clientes.length > 0) {
-                                    const cli = data.clientes[0];
-                                    setClienteEncontrado(cli);
-                                    setClienteNomeNovo(cli.nome);
-                                    setClienteTelefoneNovo(cli.telefone);
-                                    setNomeCliente(cli.nome);
-                                    setWhatsappCliente(cli.telefone);
-                                    if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
-                                    if (cli.endereco) setEnderecoViaCEP(cli.endereco);
-                                    if (cli.numero) setNumeroEndereco(cli.numero);
-                                    if (cli.complemento) setComplementoEndereco(cli.complemento);
-                                    if (cli.recebedor) setRecebedor(cli.recebedor);
+                                    await aplicarClienteEncontrado(data.clientes[0]);
                                   } else {
                                     setClienteEncontrado(null);
                                   }
@@ -3421,26 +3443,7 @@ export default function OrcamentoApp() {  // Auth state
                               const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}`, { cache: 'no-store' });
                               const data = await r.json();
                               if (data.clientes && data.clientes.length > 0) {
-                                const cli = data.clientes[0];
-                                setClienteEncontrado(cli);
-                                setClienteNomeNovo(cli.nome);
-                                setClienteTelefoneNovo(cli.telefone);
-                                setNomeCliente(cli.nome);
-                                if (cli.cep) { setCepDestino(cli.cep); setBuscaEndereco(cli.cep); }
-                                if (cli.endereco) setEnderecoViaCEP(cli.endereco);
-                                if (cli.numero) setNumeroEndereco(cli.numero);
-                                if (cli.complemento) setComplementoEndereco(cli.complemento);
-                                if (cli.recebedor) setRecebedor(cli.recebedor);
-                                // Carrega enderecos_clientes (endereco "novo") e pre-seleciona
-                                // o padrao. Os campos legados acima (clientes.endereco/numero/
-                                // cep) estao vazios pra ~377 clientes cujo endereco so vive em
-                                // enderecos_clientes — sem isto, eles nao puxavam endereco.
-                                const ends = await carregarEnderecosDoCliente(cli.id);
-                                const padrao = ends.find(e => e.is_padrao) ?? ends[0];
-                                if (padrao) {
-                                  setEnderecoIdSelecionado(padrao.id);
-                                  setModoEndereco('existente');
-                                }
+                                await aplicarClienteEncontrado(data.clientes[0]);
                               } else {
                                 setClienteEncontrado(null);
                                 setEnderecosDoCliente([]);
