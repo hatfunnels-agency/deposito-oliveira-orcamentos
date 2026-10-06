@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export async function POST(request: Request) {
@@ -18,20 +19,22 @@ export async function POST(request: Request) {
     const seteDiasAtras = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
     const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
 
-    const { data: orcamentos } = await supabaseAdmin
+    // lerTudo: o Supabase corta em 1.000 linhas sem avisar. Os 1.155+
+    // clientes ja passavam disso; 30 dias de orcamentos esta chegando perto.
+    const orcamentos = await lerTudo(() => supabaseAdmin
       .from('orcamentos')
       .select('id, codigo, status, total, tipo_entrega, forma_pagamento, fonte, criado_em, data_entrega, clientes ( nome, telefone, cidade, bairro ), orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade )')
       .gte('criado_em', trintaDiasAtras + 'T00:00:00')
-      .order('criado_em', { ascending: false });
+      .order('criado_em', { ascending: false }));
 
     const { data: produtos } = await supabaseAdmin
       .from('produtos')
       .select('nome, codigo, categoria, preco_venda, preco_custo, estoque_atual, estoque_minimo, unidade_venda, ativo, tipo_estoque, total_vendido')
       .eq('ativo', true);
 
-    const { data: clientes } = await supabaseAdmin
+    const clientes = await lerTudo(() => supabaseAdmin
       .from('clientes')
-      .select('id, nome, telefone, cidade, criado_em');
+      .select('id, nome, telefone, cidade, criado_em'));
 
     const orcamentosHoje = (orcamentos || []).filter(o => o.criado_em?.startsWith(hoje));
     const orcamentosSemana = (orcamentos || []).filter(o => o.criado_em >= seteDiasAtras + 'T00:00:00');

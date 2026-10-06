@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -74,11 +75,12 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    // Totais por status e por tipo dentro do mesmo filtro (sem paginacao).
-    // Busca so as duas colunas, com teto alto o bastante pro volume atual.
-    const { data: linhas } = await aplicarFiltros(
+    // Totais por status e por tipo dentro do mesmo filtro. lerTudo: o
+    // .limit(10000) nao valia — o Supabase devolve no maximo 1.000 linhas, e
+    // os contadores da tela travavam em 1.000 (a tabela ja passa de 8.700).
+    const linhas = await lerTudo(() => aplicarFiltros(
       supabaseAdmin.from('automacao_envios').select('status, tipo'),
-    ).limit(10000);
+    ));
 
     const porStatus: Record<string, number> = {};
     const porTipo: Record<string, number> = {};

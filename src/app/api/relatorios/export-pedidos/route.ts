@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -54,6 +55,8 @@ export async function GET(request: NextRequest) {
       return new NextResponse('Parametros inicio e fim sao obrigatorios (YYYY-MM-DD)', { status: 400 });
     }
 
+    // lerTudo: com .limit(100000) a exportacao saia cortada em 1.000 pedidos.
+    const montar = () => {
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
@@ -66,8 +69,7 @@ export async function GET(request: NextRequest) {
       `)
       .gte('criado_em', inicio + 'T00:00:00')
       .lte('criado_em', fim + 'T23:59:59.999')
-      .order('criado_em', { ascending: false })
-      .limit(100000);
+      .order('criado_em', { ascending: false });
 
     if (statusFiltro) {
       query = query.eq('status', statusFiltro);
@@ -77,9 +79,13 @@ export async function GET(request: NextRequest) {
     if (clienteId) {
       query = query.eq('cliente_id', clienteId);
     }
+    return query;
+    };
 
-    const { data: rawOrcamentos, error } = await query;
-    if (error) {
+    let rawOrcamentos: unknown[];
+    try {
+      rawOrcamentos = await lerTudo(montar);
+    } catch (error) {
       console.error('[export-pedidos] erro:', error);
       return new NextResponse('Erro ao buscar pedidos', { status: 500 });
     }
