@@ -1,19 +1,22 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest, NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import {
   buscarContatoId,
   formatPhoneBR,
   historicoConversa,
+  type MensagemHistorico,
   contatoEmDnd,
   marcarDndNoGhl,
 } from '@/lib/ghl';
 import { dentroHorarioComercial, horaBrasilia } from '@/lib/automacoes';
 import { candidatosTelefone } from '@/lib/contexto';
 import { catalogoParaPrompt } from '@/lib/catalogo';
+import { transcreverAudio } from '@/lib/transcricao';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Buffer (25s) + transcricao + IA + GHL. 60s ficava apertado.
+export const maxDuration = 120;
 
 // POST /api/automacoes/webhook
 // Chamado pelo GHL quando o CLIENTE manda mensagem no WhatsApp.
@@ -45,6 +48,15 @@ const MINUTOS_CALADO_APOS_HUMANO = 120;
 
 // Tem que bater com o CHECK chk_categoria_valida em atendimento_fila.
 const CATEGORIAS_RECLAMACAO = ['entrega', 'material', 'atendimento', 'outro'];
+
+// Quanto o robo espera antes de responder. Cliente de WhatsApp manda em
+// rajada — "oi", "bom dia", "consegue entregar 10 sacos?" — e o robo
+// respondia a primeira em segundos, atropelando as outras. Cada mensagem
+// nova durante a espera empurra a resposta: so a ULTIMA chamada responde, e
+// responde tudo de uma vez.
+const BUFFER_SEGUNDOS = 25;
+
+const esperar = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 function alvosPermitidos(): { modo: 'ninguem' | 'lista' | 'todos'; lista: string[] } {
   const raw = (process.env.AUTOMACOES_WEBHOOK_ALLOWLIST || '').trim();
@@ -100,22 +112,6 @@ async function reguaCutucou(digitos: string): Promise<boolean> {
     .eq('status', 'enviado')
     .gte('criado_em', new Date(Date.now() - 24 * 3600_000).toISOString());
   return (count || 0) > 0;
-}
-
-// Anexo: o GHL preenche `attachments` e poe o nome do arquivo no `body`.
-// Visto em producao num PDF: body = "comprovante_picpay_pix_28-09-2026.pdf".
-const EXT_ANEXO = /\.(ogg|opus|mp3|m4a|wav|amr|aac|jpg|jpeg|png|webp|gif|pdf|mp4|mov|3gp|docx?|xlsx?)$/i;
-const EXT_AUDIO = /\.(ogg|opus|mp3|m4a|wav|amr|aac)$/i;
-
-function ehAudio(texto: string): boolean {
-  return EXT_AUDIO.test((texto || '').trim());
-}
-
-function ehAnexo(texto: string, body: any): boolean {
-  const p = body?.message || body?.data || body;
-  const anexos = p?.attachments || body?.attachments;
-  if (Array.isArray(anexos) && anexos.length > 0) return true;
-  return EXT_ANEXO.test((texto || '').trim());
 }
 
 // O GHL varia o formato do payload conforme a origem. Procura nos campos
@@ -273,6 +269,7 @@ async function registrar(
   }
 }
 
+
 export async function POST(request: NextRequest) {
   const segredo = process.env.AUTOMACAO_SECRET;
   if (segredo && request.headers.get('x-automacao-secret') !== segredo) {
@@ -282,7 +279,7 @@ export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => ({}));
   const { telefone, texto, direcao, tipo } = extrair(body);
 
-  // ANTI-LOOP: so mensagem de entrada, so WhatsApp, so com texto.
+  // ANTI-LOOP: so mensagem de entrada, so WhatsApp.
   if (direcao !== 'inbound') {
     await registrar(telefone, 'pulado', `direcao "${direcao}" — so processo mensagem de entrada`);
     return NextResponse.json({ ignorado: 'nao e mensagem de entrada', direcao });
@@ -291,37 +288,14 @@ export async function POST(request: NextRequest) {
     await registrar(telefone, 'pulado', `tipo "${tipo}" nao e WhatsApp — ignorado`);
     return NextResponse.json({ ignorado: `tipo ${tipo}` });
   }
-  // Anexo sem texto (audio, foto, PDF). O GHL manda o NOME DO ARQUIVO no body,
-  // entao sem isto a IA receberia "audio_2026-09-28.ogg" como se fosse a fala
-  // do cliente e responderia bobagem. A IA nao ouve audio — ate termos
-  // transcricao, o caminho honesto e passar pra humano em vez de sumir.
-  if (telefone && ehAnexo(texto, body)) {
-    const contactIdAnexo = await buscarContatoId(telefone.replace(/\D/g, ''));
-    const { data: cli } = await supabaseAdmin
-      .from('clientes').select('id')
-      .in('telefone', candidatosTelefone(telefone.replace(/\D/g, ''))).limit(1).maybeSingle();
-    // Em nao_perturbe nao abre caso: o combinado e calar, nao redirecionar.
-    const { data: tagDnd } = cli?.id
-      ? await supabaseAdmin.from('cliente_tags')
-          .select('tag').eq('cliente_id', cli.id).eq('tag', 'nao_perturbe').limit(1).maybeSingle()
-      : { data: null };
-    if (cli?.id && !tagDnd) {
-      await supabaseAdmin.from('atendimento_fila').insert({
-        cliente_id: cli.id,
-        telefone: telefone.replace(/\D/g, ''),
-        motivo: 'nao_sabe_responder',
-        resumo: `Cliente mandou ${ehAudio(texto) ? 'um audio' : 'um anexo'} — o robo nao consegue ouvir/ler. Precisa de atendimento humano.`,
-        origem: 'anexo',
-        status: 'aberto',
-      });
-    }
-    await registrar(telefone.replace(/\D/g, ''), 'pulado',
-      `${ehAudio(texto) ? 'audio' : 'anexo'} recebido — IA nao processa; ${cli?.id ? 'caso aberto na fila' : 'sem cadastro, nao foi pra fila'}`,
-      { cliente_id: cli?.id || null, ghl_contact_id: contactIdAnexo });
-    return NextResponse.json({ ignorado: 'anexo — passado para humano' });
-  }
 
-  if (!telefone || !texto) {
+  // Sem texto pode ser MIDIA: audio, foto, figurinha. Chega no payload
+  // padrao do GHL — o que tem `message` — com o body vazio, e o arquivo so
+  // aparece depois, no historico da conversa. Os workflows de sincronizacao
+  // tambem mandam payload sem texto, mas sem `message`: esses sao lixo e
+  // continuam descartados.
+  const talvezMidia = !texto && !!telefone && !!body?.message && typeof body.message === 'object';
+  if (!telefone || (!texto && !talvezMidia)) {
     await registrar(telefone, 'pulado',
       `payload sem ${!telefone ? 'telefone' : 'texto'} — chaves recebidas: ${Object.keys(body || {}).join(', ')}`);
     return NextResponse.json({ ignorado: 'sem telefone ou sem texto', chaves: Object.keys(body || {}) });
@@ -336,29 +310,20 @@ export async function POST(request: NextRequest) {
     .from('clientes').select('id, nome, notas_contexto')
     .in('telefone', candidatosTelefone(digitos)).limit(1).maybeSingle();
 
-  // Duas portas pra falar:
-  //   1. a janela da noite (17h30-20h), quando a Mariana ja saiu; ou
-  //   2. horario comercial, mas SO se a conversa foi a regua que comecou.
-  // Sem a porta 2, toda resposta a um follow-up morria no log: em 28/09 foram
-  // 229 respostas escritas e nenhuma enviada, porque o cliente responde na
-  // hora e o robo so podia falar 3h depois.
-  // A janela da noite foi DESLIGADA em 01/10: lead que chega sozinho nao e
-  // respondido, nem depois das 17h30. Primeiro alinhar as automacoes, depois
-  // voltar a tratar o robo como atendente.
-  //
-  // Sobrou uma porta so: conversa que a REGUA comecou, em horario comercial.
+  // Uma porta so pra falar: conversa que a REGUA comecou, em horario
+  // comercial. A janela da noite (17h30-20h) foi desligada em 01/10 — lead
+  // que chega sozinho e da Mariana.
   const nossaConversa = await reguaCutucou(digitos);
   const dentroDaJanelaDeResposta = nossaConversa && dentroHorarioComercial();
 
-  // nao_perturbe cala o robo, sempre.
+  // nao_perturbe cala tudo. ia_pausada cala SO o robo — as reguas continuam,
+  // e e assim de proposito: serve pra tirar o robo de uma conversa que a
+  // equipe quer tocar na mao.
   if (cliente?.id) {
     const { data: tag } = await supabaseAdmin.from('cliente_tags')
       .select('tag').eq('cliente_id', cliente.id)
       .in('tag', ['nao_perturbe', 'ia_pausada']).limit(1).maybeSingle();
     if (tag) {
-      // nao_perturbe cala tudo. ia_pausada cala SO o robo — as reguas
-      // continuam, e e assim de proposito: serve pra tirar o robo de uma
-      // conversa que a equipe quer tocar na mao.
       await registrar(digitos, 'pulado', `cliente com ${tag.tag}`, { cliente_id: cliente.id });
       return NextResponse.json({ ignorado: `cliente com ${tag.tag}` });
     }
@@ -375,11 +340,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ignorado: `teto de ${TETO_RESPOSTAS_HORA} respostas/hora atingido` });
   }
 
-  // Reserva a vaga ANTES de pensar. Se a chave ja existe, esta e uma entrega
-  // repetida do mesmo texto: sai calado, sem gastar IA e sem responder de novo.
-  // A linha nasce como 'pulado'/'processando' e e atualizada no fim — quem
-  // ficar como 'processando' no log e chamada que morreu no meio.
-  const chave = chaveResposta(digitos, texto);
+  // Reserva a vaga. Texto repetido bate na UNIQUE e sai calado (entrega
+  // duplicada do GHL). Midia nao tem texto pra deduplicar — mas o buffer ja
+  // resolve: entrega repetida vira mais uma chamada, e so a ultima responde.
+  // A linha nasce 'processando' e e o que o buffer usa pra saber se chegou
+  // mensagem mais nova; quem ficar 'processando' no log morreu no meio.
+  const chave = texto ? chaveResposta(digitos, texto) : `resposta:${digitos}:midia:${Date.now()}`;
   const { data: vaga, error: erroVaga } = await supabaseAdmin
     .from('automacao_envios')
     .insert({
@@ -391,15 +357,15 @@ export async function POST(request: NextRequest) {
       status: 'pulado',
       motivo: 'processando',
     })
-    .select('id')
+    .select('id, criado_em')
     .single();
 
-  if (erroVaga) {
+  if (erroVaga || !vaga) {
     // 23505 = violacao de UNIQUE, ou seja, mensagem repetida. Qualquer outro
     // erro e problema nosso de banco: registra e para, nunca responde as cegas.
-    const repetida = (erroVaga as { code?: string }).code === '23505';
+    const repetida = (erroVaga as { code?: string } | null)?.code === '23505';
     if (!repetida) {
-      await registrar(digitos, 'erro', `falha ao reservar a vaga: ${erroVaga.message}`.slice(0, 300));
+      await registrar(digitos, 'erro', `falha ao reservar a vaga: ${erroVaga?.message || 'sem retorno'}`.slice(0, 300));
     }
     return NextResponse.json({
       ignorado: repetida
@@ -408,25 +374,65 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Devolve 200 pro GHL JA, e espera o buffer depois. Segurar a resposta 25s
+  // arriscaria o GHL estourar o tempo dele e reenviar a mensagem.
+  after(async () => {
+    try {
+      await responderDepoisDoBuffer({ digitos, texto, cliente, vaga, nossaConversa, dentroDaJanelaDeResposta });
+    } catch (e) {
+      await supabaseAdmin.from('automacao_envios')
+        .update({ status: 'erro', motivo: `falha inesperada: ${(e as Error).message}`.slice(0, 300) })
+        .eq('id', vaga.id);
+    }
+  });
+
+  return NextResponse.json({ ok: true, aguardando: `${BUFFER_SEGUNDOS}s de buffer` });
+}
+
+async function responderDepoisDoBuffer({
+  digitos, texto, cliente, vaga, nossaConversa, dentroDaJanelaDeResposta,
+}: {
+  digitos: string;
+  texto: string;
+  cliente: { id: string; nome: string | null; notas_contexto: string | null } | null;
+  vaga: { id: string; criado_em: string };
+  nossaConversa: boolean;
+  dentroDaJanelaDeResposta: boolean;
+}): Promise<void> {
+  const marcar = (campos: Record<string, unknown>) =>
+    supabaseAdmin.from('automacao_envios').update(campos).eq('id', vaga.id);
+
+  await esperar(BUFFER_SEGUNDOS * 1000);
+
+  // Chegou outra mensagem do mesmo cliente durante a espera? Entao esta
+  // chamada abre mao: a mais nova vai acordar depois, ler o historico com
+  // TUDO que ele mandou e responder uma vez so.
+  const { count: maisNovas } = await supabaseAdmin
+    .from('automacao_envios')
+    .select('id', { count: 'exact', head: true })
+    .eq('telefone', digitos).eq('momento', 'resposta').eq('motivo', 'processando')
+    .gt('criado_em', vaga.criado_em).neq('id', vaga.id);
+  if ((maisNovas || 0) > 0) {
+    await marcar({ status: 'pulado', motivo: 'agrupada — o cliente mandou outra mensagem durante o buffer' });
+    return;
+  }
+
   const contactId = await buscarContatoId(digitos);
 
-  // DND marcado pela Mariana no CRM. O check do Supabase la em cima e o
-  // caminho rapido; este aqui pega quem ela acabou de marcar no GHL e ainda
-  // nao foi espelhado. Cala e pronto: sem resposta e sem abrir caso na fila.
+  // DND marcado no CRM. O check do Supabase no POST e o caminho rapido; este
+  // pega quem acabou de ser marcado no GHL. Cala e pronto.
   if (contactId) {
     const dnd = await contatoEmDnd(contactId);
     if (dnd.dnd) {
-      await supabaseAdmin.from('automacao_envios')
-        .update({ status: 'pulado', motivo: `nao perturbe — ${dnd.motivo}`, ghl_contact_id: contactId })
-        .eq('id', vaga.id);
-      return NextResponse.json({ ignorado: 'cliente em nao perturbe', motivo: dnd.motivo });
+      await marcar({ status: 'pulado', motivo: `nao perturbe — ${dnd.motivo}`, ghl_contact_id: contactId });
+      return;
     }
   }
 
   const [hist, orcRes] = await Promise.all([
     contactId
       ? historicoConversa(contactId, 16)
-      : Promise.resolve({ mensagens: [], humanoFalouEm: null }),
+      : Promise.resolve({ mensagens: [] as MensagemHistorico[], humanoFalouEm: null }),
     cliente?.id
       ? supabaseAdmin.from('orcamentos')
           .select('id, codigo, total, status, criado_em, orcamento_itens (produto_nome, quantidade)')
@@ -436,19 +442,57 @@ export async function POST(request: NextRequest) {
   const orc = (orcRes as any)?.data;
   const historico = hist.mensagens;
 
-  // Humano assumiu: o robo sai de cena. Vale mesmo dentro da janela — se a
-  // Mariana esta escrevendo pro cliente agora, dois atendentes na mesma
-  // conversa e pior que nenhum.
+  // Humano assumiu: o robo sai de cena. Checado DEPOIS do buffer de
+  // proposito — se a Mariana respondeu enquanto o robo esperava, ele cala.
   if (hist.humanoFalouEm) {
     const minutos = (Date.now() - new Date(hist.humanoFalouEm).getTime()) / 60_000;
     if (minutos >= 0 && minutos < MINUTOS_CALADO_APOS_HUMANO) {
-      await supabaseAdmin.from('automacao_envios').update({
+      await marcar({
         status: 'pulado',
         ghl_contact_id: contactId,
         motivo: `humano respondeu ha ${Math.round(minutos)} min — robo calado por ${MINUTOS_CALADO_APOS_HUMANO} min`,
-      }).eq('id', vaga.id);
-      return NextResponse.json({ ignorado: 'humano assumiu a conversa' });
+      });
+      return;
     }
+  }
+
+  const naAllowlist = podeResponder(digitos);
+  const liberado = naAllowlist && dentroDaJanelaDeResposta;
+
+  // Tudo que o cliente mandou depois da NOSSA ultima mensagem. O GHL as vezes
+  // nao chama o webhook pra uma das mensagens (Ana Paula, 29/09), e com o
+  // buffer esta e a chamada que responde pela rajada inteira.
+  const cauda: MensagemHistorico[] = [];
+  for (let i = historico.length - 1; i >= 0; i--) {
+    if (historico[i].de !== 'cliente') break;
+    cauda.unshift(historico[i]);
+  }
+
+  // Audio vira texto. So quando a resposta vai sair de verdade: em conversa
+  // que nao e nossa a resposta e so simulada, e transcrever pra isso e gasto
+  // a toa. Os 3 ultimos audios bastam — quem manda mais que isso numa rajada
+  // e caso pra humano de qualquer jeito.
+  const falhasTranscricao: string[] = [];
+  if (liberado) {
+    await Promise.all(
+      cauda.filter(m => m.midia?.tipo === 'audio').slice(-3).map(async m => {
+        const r = await transcreverAudio(m.midia!.url);
+        if (r.ok) {
+          m.texto = `[audio transcrito] ${r.texto}`;
+        } else {
+          m.texto = '[audio que nao deu pra ouvir]';
+          falhasTranscricao.push(r.motivo);
+        }
+      }),
+    );
+  }
+
+  const semResposta = cauda.map(m => m.texto);
+  if (texto && !semResposta.some(m => m.trim() === texto.trim())) semResposta.push(texto);
+  if (!semResposta.length) {
+    // Payload de midia sem nada correspondente no historico do GHL.
+    await marcar({ status: 'pulado', ghl_contact_id: contactId, motivo: 'midia sem conteudo no historico do GHL' });
+    return;
   }
 
   // Agenda de entrega: e o que autoriza (ou nao) prometer "proximo dia util".
@@ -457,18 +501,6 @@ export async function POST(request: NextRequest) {
     .from('orcamentos').select('id', { count: 'exact', head: true })
     .eq('tipo_entrega', 'entrega').eq('data_entrega', amanha)
     .not('status', 'in', '(orcamento,cancelado)');
-
-  // Tudo que o cliente mandou depois da NOSSA ultima mensagem. O GHL as vezes
-  // nao chama o webhook pra uma das mensagens: em 29/09 a Ana Paula mandou
-  // "Oi bom dia" e "Consegue entregar 10 sacos de cimento" no mesmo minuto,
-  // so a primeira gerou chamada, e o robo respondeu "como posso te ajudar?"
-  // ignorando o pedido. Olhando o historico inteiro ele se recupera sozinho.
-  const semResposta: string[] = [];
-  for (let i = historico.length - 1; i >= 0; i--) {
-    if (historico[i].de !== 'cliente') break;
-    semResposta.unshift(historico[i].texto);
-  }
-  if (!semResposta.some(m => m.trim() === texto.trim())) semResposta.push(texto);
 
   const contexto = [
     `CLIENTE: ${cliente?.nome || 'desconhecido'} (${formatPhoneBR(digitos)})`,
@@ -483,21 +515,21 @@ export async function POST(request: NextRequest) {
     'CONVERSA ATE AGORA:',
     ...historico.map(h => `${h.de === 'cliente' ? 'CLIENTE' : 'NOS'}: ${h.texto}`),
     '',
-    '',
     `AGORA: ${String(horaBrasilia().hora).padStart(2, '0')}h${String(horaBrasilia().minuto).padStart(2, '0')} de Brasilia. ` +
       'A Mariana ESTA no atendimento agora — quem voce passar pra ela tem retorno HOJE, nao amanha.',
     '',
     semResposta.length > 1
       ? `O CLIENTE MANDOU ${semResposta.length} MENSAGENS DEPOIS DA NOSSA ULTIMA RESPOSTA — ` +
         `responda TODAS numa mensagem so:\n` + semResposta.map(m => `- ${m}`).join('\n')
-      : `O CLIENTE ACABOU DE DIZER: ${texto}`,
+      : `O CLIENTE ACABOU DE DIZER: ${semResposta[0]}`,
   ].filter(Boolean).join('\n');
+
+  const notaTranscricao = falhasTranscricao.length ? ` | transcricao falhou: ${falhasTranscricao.join('; ')}` : '';
 
   const pensado = await pensar(contexto, await catalogoParaPrompt());
   if (!pensado) {
-    await supabaseAdmin.from('automacao_envios')
-      .update({ status: 'erro', motivo: 'a IA nao devolveu JSON valido' }).eq('id', vaga.id);
-    return NextResponse.json({ erro: 'IA nao respondeu', telefone: digitos });
+    await marcar({ status: 'erro', motivo: `a IA nao devolveu JSON valido${notaTranscricao}`.slice(0, 300) });
+    return;
   }
 
   const resultadoAcao = await executar(pensado.acao, {
@@ -508,37 +540,17 @@ export async function POST(request: NextRequest) {
     contactId,
   });
 
-  // Cada trava e avaliada e relatada em separado. Antes isto era uma cadeia
-  // de else-if: fora do horario, a resposta so dizia "fora da janela" e nao
-  // dava pra saber se a allowlist estava certa. Agora diz as duas coisas.
-  const naAllowlist = podeResponder(digitos);
-  const { modo, lista } = alvosPermitidos();
-  const diagnostico = {
-    janela: dentroDaJanelaDeResposta
-      ? 'aberta (conversa iniciada pela regua, horario comercial)'
-      : nossaConversa
-        ? 'fechada — a regua cutucou, mas esta fora de 8h-18h'
-        : 'fechada — conversa nao iniciada por nos (janela da noite desligada)',
-    allowlist:
-      modo === 'ninguem' ? 'vazia — nao responde ninguem'
-      : modo === 'todos' ? 'aberta a todos (*)'
-      : `${lista.length} numero(s) configurado(s) — este ${naAllowlist ? 'ESTA na lista' : 'NAO esta na lista'}`,
-    contatoNoGhl: contactId ? 'encontrado' : 'nao encontrado',
-  };
-
-  const liberado = naAllowlist && dentroDaJanelaDeResposta;
-  let envio = 'nao enviado';
-
   if (!pensado.mensagem) {
     // A IA leu a conversa e concluiu que nao ha o que responder.
-    await supabaseAdmin.from('automacao_envios').update({
+    await marcar({
       status: 'pulado',
       ghl_contact_id: contactId,
-      motivo: `nada a responder — conversa encerrada | acao: ${pensado.acao.tipo} -> ${resultadoAcao}`,
-    }).eq('id', vaga.id);
-    return NextResponse.json({ ok: true, envio: 'nao enviado — nada a responder' });
+      motivo: `nada a responder — conversa encerrada | acao: ${pensado.acao.tipo} -> ${resultadoAcao}${notaTranscricao}`.slice(0, 300),
+    });
+    return;
   }
 
+  let envio = 'nao enviado';
   if (liberado && contactId) {
     const r = await fetch(`${GHL_API_BASE}/conversations/messages`, {
       method: 'POST',
@@ -564,21 +576,10 @@ export async function POST(request: NextRequest) {
     envio = `nao enviado — ${barrou.join(' + ')}`;
   }
 
-  await supabaseAdmin.from('automacao_envios').update({
+  await marcar({
     ghl_contact_id: contactId,
     mensagem: pensado.mensagem,
     status: envio === 'enviado' ? 'enviado' : 'simulado',
-    motivo: `${envio} | acao: ${pensado.acao.tipo} -> ${resultadoAcao}`,
-  }).eq('id', vaga.id);
-
-  return NextResponse.json({
-    ok: true,
-    cliente: cliente?.nome || null,
-    entendeu: texto,
-    responderia: pensado.mensagem,
-    acao: pensado.acao.tipo,
-    acaoResultado: resultadoAcao,
-    envio,
-    diagnostico,
+    motivo: `${envio} | acao: ${pensado.acao.tipo} -> ${resultadoAcao}${notaTranscricao}`.slice(0, 300),
   });
 }
