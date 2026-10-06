@@ -99,8 +99,19 @@ interface EntregaParcial {
   }>;
 }
 
+// Motivos de orcamento perdido. Tem que bater com o CHECK chk_motivo_perda.
+const MOTIVOS_PERDA: Array<{ valor: string; rotulo: string }> = [
+  { valor: 'concorrente', rotulo: 'Comprou em outro deposito' },
+  { valor: 'preco', rotulo: 'Achou caro' },
+  { valor: 'desistiu', rotulo: 'Desistiu / adiou a obra' },
+  { valor: 'outro', rotulo: 'Outro motivo' },
+];
+
 interface OrcamentoDetalhe {
   id: string;
+  // Perdido = status 'cancelado' + motivo (ver supabase-orcamento-perdido.sql).
+  perdido_em?: string | null;
+  motivo_perda?: string | null;
   codigo: string;
   tipo_entrega: string;
   valor_frete: number;
@@ -190,6 +201,9 @@ const ENDERECO_NOVO_VAZIO: EnderecoNovoForm = {
 
 interface OrcamentoSalvo {
   id: string;
+  // Perdido = status 'cancelado' + motivo (ver supabase-orcamento-perdido.sql).
+  perdido_em?: string | null;
+  motivo_perda?: string | null;
   codigo: string;
   tipo_entrega: string;
   valor_frete: number;
@@ -805,6 +819,8 @@ export default function OrcamentoApp() {  // Auth state
   const [historicoCustosLista, setHistoricoCustosLista] = useState<Array<{ id: string; custo_anterior: number; custo_novo: number; criado_em: string; usuario_nome: string | null }>>([]);
   const [historicoCustosLoading, setHistoricoCustosLoading] = useState(false);
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
+  // Seletor de motivo do 'Marcar como perdido' aberto pra este orcamento.
+  const [perdaAbertaId, setPerdaAbertaId] = useState<string | null>(null);
   const [excluindoProdutoId, setExcluindoProdutoId] = useState<string | null>(null);
   // Feature 3 - Logo base64 for print
   const [logoBase64, setLogoBase64] = useState<string>('');
@@ -1760,6 +1776,28 @@ export default function OrcamentoApp() {  // Auth state
     printWindow.document.write(html);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
+  };
+
+  // Perdido = status 'cancelado' + motivo. Sai da regua de follow-up sozinho
+  // (ela so olha status 'orcamento') e NAO trava a IA nem as outras reguas do
+  // cliente — diferente de 'nao perturbe'.
+  const marcarComoPerdido = async (id: string, statusAnterior: string, motivo: string) => {
+    try {
+      const res = await fetch(`/api/orcamentos/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'cancelado', _previous_status: statusAnterior, motivo_perda: motivo }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setPerdaAbertaId(null);
+      carregarHistorico();
+      if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
+        setOrcamentoDetalhe({ ...orcamentoDetalhe, status: 'cancelado', perdido_em: new Date().toISOString(), motivo_perda: motivo });
+      }
+    } catch (e) {
+      console.error('Erro ao marcar como perdido', e);
+      alert('Nao foi possivel marcar como perdido. Tente de novo.');
+    }
   };
 
   const atualizarStatusOrcamento = async (id: string, novoStatus: string, statusAnterior?: string) => {
@@ -3955,7 +3993,7 @@ export default function OrcamentoApp() {  // Auth state
                           <div className="flex items-center gap-2 mb-1">
                             <span className="font-bold text-[#F7941D]">{orc.codigo}</span>
                             <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[orc.status] || 'bg-gray-100 text-gray-600'}`}>
-                              {STATUS_LABELS[orc.status] || orc.status}
+                              {orc.perdido_em ? 'Perdido' : (STATUS_LABELS[orc.status] || orc.status)}
                             </span>
                             {orc.status_pagamento && (
                               <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_PAGAMENTO_COLORS[orc.status_pagamento] || 'bg-gray-100 text-gray-600'}`}>
@@ -5127,7 +5165,9 @@ export default function OrcamentoApp() {  // Auth state
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-[#F7941D] text-base">{orcamentoDetalhe.codigo}</span>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STATUS_COLORS[orcamentoDetalhe.status] || 'bg-gray-100 text-gray-600'}`}>
-                        {STATUS_LABELS[orcamentoDetalhe.status] || orcamentoDetalhe.status}
+                        {orcamentoDetalhe.perdido_em
+                          ? `Perdido — ${MOTIVOS_PERDA.find(m => m.valor === orcamentoDetalhe.motivo_perda)?.rotulo || 'motivo nao informado'}`
+                          : (STATUS_LABELS[orcamentoDetalhe.status] || orcamentoDetalhe.status)}
                       </span>
                     </div>
                     <button onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
@@ -5470,6 +5510,28 @@ export default function OrcamentoApp() {  // Auth state
                   {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
                       className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
+                  )}
+                  {orcamentoDetalhe.status === 'orcamento' && (
+                    perdaAbertaId === orcamentoDetalhe.id ? (
+                      <div className="rounded-xl border border-gray-300 bg-gray-50 p-2">
+                        <p className="mb-1.5 text-xs font-medium text-gray-600">Por que perdeu? Sai da sequencia de follow-up; a IA continua respondendo o cliente.</p>
+                        <div className="grid grid-cols-2 gap-1.5">
+                          {MOTIVOS_PERDA.map(m => (
+                            <button
+                              key={m.valor}
+                              onClick={() => marcarComoPerdido(orcamentoDetalhe.id, orcamentoDetalhe.status, m.valor)}
+                              className="rounded-lg border border-gray-300 bg-white px-2 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-100"
+                            >{m.rotulo}</button>
+                          ))}
+                        </div>
+                        <button onClick={() => setPerdaAbertaId(null)} className="mt-1.5 w-full text-xs text-gray-500 underline">voltar</button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => setPerdaAbertaId(orcamentoDetalhe.id)}
+                        className="w-full bg-gray-600 text-white py-2 rounded-xl font-bold hover:bg-gray-700 transition text-sm"
+                      >✋ Marcar como perdido</button>
+                    )
                   )}
                   {['orcamento', 'cancelado'].includes(orcamentoDetalhe.status) && (
                     <button

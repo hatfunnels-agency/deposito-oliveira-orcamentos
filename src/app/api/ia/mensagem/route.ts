@@ -48,6 +48,10 @@ function tarefaPara(tipo: string, momento: string): string {
     if (momento === 'negativo') return 'O cliente disse que teve algum problema com o pedido. Responde com empatia, pede desculpa e diz que a equipe ja vai olhar e resolver. NAO peca avaliacao.';
     return 'O pedido do cliente foi entregue/concluido. Pergunta de forma simples e simpatica se deu tudo certo com o material.';
   }
+  if (tipo === 'retorno') {
+    if (momento === 'com_orcamento') return 'Hoje e o dia que o proprio cliente pediu pra gente voltar a falar sobre o orcamento dele. Manda uma mensagem curta lembrando disso ("combinamos de falar hoje") e pergunta se ele quer seguir com o pedido.';
+    return 'Hoje e o dia que o proprio cliente pediu pra gente voltar a falar com ele. Manda uma mensagem curta lembrando disso ("combinamos de falar hoje") e pergunta se ele esta precisando de material.';
+  }
   if (tipo === 'reativacao') {
     if (momento === 'semanal') return 'Cliente com obra ativa (compra com frequencia). Manda um toque rapido perguntando se ele precisa de mais algum material essa semana.';
     if (momento === 'quinzenal') return 'Faz um tempinho que o cliente nao compra. Manda um oi leve perguntando se esta precisando de material, sem forcar.';
