@@ -443,6 +443,23 @@ async function responderDepoisDoBuffer({
     }
   }
 
+  // A atendente falou com ele hoje pela pagina /tarefas (as vezes por
+  // telefone, que o GHL nao ve). A conversa e dela: o robo fica quieto.
+  // Tolerante a tabela ainda nao criada — erro = segue normal.
+  if (cliente?.id) {
+    const { data: tarefaHoje, error: erroTarefa } = await supabaseAdmin
+      .from('tarefas_atendente')
+      .select('id')
+      .eq('cliente_id', cliente.id)
+      .eq('resultado', 'feito')
+      .gte('criado_em', new Date(Date.now() - 24 * 3600_000).toISOString())
+      .limit(1);
+    if (!erroTarefa && tarefaHoje?.length) {
+      await marcar({ status: 'pulado', ghl_contact_id: contactId, motivo: 'atendente falou com o cliente nas ultimas 24h (pagina /tarefas)' });
+      return;
+    }
+  }
+
   const [hist, orcRes] = await Promise.all([
     contactId
       ? historicoConversa(contactId, 16)
