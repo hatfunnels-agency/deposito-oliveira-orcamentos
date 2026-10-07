@@ -1029,6 +1029,24 @@ export default function OrcamentoApp() {  // Auth state
     }
   }, []);
 
+  // Busca o cliente cujo telefone e EXATAMENTE o digitado (ignorando o 55
+  // do DDI). A API busca por "contem", entao um numero cadastrado errado com
+  // digito a mais (ex.: 1193757846363) contem o certo (11937578463) e vinha
+  // primeiro na lista — o form trocava o numero certo pelo errado. Tambem
+  // evita preencher com um cliente qualquer enquanto o numero esta pela
+  // metade (a busca dispara a partir de 8 digitos).
+  const buscarClientePorTelefoneExato = useCallback(async (digits: string) => {
+    const semDDI = (t: string) => {
+      const d = (t || '').replace(/\D/g, '');
+      return d.length >= 12 && d.startsWith('55') ? d.slice(2) : d;
+    };
+    const alvo = semDDI(digits);
+    const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(alvo)}&limite=50`, { cache: 'no-store' });
+    const data = await r.json();
+    const lista: any[] = data.clientes || [];
+    return lista.find(c => semDDI(c.telefone) === alvo) ?? null;
+  }, []);
+
   // Preenche o form com um cliente achado pelo telefone. Isto vivia COPIADO em
   // tres buscas, e as copias divergiram: o campo "Numero do cliente" nunca
   // carregava os enderecos (enderecos_clientes). O cliente aparecia como
@@ -3162,10 +3180,9 @@ export default function OrcamentoApp() {  // Auth state
                         clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
                         (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
                           try {
-                            const res = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}&limite=1`);
-                            const data = await res.json();
-                            if (data.clientes && data.clientes.length > 0) {
-                              await aplicarClienteEncontrado(data.clientes[0]);
+                            const cli = await buscarClientePorTelefoneExato(digits);
+                            if (cli) {
+                              await aplicarClienteEncontrado(cli);
                             } else {
                               setClienteEncontrado(null);
                               setEnderecosDoCliente([]);
@@ -3398,10 +3415,9 @@ export default function OrcamentoApp() {  // Auth state
                               clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
                               (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
                                 try {
-                                  const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(digits)}`);
-                                  const data = await r.json();
-                                  if (data.clientes && data.clientes.length > 0) {
-                                    await aplicarClienteEncontrado(data.clientes[0]);
+                                  const cli = await buscarClientePorTelefoneExato(digits);
+                                  if (cli) {
+                                    await aplicarClienteEncontrado(cli);
                                   } else {
                                     setClienteEncontrado(null);
                                   }
@@ -3441,10 +3457,9 @@ export default function OrcamentoApp() {  // Auth state
                           (window as typeof window & {_wTimer?: ReturnType<typeof setTimeout>})._wTimer = setTimeout(async () => {
                             try {
                               setClienteBuscandoNum(true);
-                              const r = await fetch(`/api/clientes?busca=${encodeURIComponent(digits)}`, { cache: 'no-store' });
-                              const data = await r.json();
-                              if (data.clientes && data.clientes.length > 0) {
-                                await aplicarClienteEncontrado(data.clientes[0]);
+                              const cli = await buscarClientePorTelefoneExato(digits);
+                              if (cli) {
+                                await aplicarClienteEncontrado(cli);
                               } else {
                                 setClienteEncontrado(null);
                                 setEnderecosDoCliente([]);
