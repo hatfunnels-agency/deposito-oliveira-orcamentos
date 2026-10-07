@@ -4,6 +4,7 @@ import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted, reverterBaixaItem } from '@/lib/estoque-baixa';
 import { aplicarBaixaFerro, reverterBaixaFerro } from '@/lib/baixa-ferro';
 import { criarEnderecoCliente, CAMPOS_ENDERECO } from '@/lib/enderecos';
+import { clienteIdPorTelefoneExtra } from '@/lib/telefones';
 
 export async function GET(
     request: NextRequest,
@@ -136,11 +137,21 @@ export async function PATCH(
               };
               if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
 
-            const { data: cliente } = await supabaseAdmin
-                .from('clientes')
-                .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
-                .select('id')
-                .single();
+            // Numero antigo (telefones_extras) volta pro mesmo cadastro.
+            const idPorExtra = await clienteIdPorTelefoneExtra(telefoneLimpo);
+            const { telefone: _principal, ...semTelefone } = clienteData;
+            const { data: cliente } = idPorExtra
+                ? await supabaseAdmin
+                    .from('clientes')
+                    .update(semTelefone)
+                    .eq('id', idPorExtra)
+                    .select('id')
+                    .single()
+                : await supabaseAdmin
+                    .from('clientes')
+                    .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
+                    .select('id')
+                    .single();
 
             if (cliente) {
                       clienteIdNovo = cliente.id as string;

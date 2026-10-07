@@ -1063,7 +1063,11 @@ export default function OrcamentoApp() {  // Auth state
     const r = await fetch(`/api/clientes?telefone=${encodeURIComponent(alvo)}&limite=50`, { cache: 'no-store' });
     const data = await r.json();
     const lista: any[] = data.clientes || [];
-    return lista.find(c => semDDI(c.telefone) === alvo) ?? null;
+    // Numero antigo do cliente (telefones_extras) tambem acha a pessoa — e o
+    // form passa a usar o principal, que e o que recebe as mensagens.
+    return lista.find(c => semDDI(c.telefone) === alvo)
+      ?? lista.find(c => (c.telefones_extras || []).some((t: string) => semDDI(t) === alvo))
+      ?? null;
   }, []);
 
   // Preenche o form com um cliente achado pelo telefone. Isto vivia COPIADO em

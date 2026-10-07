@@ -9,6 +9,7 @@
 // NAO envia mensagem nenhuma: so le a conversa e grava no banco.
 import { supabaseAdmin } from '@/lib/supabase';
 import { buscarContatoId } from '@/lib/ghl';
+import { filtroTelefoneCliente } from './telefones';
 
 const GHL_API_BASE = 'https://services.leadconnectorhq.com';
 const GHL_API_KEY = process.env.GHL_API_KEY || '';
@@ -24,16 +25,9 @@ function ghlHeaders() {
   };
 }
 
-// Candidatos de telefone (com/sem DDI 55) pra casar com clientes.telefone
-// (digitos) — mesmo criterio do /api/ia/mensagem.
-export function candidatosTelefone(raw: string): string[] {
-  const d = (raw || '').replace(/\D/g, '');
-  const set = new Set<string>();
-  if (d) set.add(d);
-  if (d.startsWith('55') && d.length >= 12) set.add(d.slice(2));
-  if (d.length <= 11 && d) set.add('55' + d);
-  return Array.from(set);
-}
+// candidatosTelefone mora em telefones.ts (junto do filtro que tambem olha
+// os outros telefones do cliente); reexportado pra nao mexer nos imports.
+export { candidatosTelefone } from './telefones';
 
 export type MensagemConversa = { direcao: 'cliente' | 'loja'; texto: string; quando: string };
 
@@ -102,7 +96,7 @@ export async function gerarContextoCliente(entrada: {
   if (entrada.clienteId) {
     query = query.eq('id', entrada.clienteId);
   } else if (entrada.telefone) {
-    query = query.in('telefone', candidatosTelefone(entrada.telefone));
+    query = query.or(filtroTelefoneCliente(entrada.telefone));
   } else {
     return { ok: false, motivo: 'informe cliente_id ou telefone' };
   }

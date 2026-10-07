@@ -13,6 +13,7 @@ import { candidatosTelefone } from '@/lib/contexto';
 import { catalogoParaPrompt } from '@/lib/catalogo';
 import { transcreverAudio } from '@/lib/transcricao';
 import { regrasComLink, INSTRUCAO_SAIDA, type AcaoRobo } from '@/lib/robo-regras';
+import { filtroTelefoneCliente } from '@/lib/telefones';
 
 export const dynamic = 'force-dynamic';
 // Buffer (25s) + transcricao + IA + GHL. 60s ficava apertado.
@@ -322,7 +323,7 @@ export async function POST(request: NextRequest) {
   // e pior, gravando nao_perturbe e data de retorno na pessoa errada.
   const { data: cliente } = await supabaseAdmin
     .from('clientes').select('id, nome, notas_contexto')
-    .in('telefone', candidatosTelefone(digitos)).limit(1).maybeSingle();
+    .or(filtroTelefoneCliente(digitos)).limit(1).maybeSingle();
 
   // Uma porta so pra falar: conversa que a REGUA comecou, em horario
   // comercial. A janela da noite (17h30-20h) foi desligada em 01/10 — lead

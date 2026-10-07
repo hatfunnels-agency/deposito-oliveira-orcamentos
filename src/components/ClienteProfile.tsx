@@ -72,6 +72,8 @@ function SkeletonPerfil() {
 
 interface FormContato {
   nome: string;
+  telefone: string;
+  telefones_extras: string[];
   email: string;
   data_followup: string;
   notas_contexto: string;
@@ -82,6 +84,10 @@ type ErrosContato = Partial<Record<keyof FormContato, string>>;
 function validarContato(f: FormContato): ErrosContato {
   const e: ErrosContato = {};
   if (!f.nome.trim()) e.nome = 'Nome é obrigatório';
+  if (f.telefone.replace(/\D/g, '').length < 10) e.telefone = 'Telefone com DDD (10 ou 11 dígitos)';
+  if (f.telefones_extras.some(t => t.trim() && t.replace(/\D/g, '').length < 10)) {
+    e.telefones_extras = 'Cada telefone precisa de DDD (10 ou 11 dígitos)';
+  }
   if (f.email.trim() && !EMAIL_RE.test(f.email.trim())) e.email = 'Email inválido';
   if (f.notas_contexto.length > 2000) e.notas_contexto = 'Máximo de 2000 caracteres';
   if (f.data_followup && !DATA_RE.test(f.data_followup)) {
@@ -792,8 +798,11 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
   // Edição de "Dados de contato" (inclui o nome do header)
   const [editandoContato, setEditandoContato] = useState(false);
   const [formContato, setFormContato] = useState<FormContato>({
-    nome: '', email: '', data_followup: '', notas_contexto: '',
+    nome: '', telefone: '', telefones_extras: [], email: '', data_followup: '', notas_contexto: '',
   });
+  // Numero que ja e de outro cadastro (409 do PATCH): provavel duplicado.
+  const [conflito, setConflito] = useState<{ id: string; nome: string; msg: string } | null>(null);
+  const [juntando, setJuntando] = useState(false);
   const [errosContato, setErrosContato] = useState<ErrosContato>({});
   const [salvandoContato, setSalvandoContato] = useState(false);
 
@@ -827,11 +836,14 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
     if (!cliente) return;
     setFormContato({
       nome: cliente.nome || '',
+      telefone: formatarTelefone(cliente.telefone) === '—' ? '' : formatarTelefone(cliente.telefone),
+      telefones_extras: (cliente.telefones_extras || []).map(formatarTelefone),
       email: cliente.email || '',
       data_followup: cliente.data_followup || '',
       notas_contexto: cliente.notas_contexto || '',
     });
     setErrosContato({});
+    setConflito(null);
     setEditandoContato(true);
   }
 
@@ -846,6 +858,8 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           nome: formContato.nome.trim(),
+          telefone: formContato.telefone,
+          telefones_extras: formContato.telefones_extras.filter(t => t.trim()),
           email: formContato.email.trim(),
           data_followup: formContato.data_followup,
           notas_contexto: formContato.notas_contexto,
@@ -853,14 +867,19 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
         cache: 'no-store',
       });
       const data = await res.json();
-      if (!res.ok || data?.error) {
+      if (res.status === 409 && data?.cliente_conflito) {
+        setConflito({ id: data.cliente_conflito.id, nome: data.cliente_conflito.nome, msg: data.error });
+      } else if (!res.ok || data?.error) {
         mostrarToast('erro', data?.error || 'Erro ao salvar os dados');
       } else {
+        setConflito(null);
         setCliente(prev =>
           prev
             ? {
                 ...prev,
                 nome: data.nome,
+                telefone: data.telefone,
+                telefones_extras: data.telefones_extras || [],
                 email: data.email,
                 data_followup: data.data_followup,
                 notas_contexto: data.notas_contexto,
@@ -874,6 +893,37 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
       mostrarToast('erro', 'Erro ao salvar os dados');
     }
     setSalvandoContato(false);
+  }
+
+  // Junta o cadastro em conflito NESTE (este fica, o outro e apagado) e
+  // tenta salvar de novo — o numero deixa de ser de outra pessoa.
+  async function juntarCadastro() {
+    if (!conflito) return;
+    if (!window.confirm(
+      `Juntar "${conflito.nome}" neste cadastro?\n\nOs pedidos, endereços, tags e conversas dele passam pra cá, ` +
+      `o telefone dele vira "outro telefone" deste, e o cadastro "${conflito.nome}" deixa de existir.`,
+    )) return;
+    setJuntando(true);
+    try {
+      const res = await fetch(`/api/clientes/${clienteId}/juntar`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ origem_id: conflito.id }),
+        cache: 'no-store',
+      });
+      const data = await res.json();
+      if (!res.ok || data?.error) {
+        mostrarToast('erro', data?.error || 'Erro ao juntar os cadastros');
+      } else {
+        setConflito(null);
+        await salvarContato();
+        await carregar();
+        mostrarToast('sucesso', 'Cadastros juntados');
+      }
+    } catch {
+      mostrarToast('erro', 'Erro ao juntar os cadastros');
+    }
+    setJuntando(false);
   }
 
   return (
@@ -1008,6 +1058,75 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
                 {editandoContato ? (
                   <div className="space-y-3">
                     <div>
+                      <label className="text-xs font-medium text-gray-500">Telefone principal (recebe as mensagens)</label>
+                      <input
+                        type="tel"
+                        value={formContato.telefone}
+                        onChange={e => setFormContato(f => ({ ...f, telefone: e.target.value }))}
+                        placeholder="(11) 99999-9999"
+                        className={INPUT_CLS}
+                      />
+                      {errosContato.telefone ? (
+                        <p className="mt-0.5 text-xs text-red-600">{errosContato.telefone}</p>
+                      ) : (
+                        <p className="mt-0.5 text-xs text-gray-400">
+                          Trocou de número? Coloque o novo aqui — o antigo vai sozinho pra &quot;Outros telefones&quot;.
+                        </p>
+                      )}
+                    </div>
+                    <div>
+                      <label className="text-xs font-medium text-gray-500">Outros telefones</label>
+                      <div className="space-y-1.5">
+                        {formContato.telefones_extras.map((t, i) => (
+                          <div key={i} className="flex items-center gap-2">
+                            <input
+                              type="tel"
+                              value={t}
+                              onChange={e => setFormContato(f => ({
+                                ...f,
+                                telefones_extras: f.telefones_extras.map((x, j) => (j === i ? e.target.value : x)),
+                              }))}
+                              placeholder="(11) 99999-9999"
+                              className={INPUT_CLS}
+                            />
+                            <button
+                              onClick={() => setFormContato(f => ({
+                                ...f,
+                                telefones_extras: f.telefones_extras.filter((_, j) => j !== i),
+                              }))}
+                              title="Remover este telefone"
+                              className="shrink-0 rounded-lg border border-gray-200 px-2 py-1.5 text-sm text-gray-500 hover:bg-gray-50"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                        <button
+                          onClick={() => setFormContato(f => ({ ...f, telefones_extras: [...f.telefones_extras, ''] }))}
+                          className="text-xs font-semibold text-[#F7941D] hover:underline"
+                        >
+                          + Adicionar telefone
+                        </button>
+                      </div>
+                      {errosContato.telefones_extras && (
+                        <p className="mt-0.5 text-xs text-red-600">{errosContato.telefones_extras}</p>
+                      )}
+                    </div>
+                    {conflito && (
+                      <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                        <p>{conflito.msg}.</p>
+                        <p className="mt-1">Se é a mesma pessoa, junte os dois cadastros — os pedidos e o histórico ficam todos aqui.</p>
+                        <button
+                          onClick={juntarCadastro}
+                          disabled={juntando || salvandoContato}
+                          className="mt-2 rounded-lg px-3 py-1.5 text-xs font-bold text-white disabled:opacity-50"
+                          style={{ background: LARANJA }}
+                        >
+                          {juntando ? 'Juntando...' : `Juntar "${conflito.nome}" neste cadastro`}
+                        </button>
+                      </div>
+                    )}
+                    <div>
                       <label className="text-xs font-medium text-gray-500">Email</label>
                       <input
                         type="email"
@@ -1073,6 +1192,12 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
                   </div>
                 ) : (
                   <div className="space-y-3 text-sm">
+                    {(cliente.telefones_extras || []).length > 0 && (
+                      <div>
+                        <p className="text-xs font-medium text-gray-500">Outros telefones</p>
+                        <p className="text-gray-800">{(cliente.telefones_extras || []).map(formatarTelefone).join(' · ')}</p>
+                      </div>
+                    )}
                     <div>
                       <p className="text-xs font-medium text-gray-500">Email</p>
                       <p className="text-gray-800">{cliente.email || '—'}</p>

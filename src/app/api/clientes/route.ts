@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 import { isObraAtivaActive } from '@/lib/tags';
+import { buscaTelefoneExtras } from '@/lib/telefones';
 
 // GET /api/clientes
 // Dois modos:
@@ -31,7 +32,11 @@ export async function GET(request: NextRequest) {
         .range(offset, offset + limite - 1);
 
       if (telefone) {
-        query = query.ilike('telefone', `%${telefone.replace(/\D/g, '')}%`);
+        const dTel = telefone.replace(/\D/g, '');
+        const extras = buscaTelefoneExtras(dTel);
+        query = extras
+          ? query.or(`telefone.ilike.%${dTel}%,${extras}`)
+          : query.ilike('telefone', `%${dTel}%`);
       } else if (busca) {
         query = query.or(`nome.ilike.%${busca}%,telefone.ilike.%${busca}%`);
       }
@@ -67,6 +72,8 @@ export async function GET(request: NextRequest) {
         const digits = search.replace(/\D/g, '');
         const ors = [`nome.ilike.%${search}%`];
         if (digits) ors.push(`telefone.ilike.%${digits}%`);
+        const extras = buscaTelefoneExtras(digits);
+        if (extras) ors.push(extras);
         q = q.or(ors.join(','));
       }
       return q;
