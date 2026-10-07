@@ -3,6 +3,7 @@ import { supabaseAdmin, gerarCodigoOrcamento } from '@/lib/supabase';
 import { aplicarTagObraAtiva } from '@/lib/cliente-tags-server';
 import { aplicarBaixaItem, ehCommitted } from '@/lib/estoque-baixa';
 import { criarEnderecoCliente } from '@/lib/enderecos';
+import { buscaTelefoneExtras, clienteIdPorTelefoneExtra } from '@/lib/telefones';
 
 export async function POST(request: NextRequest) {
     try {
@@ -70,11 +71,22 @@ export async function POST(request: NextRequest) {
           };
           if (cliente_recebedor !== undefined) clienteData.recebedor = cliente_recebedor;
 
-      const { data: cliente, error: clienteError } = await supabaseAdmin
-            .from('clientes')
-            .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
-            .select('id')
-            .single();
+      // Numero antigo do cliente (telefones_extras) cai no MESMO cadastro em vez
+      // de criar um duplicado pelo upsert, que so olha o principal.
+      const idPorExtra = await clienteIdPorTelefoneExtra(telefoneLimpo);
+      const { telefone: _principal, ...semTelefone } = clienteData;
+      const { data: cliente, error: clienteError } = idPorExtra
+            ? await supabaseAdmin
+                .from('clientes')
+                .update(semTelefone)
+                .eq('id', idPorExtra)
+                .select('id')
+                .single()
+            : await supabaseAdmin
+                .from('clientes')
+                .upsert(clienteData, { onConflict: 'telefone', ignoreDuplicates: false })
+                .select('id')
+                .single();
 
       if (clienteError) {
               console.error('Erro ao criar/atualizar cliente:', clienteError);
@@ -486,7 +498,7 @@ export async function GET(request: NextRequest) {
               const { data: matchingClients } = await supabaseAdmin
                 .from('clientes')
                 .select('id')
-                .or(`nome.ilike.%${busca}%,telefone.ilike.%${busca}%`);
+                .or([`nome.ilike.%${busca}%`, `telefone.ilike.%${busca}%`, buscaTelefoneExtras(String(busca).replace(/\D/g, ''))].filter(Boolean).join(','));
               const clientIds = (matchingClients || []).map((c: { id: string }) => c.id);
               if (clientIds.length > 0) {
                         query = query.or(`codigo.ilike.%${busca}%,cliente_id.in.(${clientIds.join(',')})`);

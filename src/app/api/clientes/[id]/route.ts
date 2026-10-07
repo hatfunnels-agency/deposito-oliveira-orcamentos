@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import type { CompraResumo } from '@/lib/types';
 import { filtrarTagsObraAtiva } from '@/lib/tags';
+import { filtroTelefoneCliente, limparTelefonesExtras } from '@/lib/telefones';
 
 export const dynamic = 'force-dynamic';
 
@@ -113,6 +114,8 @@ interface PatchClienteBody {
   email?: string;
   notas_contexto?: string;
   data_followup?: string;
+  // Outros telefones (numero antigo etc.) — so pra reconhecer o cliente
+  telefones_extras?: string[];
 }
 
 // Campos legados repassados direto (telefone tem normalizacao propria)
@@ -181,6 +184,41 @@ export async function PATCH(
     // telefone legado: normaliza para digitos (mesma regra do POST/upsert)
     if (body.telefone !== undefined) {
       update.telefone = String(body.telefone).replace(/\D/g, '');
+      if (String(update.telefone).length < 10) {
+        return NextResponse.json({ error: 'Telefone inválido (DDD + número)' }, { status: 400 });
+      }
+    }
+
+    // Outros telefones. Trocar o principal guarda o antigo aqui sozinho —
+    // e o caso "cliente trocou de numero": o antigo continua reconhecendo a
+    // pessoa (pedido digitado com ele, resposta vinda dele) sem cadastro novo.
+    if (body.telefones_extras !== undefined || update.telefone !== undefined) {
+      const { data: atual } = await supabaseAdmin
+        .from('clientes').select('telefone, telefones_extras').eq('id', params.id).maybeSingle();
+      if (!atual) return NextResponse.json({ error: 'Cliente não encontrado' }, { status: 404 });
+      const principal = String(update.telefone ?? atual.telefone ?? '');
+      let lista: unknown[] = body.telefones_extras !== undefined
+        ? body.telefones_extras
+        : (atual.telefones_extras || []);
+      if (update.telefone !== undefined && atual.telefone && atual.telefone !== principal) {
+        lista = [...lista, atual.telefone];
+      }
+      const extras = limparTelefonesExtras(lista, principal);
+
+      // Um numero, um cliente: se outro cadastro ja usa algum desses
+      // numeros, avisa quem e (provavel duplicado a juntar) em vez de gravar.
+      for (const tel of [principal, ...extras]) {
+        const { data: outro } = await supabaseAdmin
+          .from('clientes').select('id, nome')
+          .or(filtroTelefoneCliente(tel)).neq('id', params.id).limit(1).maybeSingle();
+        if (outro) {
+          return NextResponse.json(
+            { error: `O número ${tel} já está no cadastro de "${outro.nome}"`, cliente_conflito: outro },
+            { status: 409 },
+          );
+        }
+      }
+      update.telefones_extras = extras;
     }
 
     // Campos novos: string vazia limpa o campo (NULL); nunca grava "" literal

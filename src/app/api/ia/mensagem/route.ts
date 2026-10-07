@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { filtrarTagsObraAtiva } from '@/lib/tags';
+import { filtroTelefoneCliente } from '@/lib/telefones';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,16 +63,6 @@ function tarefaPara(tipo: string, momento: string): string {
   return 'O cliente respondeu no WhatsApp. Responda a mensagem dele de forma util e curta, usando o contexto. Se ele quiser comprar, incentive de leve a fechar; se for duvida, responda objetivo.';
 }
 
-// Candidatos de telefone (com/sem DDI 55) pra casar com clientes.telefone (digitos).
-function candidatosTelefone(raw: string): string[] {
-  const d = (raw || '').replace(/\D/g, '');
-  const set = new Set<string>();
-  if (d) set.add(d);
-  if (d.startsWith('55') && d.length >= 12) set.add(d.slice(2));
-  if (d.length <= 11) set.add('55' + d);
-  return Array.from(set);
-}
-
 export async function POST(request: Request) {
   try {
     const secret = process.env.AUTOMACAO_SECRET;
@@ -103,11 +94,10 @@ export async function POST(request: Request) {
     }
 
     // ---- Contexto do cliente (Supabase) ----
-    const candidatos = candidatosTelefone(telefone);
     const { data: cliente } = await supabaseAdmin
       .from('clientes')
       .select('id, nome, notas_contexto')
-      .in('telefone', candidatos)
+      .or(filtroTelefoneCliente(telefone))
       .limit(1)
       .maybeSingle();
 

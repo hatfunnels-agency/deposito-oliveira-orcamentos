@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { candidatosTelefone, gerarContextoCliente } from '@/lib/contexto';
+import { gerarContextoCliente } from '@/lib/contexto';
+import { filtroTelefoneCliente } from '@/lib/telefones';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 300;
@@ -122,7 +123,7 @@ export async function GET(request: NextRequest) {
       const { data: cliente } = await supabaseAdmin
         .from('clientes')
         .select('id, nome')
-        .in('telefone', candidatosTelefone(telefone))
+        .or(filtroTelefoneCliente(telefone))
         .limit(1)
         .maybeSingle();
       if (!cliente?.id || clientesVistos.has(cliente.id)) continue;

@@ -45,6 +45,8 @@ export interface ClienteCompleto {
   id: string;
   nome: string;
   telefone: string;
+  // Outros numeros da pessoa (antigo etc.) — reconhecem o cliente, nao recebem mensagem
+  telefones_extras?: string[];
   email: string | null;
   cep: string | null;
   endereco: string | null;
