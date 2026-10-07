@@ -4,7 +4,8 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
-import { tarefasDoDia, placar, type Tarefa } from '@/lib/tarefas';
+import { tarefasDoDia, placar, feitosHoje, type Tarefa, type TarefaFeita } from '@/lib/tarefas';
+import { Quadro, Coluna, Selo, BotaoWhatsApp, telefoneBonito, linkWhatsApp } from '@/components/Kanban';
 
 export const dynamic = 'force-dynamic';
 
@@ -45,122 +46,112 @@ async function registrar(formData: FormData) {
   revalidatePath('/tarefas');
 }
 
-function telefoneBonito(t: string): string {
-  const d = t.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '');
-  if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
-  if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
-  return t;
-}
-
-// api.whatsapp.com e nao wa.me: o redirect do wa.me troca emoji por "�".
-function linkWhatsApp(t: Tarefa): string {
-  const d = t.telefone.replace(/\D/g, '');
-  const numero = d.startsWith('55') && d.length >= 12 ? d : `55${d}`;
-  return `https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(t.mensagem)}`;
-}
-
-function Botao({ t, resultado, texto, classe }: { t: Tarefa; resultado: string; texto: string; classe: string }) {
+function CamposOcultos({ t, resultado }: { t: Tarefa; resultado: string }) {
   return (
-    <form action={registrar}>
+    <>
       <input type="hidden" name="chave" value={t.chave} />
       <input type="hidden" name="tipo" value={t.tipo} />
       <input type="hidden" name="resultado" value={resultado} />
       <input type="hidden" name="cliente_id" value={t.clienteId} />
       <input type="hidden" name="orcamento_id" value={t.orcamentoId || ''} />
-      <button type="submit" className={`text-sm rounded-lg px-3 py-2 transition ${classe}`}>{texto}</button>
+    </>
+  );
+}
+
+function Acao({ t, resultado, texto, classe, titulo }: {
+  t: Tarefa; resultado: string; texto: string; classe: string; titulo: string;
+}) {
+  return (
+    <form action={registrar} className="flex-1">
+      <CamposOcultos t={t} resultado={resultado} />
+      <button type="submit" title={titulo}
+        className={`w-full text-xs font-medium rounded-lg px-2 py-1.5 transition ${classe}`}>{texto}</button>
     </form>
   );
 }
 
 function Cartao({ t }: { t: Tarefa }) {
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 shadow-sm p-4">
-      <div className="flex items-start justify-between gap-3 flex-wrap">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2 flex-wrap mb-1">
-            <span className="text-sm font-medium text-gray-900">{t.motivo}</span>
-            {t.selo && (
-              <span className={`text-xs px-2 py-0.5 rounded-full border ${
-                t.seloForte ? 'bg-red-100 text-red-800 border-red-200' : 'bg-orange-50 text-[#E8850A] border-orange-200'
-              }`}>{t.selo}</span>
-            )}
-          </div>
-          <p className="text-gray-900">
-            {t.nome}
-            <span className="text-gray-400 ml-2 text-sm">{telefoneBonito(t.telefone)}</span>
-          </p>
-          <p className="text-xs text-gray-500 mt-1">{t.detalhe}</p>
-        </div>
-        <a
-          href={linkWhatsApp(t)}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-sm bg-[#25D366] text-white rounded-lg px-3 py-2 hover:brightness-95 transition flex-none"
-        >
-          WhatsApp
-        </a>
+    <article className="bg-white rounded-xl border border-gray-200 shadow-sm p-3 hover:shadow-md transition">
+      <div className="flex items-start justify-between gap-2">
+        <p className="font-semibold text-gray-900 leading-tight">{t.nome}</p>
+        {t.selo && <Selo texto={t.selo} forte={t.seloForte} />}
+      </div>
+      <p className="text-xs text-gray-400 mt-0.5">{telefoneBonito(t.telefone)}</p>
+      <p className="text-sm text-gray-700 mt-2 leading-snug">{t.motivo}</p>
+      <p className="text-xs text-gray-500 mt-1 leading-snug">{t.detalhe}</p>
+
+      <div className="mt-3">
+        <BotaoWhatsApp href={linkWhatsApp(t.telefone, t.mensagem)} />
       </div>
 
-      <div className="flex items-center gap-2 flex-wrap mt-3 pt-3 border-t border-gray-100">
-        <Botao t={t} resultado="feito" texto="✓ Falei com ele" classe="bg-gray-900 text-white hover:bg-gray-700" />
-        <Botao t={t} resultado="sem_resposta" texto="Sem resposta" classe="border border-gray-300 text-gray-600 hover:bg-gray-100" />
-        {t.tipo === 'orcamento' ? (
-          <form action={registrar} className="flex items-center gap-1">
-            <input type="hidden" name="chave" value={t.chave} />
-            <input type="hidden" name="tipo" value={t.tipo} />
-            <input type="hidden" name="resultado" value="perdido" />
-            <input type="hidden" name="cliente_id" value={t.clienteId} />
-            <input type="hidden" name="orcamento_id" value={t.orcamentoId || ''} />
-            <select name="motivo_perda" defaultValue="concorrente"
-              className="text-sm border border-gray-300 rounded-lg px-2 py-2 text-gray-600 bg-white">
-              {MOTIVOS_PERDA.map(m => <option key={m.valor} value={m.valor}>{m.rotulo}</option>)}
-            </select>
-            <button type="submit" className="text-sm rounded-lg px-3 py-2 border border-red-200 text-red-700 hover:bg-red-50 transition">
-              Perdido
-            </button>
-          </form>
-        ) : (
-          <Botao t={t} resultado="perdido"
-            texto={t.tipo === 'retorno' ? 'Não quer mais' : 'Não volta'}
-            classe="border border-red-200 text-red-700 hover:bg-red-50" />
+      <div className="flex gap-1.5 mt-2">
+        <Acao t={t} resultado="feito" texto="✓ Falei" titulo="Falei com o cliente"
+          classe="bg-gray-900 text-white hover:bg-gray-700" />
+        <Acao t={t} resultado="sem_resposta" texto="Sem resposta" titulo="Mandei mensagem e não respondeu"
+          classe="border border-gray-300 text-gray-600 hover:bg-gray-100" />
+        {t.tipo !== 'orcamento' && (
+          <Acao t={t} resultado="perdido" texto={t.tipo === 'retorno' ? 'Não quer' : 'Não volta'}
+            titulo="Tirar da lista" classe="border border-red-200 text-red-700 hover:bg-red-50" />
         )}
       </div>
+
+      {/* Perdido do orcamento pede o motivo — abre no proprio cartao. */}
+      {t.tipo === 'orcamento' && (
+        <details className="mt-1.5 group">
+          <summary className="list-none cursor-pointer text-center text-xs font-medium rounded-lg px-2 py-1.5 border border-red-200 text-red-700 hover:bg-red-50 transition">
+            Orçamento perdido…
+          </summary>
+          <form action={registrar} className="mt-2 flex gap-1.5">
+            <CamposOcultos t={t} resultado="perdido" />
+            <select name="motivo_perda" defaultValue="concorrente"
+              className="flex-1 min-w-0 text-xs border border-gray-300 rounded-lg px-2 py-1.5 text-gray-700 bg-white">
+              {MOTIVOS_PERDA.map(m => <option key={m.valor} value={m.valor}>{m.rotulo}</option>)}
+            </select>
+            <button type="submit" className="text-xs font-semibold rounded-lg px-3 py-1.5 bg-red-600 text-white hover:bg-red-700 transition">
+              Confirmar
+            </button>
+          </form>
+        </details>
+      )}
+    </article>
+  );
+}
+
+const RESULTADO: Record<string, { rotulo: string; classe: string }> = {
+  feito: { rotulo: '✓ Falou', classe: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
+  sem_resposta: { rotulo: 'Sem resposta', classe: 'bg-gray-100 text-gray-600 border-gray-200' },
+  perdido: { rotulo: 'Perdido', classe: 'bg-red-50 text-red-700 border-red-200' },
+};
+const TIPO_ROTULO: Record<string, string> = { retorno: 'Retorno', orcamento: 'Orçamento', reativacao: 'Reativação' };
+
+function CartaoFeito({ f }: { f: TarefaFeita }) {
+  const r = RESULTADO[f.resultado] || RESULTADO.feito;
+  const hora = new Date(f.quando).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+  return (
+    <div className="bg-white/70 rounded-xl border border-gray-200 px-3 py-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-sm text-gray-700 truncate">{f.nome}</p>
+        <span className={`text-[11px] px-2 py-0.5 rounded-full border shrink-0 ${r.classe}`}>{r.rotulo}</span>
+      </div>
+      <p className="text-[11px] text-gray-400 mt-0.5">{TIPO_ROTULO[f.tipo] || f.tipo} · {hora}</p>
     </div>
   );
 }
 
-function Bloco({ titulo, explicacao, tarefas, vazio }: {
-  titulo: string; explicacao: string; tarefas: Tarefa[]; vazio: string;
-}) {
-  return (
-    <section className="mb-8">
-      <div className="flex items-baseline gap-3 mb-1">
-        <h2 className="text-lg font-bold text-gray-900">{titulo}</h2>
-        <span className="text-sm text-gray-400">{tarefas.length}</span>
-      </div>
-      <p className="text-sm text-gray-500 mb-3">{explicacao}</p>
-      {tarefas.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-6 text-center text-sm text-gray-500">{vazio}</div>
-      ) : (
-        <div className="flex flex-col gap-3">{tarefas.map(t => <Cartao key={t.chave} t={t} />)}</div>
-      )}
-    </section>
-  );
-}
-
 export default async function TarefasPage() {
-  const [listas, p] = await Promise.all([tarefasDoDia(), placar()]);
+  const [listas, p, feitos] = await Promise.all([tarefasDoDia(), placar(), feitosHoje()]);
   const total = listas.retornos.length + listas.orcamentos.length + listas.reativacao.length;
-  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const brl = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <div className="max-w-3xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+      <div className="max-w-[1500px] mx-auto px-4 py-5">
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
           <div>
             <h1 className="text-2xl font-bold text-gray-900">Tarefas do dia</h1>
-            <p className="text-sm text-gray-500 mt-1">
-              {total === 0 ? 'Tudo em dia.' : `${total} contato${total > 1 ? 's' : ''} pra fazer hoje, em ordem de prioridade.`}
+            <p className="text-sm text-gray-500 mt-0.5">
+              {total === 0 ? 'Tudo em dia. 🎉' : `${total} contato${total > 1 ? 's' : ''} pra fazer — comece pela esquerda.`}
             </p>
           </div>
           <Link href="/" className="text-sm text-gray-600 border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-100 transition">
@@ -169,47 +160,51 @@ export default async function TarefasPage() {
         </div>
 
         {p === null ? (
-          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 mb-6 text-sm">
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl p-4 mb-4 text-sm">
             O registro de tarefas ainda não está ativo — falta rodar <code>supabase-tarefas-atendente.sql</code> no Supabase.
-            A lista abaixo funciona, mas os botões não guardam o resultado.
+            O quadro funciona, mas os botões não guardam o resultado.
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-6">
+          <div className="flex flex-wrap gap-2 mb-4">
             {[
-              ['Falei hoje', String(p.hoje.feito)],
-              ['Sem resposta', String(p.hoje.sem_resposta)],
-              ['Perdidos', String(p.hoje.perdido)],
-              ['Vendido (7 dias)', `${brl(p.vendas7d.valor)}`],
-            ].map(([rotulo, valor]) => (
-              <div key={rotulo} className="bg-white rounded-xl border border-gray-200 p-3">
-                <p className="text-xs text-gray-500">{rotulo}</p>
-                <p className="text-lg font-bold text-gray-900">{valor}</p>
+              ['Falei hoje', String(p.hoje.feito), 'text-emerald-700'],
+              ['Sem resposta', String(p.hoje.sem_resposta), 'text-gray-700'],
+              ['Perdidos', String(p.hoje.perdido), 'text-red-700'],
+              ['Vendido após contato (7 dias)', brl(p.vendas7d.valor), 'text-[#C96F00]'],
+            ].map(([rotulo, valor, cor]) => (
+              <div key={rotulo} className="bg-white rounded-xl border border-gray-200 px-4 py-2 flex items-baseline gap-2">
+                <span className={`text-lg font-bold ${cor}`}>{valor}</span>
+                <span className="text-xs text-gray-500">{rotulo}</span>
               </div>
             ))}
           </div>
         )}
 
-        <Bloco
-          titulo="Retornos combinados"
-          explicacao="O cliente pediu pra ser chamado nesta data. É promessa — atrasados primeiro."
-          tarefas={listas.retornos}
-          vazio="Nenhum retorno pra hoje."
-        />
-        <Bloco
-          titulo="Orçamentos grandes em aberto"
-          explicacao="Acima de R$ 1.000, dos últimos 30 dias. Os de hoje primeiro, depois por valor."
-          tarefas={listas.orcamentos}
-          vazio="Nenhum orçamento grande esperando contato."
-        />
-        <Bloco
-          titulo="Reativação"
-          explicacao="Obra ativa que parou de comprar (provavelmente comprando em outro lugar) e clientes de gasto alto parados."
-          tarefas={listas.reativacao}
-          vazio="Ninguém pra reativar hoje."
-        />
+        <Quadro colunas={4}>
+          <Coluna titulo="Retornos combinados" cor="amarelo" quantidade={listas.retornos.length}
+            dica="O cliente pediu pra ser chamado hoje. É promessa — atrasados primeiro."
+            vazio="Nenhum retorno pra hoje.">
+            {listas.retornos.map(t => <Cartao key={t.chave} t={t} />)}
+          </Coluna>
+          <Coluna titulo="Orçamentos grandes" cor="laranja" quantidade={listas.orcamentos.length}
+            dica="Acima de R$ 1.000, últimos 30 dias. Os de hoje primeiro."
+            vazio="Nenhum orçamento grande esperando.">
+            {listas.orcamentos.map(t => <Cartao key={t.chave} t={t} />)}
+          </Coluna>
+          <Coluna titulo="Reativação" cor="azul" quantidade={listas.reativacao.length}
+            dica="Obra ativa que parou de comprar e clientes de gasto alto parados."
+            vazio="Ninguém pra reativar hoje.">
+            {listas.reativacao.map(t => <Cartao key={t.chave} t={t} />)}
+          </Coluna>
+          <Coluna titulo="Feito hoje" cor="verde" quantidade={feitos.length}
+            dica="O que já saiu do quadro hoje."
+            vazio="Nada ainda — os cartões vêm pra cá quando você marca.">
+            {feitos.map(f => <CartaoFeito key={f.id} f={f} />)}
+          </Coluna>
+        </Quadro>
 
         <p className="text-xs text-gray-400 mt-2">
-          Quando você marca &quot;Falei com ele&quot;, o robô e as mensagens automáticas ficam quietos com esse cliente
+          Quando você marca &quot;Falei&quot;, o robô e as mensagens automáticas ficam quietos com esse cliente
           por 24–48h — a conversa é sua.
         </p>
       </div>

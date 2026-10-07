@@ -321,3 +321,36 @@ export async function placar(): Promise<{
   }
   return { hoje, vendas7d: { pedidos, valor } };
 }
+
+// ---------------------------------------------------------- feitos de hoje
+// Coluna "Feito hoje" do quadro: o que a atendente ja fechou hoje, do mais
+// recente pro mais antigo. tarefas_atendente nao tem FK pra clientes, entao
+// o nome vem numa segunda consulta.
+export type TarefaFeita = {
+  id: string;
+  tipo: TipoTarefa;
+  resultado: ResultadoTarefa;
+  nome: string;
+  quando: string;
+};
+
+export async function feitosHoje(): Promise<TarefaFeita[]> {
+  const inicioDia = `${hojeBrasilia()}T00:00:00-03:00`;
+  const { data, error } = await supabaseAdmin
+    .from('tarefas_atendente').select('id, tipo, resultado, cliente_id, criado_em')
+    .gte('criado_em', inicioDia).order('criado_em', { ascending: false }).limit(200);
+  if (error || !data?.length) return [];
+  const ids = [...new Set(data.map(r => r.cliente_id).filter(Boolean))] as string[];
+  const nomes = new Map<string, string>();
+  if (ids.length) {
+    const { data: cli } = await supabaseAdmin.from('clientes').select('id, nome').in('id', ids);
+    for (const c of cli || []) nomes.set(c.id, c.nome || 'Cliente');
+  }
+  return data.map(r => ({
+    id: r.id,
+    tipo: r.tipo as TipoTarefa,
+    resultado: r.resultado as ResultadoTarefa,
+    nome: (r.cliente_id && nomes.get(r.cliente_id)) || 'Cliente',
+    quando: r.criado_em,
+  }));
+}
