@@ -4,6 +4,7 @@
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
+import { Quadro, Coluna, BotaoWhatsApp, telefoneBonito, linkWhatsApp } from '@/components/Kanban';
 
 export const dynamic = 'force-dynamic';
 
@@ -74,158 +75,115 @@ async function reabrir(formData: FormData) {
   revalidatePath('/atendimento');
 }
 
-export default async function AtendimentoPage({
-  searchParams,
-}: {
-  searchParams: Promise<Record<string, string | string[] | undefined>>;
-}) {
-  const sp = await searchParams;
-  const filtro = (Array.isArray(sp.status) ? sp.status[0] : sp.status) || 'aberto';
+const URGENTES = new Set(['juridico', 'reclamacao', 'cliente_irritado']);
 
-  let q = supabaseAdmin
-    .from('atendimento_fila')
-    .select('*, clientes (nome, notas_contexto), orcamentos (codigo, total)')
-    .order('criado_em', { ascending: false })
-    .limit(100);
-  if (filtro !== 'todos') q = q.eq('status', filtro);
+function CartaoCaso({ c }: { c: Caso }) {
+  const m = MOTIVOS[c.motivo] || MOTIVOS.outro;
+  const aberto = c.status === 'aberto';
+  return (
+    <article className={`bg-white rounded-xl border border-gray-200 shadow-sm p-3 hover:shadow-md transition ${aberto ? '' : 'opacity-75'}`}>
+      <div className="flex items-start justify-between gap-2">
+        <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full border ${m.classe}`}>{m.rotulo}</span>
+        <span className="text-[11px] text-gray-400 shrink-0" title={fmt(c.criado_em)}>
+          {aberto ? haQuanto(c.criado_em) : `resolvido ${haQuanto(c.resolvido_em || c.criado_em)}`}
+        </span>
+      </div>
+      <p className="font-semibold text-gray-900 leading-tight mt-2">{c.clientes?.nome || 'Cliente sem cadastro'}</p>
+      {c.telefone && <p className="text-xs text-gray-400 mt-0.5">{telefoneBonito(c.telefone)}</p>}
+      {c.resumo && <p className="text-sm text-gray-700 mt-2 leading-snug">{c.resumo}</p>}
+      {c.orcamentos?.codigo && (
+        <p className="text-xs text-gray-500 mt-1.5">
+          Orçamento {c.orcamentos.codigo}
+          {c.orcamentos.total != null &&
+            ` — R$ ${Number(c.orcamentos.total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
+        </p>
+      )}
+      {aberto && c.clientes?.notas_contexto && (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer text-xs text-gray-500 hover:text-gray-700">Contexto do cliente</summary>
+          <p className="text-xs text-gray-500 mt-1 italic leading-snug">{c.clientes.notas_contexto}</p>
+        </details>
+      )}
+      {c.origem && <p className="text-[11px] text-gray-400 mt-1.5">Origem: {c.origem}</p>}
 
-  const { data, error } = await q;
-  const casos = (data || []) as unknown as Caso[];
-
-  const { count: abertos } = await supabaseAdmin
-    .from('atendimento_fila')
-    .select('id', { count: 'exact', head: true })
-    .eq('status', 'aberto');
-
-  const aba = (valor: string, texto: string) => (
-    <Link
-      href={`/atendimento?status=${valor}`}
-      className={`px-4 py-2 rounded-lg text-sm transition ${
-        filtro === valor
-          ? 'bg-[#F7941D] text-white font-medium'
-          : 'bg-white border border-gray-300 text-gray-600 hover:bg-gray-100'
-      }`}
-    >
-      {texto}
-    </Link>
+      <div className="flex gap-1.5 mt-3">
+        {aberto && c.telefone && (
+          <div className="flex-1"><BotaoWhatsApp href={linkWhatsApp(c.telefone)} texto="WhatsApp" /></div>
+        )}
+        <form action={aberto ? resolver : reabrir} className="flex-1">
+          <input type="hidden" name="id" value={c.id} />
+          <button type="submit" className={`w-full text-sm font-medium rounded-lg px-3 py-2 transition ${
+            aberto ? 'bg-gray-900 text-white hover:bg-gray-700' : 'border border-gray-300 text-gray-600 hover:bg-gray-100'
+          }`}>
+            {aberto ? '✓ Resolvido' : 'Reabrir'}
+          </button>
+        </form>
+      </div>
+    </article>
   );
+}
+
+export default async function AtendimentoPage() {
+  const seteDias = new Date(Date.now() - 7 * 24 * 3600_000).toISOString();
+  const [abertosRes, resolvidosRes] = await Promise.all([
+    supabaseAdmin
+      .from('atendimento_fila')
+      .select('*, clientes (nome, notas_contexto), orcamentos (codigo, total)')
+      .eq('status', 'aberto')
+      .order('criado_em', { ascending: true })
+      .limit(500),
+    supabaseAdmin
+      .from('atendimento_fila')
+      .select('*, clientes (nome, notas_contexto), orcamentos (codigo, total)')
+      .eq('status', 'resolvido')
+      .gte('resolvido_em', seteDias)
+      .order('resolvido_em', { ascending: false })
+      .limit(50),
+  ]);
+  const erro = abertosRes.error || resolvidosRes.error;
+  const abertos = (abertosRes.data || []) as unknown as Caso[];
+  const resolvidos = (resolvidosRes.data || []) as unknown as Caso[];
+  const urgentes = abertos.filter(c => URGENTES.has(c.motivo));
+  const outros = abertos.filter(c => !URGENTES.has(c.motivo));
 
   return (
     <main className="min-h-screen bg-gray-50">
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+      <div className="max-w-[1300px] mx-auto px-4 py-5">
+        <div className="flex items-start justify-between mb-4 flex-wrap gap-3">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
-              Atendimento
-              {(abertos || 0) > 0 && (
-                <span className="ml-3 text-sm font-medium bg-red-100 text-red-800 px-3 py-1 rounded-full align-middle">
-                  {abertos} aberto{(abertos || 0) > 1 ? 's' : ''}
-                </span>
-              )}
-            </h1>
-            <p className="text-sm text-gray-500 mt-1">
-              Conversas que o robô passou para uma pessoa. Resolva e marque como concluído.
+            <h1 className="text-2xl font-bold text-gray-900">Atendimento</h1>
+            <p className="text-sm text-gray-500 mt-0.5">
+              {abertos.length === 0
+                ? 'Nenhum caso aberto. O robô está dando conta sozinho.'
+                : `${abertos.length} conversa${abertos.length > 1 ? 's' : ''} que o robô passou pra uma pessoa — os mais antigos no topo.`}
             </p>
           </div>
-          <Link
-            href="/"
-            className="text-sm text-gray-600 border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-100 transition"
-          >
+          <Link href="/" className="text-sm text-gray-600 border border-gray-300 rounded-lg px-4 py-2 hover:bg-gray-100 transition">
             ← Voltar ao sistema
           </Link>
         </div>
 
-        <div className="flex gap-2 mb-6">
-          {aba('aberto', 'Abertos')}
-          {aba('resolvido', 'Resolvidos')}
-          {aba('todos', 'Todos')}
-        </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 mb-6 text-sm">
-            {error.message}
-          </div>
+        {erro && (
+          <div className="bg-red-50 border border-red-200 text-red-800 rounded-xl p-4 mb-4 text-sm">{erro.message}</div>
         )}
 
-        {casos.length === 0 ? (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-10 text-center">
-            <p className="text-gray-500">
-              {filtro === 'aberto'
-                ? 'Nenhum caso aberto. O robô está dando conta sozinho.'
-                : 'Nada por aqui.'}
-            </p>
-          </div>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {casos.map(c => {
-              const m = MOTIVOS[c.motivo] || MOTIVOS.outro;
-              const zap = (c.telefone || '').replace(/\D/g, '');
-              return (
-                <div
-                  key={c.id}
-                  className={`bg-white rounded-2xl border shadow-sm p-5 ${
-                    c.status === 'aberto' ? 'border-gray-200' : 'border-gray-100 opacity-70'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap mb-1">
-                        <span className={`text-xs font-medium px-2 py-1 rounded border ${m.classe}`}>
-                          {m.rotulo}
-                        </span>
-                        <span className="text-xs text-gray-400">
-                          {fmt(c.criado_em)} · {haQuanto(c.criado_em)}
-                        </span>
-                        {c.origem && <span className="text-xs text-gray-400">· {c.origem}</span>}
-                      </div>
-                      <p className="font-medium text-gray-900">
-                        {c.clientes?.nome || 'Cliente sem cadastro'}
-                        {c.telefone && <span className="text-gray-400 font-normal ml-2">{c.telefone}</span>}
-                      </p>
-                      {c.resumo && <p className="text-sm text-gray-700 mt-2">{c.resumo}</p>}
-                      {c.orcamentos?.codigo && (
-                        <p className="text-xs text-gray-500 mt-2">
-                          Orçamento {c.orcamentos.codigo}
-                          {c.orcamentos.total != null &&
-                            ` — R$ ${Number(c.orcamentos.total).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`}
-                        </p>
-                      )}
-                      {c.clientes?.notas_contexto && (
-                        <p className="text-xs text-gray-500 mt-1 italic">{c.clientes.notas_contexto}</p>
-                      )}
-                    </div>
-
-                    <div className="flex items-center gap-2 flex-none">
-                      {zap && (
-                        <a
-                          href={`https://wa.me/${zap.startsWith('55') ? zap : '55' + zap}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-sm bg-[#25D366] text-white rounded-lg px-3 py-2 hover:brightness-95 transition"
-                        >
-                          Abrir WhatsApp
-                        </a>
-                      )}
-                      <form action={c.status === 'aberto' ? resolver : reabrir}>
-                        <input type="hidden" name="id" value={c.id} />
-                        <button
-                          type="submit"
-                          className={`text-sm rounded-lg px-3 py-2 transition ${
-                            c.status === 'aberto'
-                              ? 'bg-gray-900 text-white hover:bg-gray-700'
-                              : 'border border-gray-300 text-gray-600 hover:bg-gray-100'
-                          }`}
-                        >
-                          {c.status === 'aberto' ? 'Marcar resolvido' : 'Reabrir'}
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
+        <Quadro colunas={3}>
+          <Coluna titulo="Urgente" cor="vermelho" quantidade={urgentes.length}
+            dica="Reclamação, cliente irritado ou jurídico. Responda primeiro."
+            vazio="Nenhum caso urgente.">
+            {urgentes.map(c => <CartaoCaso key={c.id} c={c} />)}
+          </Coluna>
+          <Coluna titulo="Precisa de resposta" cor="laranja" quantidade={outros.length}
+            dica="Desconto acima da regra, dúvida que o robô não soube e outros."
+            vazio="Nada esperando resposta.">
+            {outros.map(c => <CartaoCaso key={c.id} c={c} />)}
+          </Coluna>
+          <Coluna titulo="Resolvidos" cor="verde" quantidade={resolvidos.length}
+            dica="Últimos 7 dias. Reabra se o cliente voltar a falar."
+            vazio="Nenhum resolvido nos últimos 7 dias.">
+            {resolvidos.map(c => <CartaoCaso key={c.id} c={c} />)}
+          </Coluna>
+        </Quadro>
       </div>
     </main>
   );
