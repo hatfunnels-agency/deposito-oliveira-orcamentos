@@ -680,6 +680,19 @@ export default function OrcamentoApp() {  // Auth state
     enderecoNovoForm, ruaDestino, numeroEndereco,
   ]);
 
+  // O <select> do endereco mostra a primeira opcao quando o valor nao bate
+  // com nenhuma (enderecoIdSelecionado null ou de fora da lista). A tela
+  // parecia ter endereco escolhido, mas o estado estava vazio e o form dizia
+  // "Informe o endereco de entrega antes de salvar" (ORD-A9RJ6H9, 07/10).
+  // Buscas assincronas (telefone, enderecos) chegando fora de ordem deixavam
+  // o estado assim. Garante que o que aparece e o que vai ser salvo.
+  useEffect(() => {
+    if (modoEndereco !== 'existente' || enderecosDoCliente.length === 0) return;
+    if (enderecoIdSelecionado && enderecosDoCliente.some(e => e.id === enderecoIdSelecionado)) return;
+    const padrao = enderecosDoCliente.find(e => e.is_padrao) ?? enderecosDoCliente[0];
+    setEnderecoIdSelecionado(padrao.id);
+  }, [modoEndereco, enderecosDoCliente, enderecoIdSelecionado]);
+
   // Sub-picker pra trocar endereco no modal de detalhe (Tarefa 6).
   // State separado do picker do form pra nao colidir quando ambos abertos.
   const [mostrarTrocaEndereco, setMostrarTrocaEndereco] = useState(false);
@@ -1015,11 +1028,17 @@ export default function OrcamentoApp() {  // Auth state
   // Carrega enderecos do cliente pra alimentar o picker. Falha silenciosa
   // (sem alerta) — o picker cai pro modo 'novo' / fallback automaticamente
   // quando enderecosDoCliente.length === 0.
-  const carregarEnderecosDoCliente = useCallback(async (clienteId: string) => {
+  // `ajustar` mexe na lista antes de gravar no estado (gravar uma vez so, ja
+  // completa — ver editarOrcamento).
+  const carregarEnderecosDoCliente = useCallback(async (
+    clienteId: string,
+    ajustar?: (lista: EnderecoClienteUI[]) => EnderecoClienteUI[],
+  ) => {
     try {
       const res = await fetch(`/api/clientes/${clienteId}/enderecos`, { cache: 'no-store' });
       const data = await res.json();
-      const enderecos = (data?.enderecos || []) as EnderecoClienteUI[];
+      const brutos = (data?.enderecos || []) as EnderecoClienteUI[];
+      const enderecos = ajustar ? ajustar(brutos) : brutos;
       setEnderecosDoCliente(enderecos);
       return enderecos;
     } catch (e) {
@@ -2196,10 +2215,22 @@ export default function OrcamentoApp() {  // Auth state
     setRecebedor(detalhe.clientes?.recebedor || '');
     // Carrega enderecos do cliente pra alimentar o picker e pre-seleciona
     // o endereco_id atual do pedido (quando existir).
+    // Se o endereco do pedido nao esta na lista do cliente (telefone corrigido:
+    // o endereco ficou no cadastro antigo), entra na lista mesmo assim — senao
+    // o efeito de consistencia trocaria o endereco do pedido pelo padrao.
+    const enderecoDoPedido: EnderecoClienteUI | null = ec
+      ? { id: ec.id, apelido: null, cep: ec.cep, rua: ec.rua, numero: ec.numero, complemento: ec.complemento,
+          bairro: ec.bairro, cidade: ec.cidade, estado: ec.estado, is_padrao: false }
+      : null;
+    const incluirEnderecoDoPedido = (lista: EnderecoClienteUI[]) =>
+      enderecoDoPedido && !lista.some(e => e.id === enderecoDoPedido.id)
+        ? [enderecoDoPedido, ...lista]
+        : lista;
+    // Zera a lista ANTES de carregar: a lista do pedido/cliente anterior ainda
+    // estaria no estado, e o efeito de consistencia escolheria o padrao dela.
+    setEnderecosDoCliente(incluirEnderecoDoPedido([]));
     if (detalhe.clientes?.id) {
-      void carregarEnderecosDoCliente(detalhe.clientes.id);
-    } else {
-      setEnderecosDoCliente([]);
+      void carregarEnderecosDoCliente(detalhe.clientes.id, incluirEnderecoDoPedido);
     }
     setEnderecoIdSelecionado(detalhe.endereco_id || null);
     setModoEndereco('existente');
