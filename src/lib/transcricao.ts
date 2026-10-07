@@ -5,11 +5,18 @@
 // audio vira texto aqui, antes de chegar no robo.
 //
 // Autenticacao sem chave nova: no deploy da Vercel o projeto recebe um token
-// OIDC em VERCEL_OIDC_TOKEN, que o AI Gateway aceita. AI_GATEWAY_API_KEY, se
-// existir, tem precedencia (e o que funciona fora da Vercel).
+// OIDC, que o AI Gateway aceita. AI_GATEWAY_API_KEY, se existir, tem
+// precedencia (e o que funciona fora da Vercel).
+//
+// Em execucao o token NAO vem em process.env.VERCEL_OIDC_TOKEN — so no build
+// e no `vercel env pull`. Na funcao ele chega no header da requisicao, e quem
+// le e o getVercelOidcToken(). Ler so o env deixou toda transcricao falhando
+// com "sem AI_GATEWAY_API_KEY nem VERCEL_OIDC_TOKEN" (06/10).
 //
 // O arquivo vem do GHL num link publico (static-assets...usercontent.site),
 // testado em 28/09 — baixa direto, sem credencial.
+
+import { getVercelOidcToken } from '@vercel/oidc';
 
 const GATEWAY_URL = 'https://ai-gateway.vercel.sh/v4/ai/transcription-model';
 
@@ -50,8 +57,10 @@ export async function transcreverAudio(url: string): Promise<Transcricao> {
   const mediaType = mediaTypeDoAudio(url);
   if (!mediaType) return { ok: false, motivo: 'extensao de audio desconhecida' };
 
-  const credencial = process.env.AI_GATEWAY_API_KEY || process.env.VERCEL_OIDC_TOKEN;
-  if (!credencial) return { ok: false, motivo: 'sem AI_GATEWAY_API_KEY nem VERCEL_OIDC_TOKEN' };
+  const credencial = process.env.AI_GATEWAY_API_KEY
+    || await getVercelOidcToken().catch(() => '')
+    || process.env.VERCEL_OIDC_TOKEN;
+  if (!credencial) return { ok: false, motivo: 'sem AI_GATEWAY_API_KEY nem token OIDC da Vercel' };
 
   try {
     const arquivo = await fetch(url, { cache: 'no-store' });
