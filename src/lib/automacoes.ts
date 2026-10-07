@@ -8,6 +8,7 @@
 // so executa o envio — e, para template, isso passa por um workflow, porque
 // a API dele nao expoe template de WhatsApp. Ver resolverWorkflow().
 import { supabaseAdmin } from '@/lib/supabase';
+import { lerTudo } from '@/lib/ler-tudo';
 import { isObraAtivaActive } from '@/lib/tags';
 import { listarWorkflows } from '@/lib/ghl';
 
@@ -214,14 +215,17 @@ async function clientesForaDasReguas(): Promise<Set<string>> {
 // Data do pedido fechado mais recente de cada cliente (qualquer status que
 // nao seja orcamento nem cancelado). Uma consulta por tick, nao uma por
 // candidato.
+// Janela de 60 dias: quem usa isto compara com orcamentos de no maximo 30
+// dias atras, entao compra mais antiga nunca decide nada. lerTudo porque o
+// Supabase corta em 1.000 linhas sem avisar (.limit(6000) nao mudava isso).
 export async function ultimaCompraFechadaPorCliente(): Promise<Map<string, string>> {
-  const { data } = await supabaseAdmin
+  const data = await lerTudo(() => supabaseAdmin
     .from('orcamentos')
     .select('cliente_id, criado_em')
     .not('cliente_id', 'is', null)
     .not('status', 'in', '(orcamento,cancelado)')
-    .order('criado_em', { ascending: false })
-    .limit(6000);
+    .gte('criado_em', new Date(Date.now() - 60 * 86_400_000).toISOString())
+    .order('criado_em', { ascending: false }));
   const mapa = new Map<string, string>();
   for (const r of (data || []) as Array<{ cliente_id: string; criado_em: string }>) {
     if (!mapa.has(r.cliente_id)) mapa.set(r.cliente_id, r.criado_em);
@@ -395,15 +399,27 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 // Cadencia por tempo desde a ultima compra:
 //   obra ativa (<=30d) -> 7 dias | 31-60d -> 15 dias | >60d -> 30 dias
 // Nao dispara pra quem tem orcamento aberto (o follow-up ja esta cuidando).
-export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
-  const { data: compras, error } = await supabaseAdmin
-    .from('orcamentos')
-    .select('cliente_id, criado_em, status, clientes (id, nome, telefone, data_followup)')
-    .not('cliente_id', 'is', null)
-    .order('criado_em', { ascending: false })
-    .limit(6000);
+// Ate onde a reativacao olha pra tras. Antes isto nao existia por escrito:
+// o Supabase corta em 1.000 linhas, e as 1.000 mais recentes davam ~54 dias
+// (e encolhendo conforme o movimento cresce). Na pratica quem nao compra ha
+// 60+ dias NUNCA recebeu reativacao — a faixa "mensal" da cadencia nunca
+// funcionou. Ligar e decisao de negocio: sao centenas de clientes frios
+// entrando de uma vez, o publico que mais bloqueia. Ate la, fica 60 dias,
+// igual ao comportamento real de antes — so que agora explicito e estavel.
+export const REATIVACAO_MAX_DIAS = 60;
 
-  if (error) throw new Error(`reativacao: ${error.message}`);
+export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
+  let compras: any[];
+  try {
+    compras = await lerTudo(() => supabaseAdmin
+      .from('orcamentos')
+      .select('cliente_id, criado_em, status, clientes (id, nome, telefone, data_followup)')
+      .not('cliente_id', 'is', null)
+      .gte('criado_em', new Date(Date.now() - REATIVACAO_MAX_DIAS * 86_400_000).toISOString())
+      .order('criado_em', { ascending: false }));
+  } catch (e) {
+    throw new Error(`reativacao: ${(e as Error).message}`);
+  }
 
   const ultimaCompra = new Map<string, { quando: string; cli: any }>();
   const temOrcamentoAberto = new Set<string>();
@@ -419,12 +435,13 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
   }
 
   // Ultimo envio de reativacao por cliente, pro freio de cadencia.
-  const { data: envios } = await supabaseAdmin
+  // So os ultimos 31 dias: a maior cadencia e 30. lerTudo pelo corte de 1.000.
+  const envios = await lerTudo(() => supabaseAdmin
     .from('automacao_envios')
     .select('cliente_id, criado_em')
     .eq('tipo', 'reativacao')
-    .order('criado_em', { ascending: false })
-    .limit(4000);
+    .gte('criado_em', new Date(Date.now() - 31 * 86_400_000).toISOString())
+    .order('criado_em', { ascending: false }));
 
   const ultimoEnvio = new Map<string, string>();
   for (const e of envios || []) {

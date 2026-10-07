@@ -9,6 +9,7 @@
 // pra tarefas_atendente, e e isso que tira a tarefa da lista por um tempo,
 // cala as reguas e o robo com o cliente, e alimenta o placar.
 import { supabaseAdmin } from '@/lib/supabase';
+import { lerTudo } from '@/lib/ler-tudo';
 import { hojeBrasilia, clientesNaoPerturbe, ultimaCompraFechadaPorCliente } from '@/lib/automacoes';
 
 export type TipoTarefa = 'retorno' | 'orcamento' | 'reativacao';
@@ -194,13 +195,15 @@ async function orcamentosGrandes(dnd: Set<string>): Promise<Tarefa[]> {
 // "Mais tempo inativo" de proposito NAO e criterio: quem esta parado ha mais
 // tempo costuma ser cliente de compra unica, que nao volta.
 async function reativacao(dnd: Set<string>, jaNaLista: Set<string>): Promise<Tarefa[]> {
-  const [{ data: compras }, { data: obra }, { data: abertos }] = await Promise.all([
-    supabaseAdmin.from('orcamentos')
+  // lerTudo: o historico INTEIRO de compras (gasto total, ultima compra). Com
+  // o corte de 1.000 do Supabase vinha uma amostra aleatoria: a Tay aparecia
+  // com 9 pedidos, R$ 34 mil e "13 dias" — eram 24, R$ 106 mil, e compra no dia.
+  const [compras, obra, { data: abertos }] = await Promise.all([
+    lerTudo(() => supabaseAdmin.from('orcamentos')
       .select('cliente_id, total, criado_em, data_entrega')
       .not('status', 'in', '(orcamento,cancelado)')
-      .not('cliente_id', 'is', null)
-      .limit(20000),
-    supabaseAdmin.from('cliente_tags').select('cliente_id').eq('tag', 'obra_ativa'),
+      .not('cliente_id', 'is', null)),
+    lerTudo(() => supabaseAdmin.from('cliente_tags').select('cliente_id').eq('tag', 'obra_ativa')),
     supabaseAdmin.from('orcamentos').select('cliente_id')
       .eq('status', 'orcamento').gte('criado_em', new Date(Date.now() - 30 * DIA_MS).toISOString()),
   ]);

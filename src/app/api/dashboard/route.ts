@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { lerTudo } from '@/lib/ler-tudo'
 import { supabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -23,19 +24,22 @@ export async function GET(request: NextRequest) {
     const inicio = dataInicio + 'T00:00:00'
     const fim = dataFim + 'T23:59:59'
 
-    const { data: orcamentosRaw, error } = await supabaseAdmin
-      .from('orcamentos')
-      .select(`
-        id, codigo, status, status_pagamento, valor_pago, subtotal, total, valor_frete,
-        tipo_entrega, forma_pagamento, fonte, criado_em, cliente_id,
-        clientes ( id, nome, telefone, cidade ),
-        orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade, preco_custo )
-      `)
-      .gte('criado_em', inicio)
-      .lte('criado_em', fim)
-      .order('criado_em', { ascending: false })
-
-    if (error) {
+    // lerTudo: o Supabase corta em 1.000 linhas sem avisar. Acima de ~4 meses
+    // o periodo passava disso e o faturamento "travava em 300 e poucos mil".
+    let orcamentosRaw: Record<string, unknown>[]
+    try {
+      orcamentosRaw = await lerTudo(() => supabaseAdmin
+        .from('orcamentos')
+        .select(`
+          id, codigo, status, status_pagamento, valor_pago, subtotal, total, valor_frete,
+          tipo_entrega, forma_pagamento, fonte, criado_em, cliente_id,
+          clientes ( id, nome, telefone, cidade ),
+          orcamento_itens ( produto_nome, quantidade, preco_unitario, subtotal, unidade, preco_custo )
+        `)
+        .gte('criado_em', inicio)
+        .lte('criado_em', fim)
+        .order('criado_em', { ascending: false }))
+    } catch (error) {
       console.error('[Dashboard] Erro:', error)
       return NextResponse.json({ error: 'Erro ao buscar dados' }, { status: 500 })
     }

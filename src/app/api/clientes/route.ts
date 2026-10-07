@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 import { isObraAtivaActive } from '@/lib/tags';
 
@@ -57,35 +58,43 @@ export async function GET(request: NextRequest) {
     const minValor = minValorRaw !== null && minValorRaw !== '' ? Number(minValorRaw) : null;
     const maxValor = maxValorRaw !== null && maxValorRaw !== '' ? Number(maxValorRaw) : null;
 
-    // 1) Clientes que batem com a busca (linhas completas)
-    let q = supabaseAdmin.from('clientes').select('*').limit(100000);
-    if (search) {
-      const digits = search.replace(/\D/g, '');
-      const ors = [`nome.ilike.%${search}%`];
-      if (digits) ors.push(`telefone.ilike.%${digits}%`);
-      q = q.or(ors.join(','));
-    }
-    const { data: clientesRaw, error: clientesErr } = await q;
-    if (clientesErr) {
+    // 1) Clientes que batem com a busca (linhas completas). lerTudo: com
+    //    .limit(100000) o Supabase devolvia so 1.000 dos 1.155+ clientes — o
+    //    resto sumia da lista e da busca sem erro nenhum.
+    const montarClientes = () => {
+      let q = supabaseAdmin.from('clientes').select('*');
+      if (search) {
+        const digits = search.replace(/\D/g, '');
+        const ors = [`nome.ilike.%${search}%`];
+        if (digits) ors.push(`telefone.ilike.%${digits}%`);
+        q = q.or(ors.join(','));
+      }
+      return q;
+    };
+    let clientes: any[];
+    try {
+      clientes = await lerTudo(montarClientes);
+    } catch {
       return NextResponse.json({ error: 'Erro ao buscar clientes' }, { status: 500 });
     }
-    const clientes = clientesRaw || [];
 
     // 2) Agregados de compras (qtd, ultima e total gasto em status=completo)
     //    + tags em duas queries paralelas. total_gasto considera so completos
     //    (venda concluida); qtd_compras conta tudo exceto orcamento/cancelado.
-    const [comprasRes, tagsRes] = await Promise.all([
-      supabaseAdmin
+    // lerTudo nas duas: 2.791 vendas e ~900 tags no banco em 06/10 — com o
+    // corte de 1.000, total gasto, qtd de compras e ultima compra saiam errados.
+    const [comprasData, tagsData] = await Promise.all([
+      lerTudo(() => supabaseAdmin
         .from('orcamentos')
         .select('cliente_id, criado_em, data_entrega, status, total')
-        .not('status', 'in', '(orcamento,cancelado)')
-        .limit(100000),
-      supabaseAdmin
+        .not('status', 'in', '(orcamento,cancelado)')),
+      lerTudo(() => supabaseAdmin
         .from('cliente_tags')
         .select('cliente_id, tag, data_aplicacao')
-        .order('data_aplicacao', { ascending: false })
-        .limit(100000),
+        .order('data_aplicacao', { ascending: false })),
     ]);
+    const comprasRes = { data: comprasData };
+    const tagsRes = { data: tagsData };
 
     const compraStats = new Map<string, { qtd: number; ultima: string | null; totalGasto: number }>();
     for (const o of comprasRes.data || []) {

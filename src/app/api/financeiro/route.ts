@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -51,10 +52,14 @@ export async function GET(request: NextRequest) {
           .neq('status_pagamento', 'completo')
           .order('criado_em', { ascending: true }),
 
-        supabaseAdmin
+        // lerTudo: com ?dias= longo os pagamentos passam de 1.000 e o
+        // Supabase cortava sem avisar. Embrulhado no mesmo formato {data,error}.
+        lerTudo(() => supabaseAdmin
           .from('pagamentos')
           .select('valor, metodo, origem, data_pagamento')
-          .gte('data_pagamento', desde.toISOString()),
+          .gte('data_pagamento', desde.toISOString()))
+          .then(data => ({ data, error: null as unknown }))
+          .catch(error => ({ data: null as any, error })),
       ]);
 
     if (errAbertos) throw errAbertos;

@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -101,12 +102,12 @@ export async function GET(request: NextRequest) {
     const caixaLivre = lucroOperacional - servicoDivida - socio;
 
     // Venda registrada no sistema, pra confrontar com o que entrou em conta.
-    const { data: vendas } = await supabaseAdmin
+    const vendas = await lerTudo(() => supabaseAdmin
       .from('orcamentos')
       .select('total')
       .not('status', 'in', '("orcamento","cancelado")')
       .gte('criado_em', `${inicio}T00:00:00Z`)
-      .lte('criado_em', `${fim}T23:59:59Z`);
+      .lte('criado_em', `${fim}T23:59:59Z`));
     const vendaSistema = (vendas || []).reduce((a, o) => a + (Number(o.total) || 0), 0);
 
     const categorias = [...porCategoria.values()].sort((a, b) => Math.abs(b.valor) - Math.abs(a.valor));

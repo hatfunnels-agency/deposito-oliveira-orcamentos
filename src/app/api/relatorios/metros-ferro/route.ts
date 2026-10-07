@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { lerTudo, lerTudoEmLotes } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -28,18 +29,20 @@ export async function GET(request: NextRequest) {
 
     // 1) Orcamentos no periodo (criado_em entre inicio e fim) com filtro
     //    de status. Pega so id pra usar como join key.
-    let orcQuery = supabaseAdmin
-      .from('orcamentos')
-      .select('id')
-      .gte('criado_em', inicio + 'T00:00:00')
-      .lte('criado_em', fim + 'T23:59:59.999')
-      .limit(100000);
-    if (statusFiltro) {
-      orcQuery = orcQuery.eq('status', statusFiltro);
-    } else {
-      orcQuery = orcQuery.neq('status', 'cancelado');
-    }
-    const { data: orcRows, error: orcErr } = await orcQuery;
+    // lerTudo / lerTudoEmLotes: o Supabase corta em 1.000 linhas sem avisar,
+    // e um .in() com centenas de ids estoura a URL. O relatorio de periodos
+    // longos saia com metros a menos.
+    const montarOrc = () => {
+      let q = supabaseAdmin
+        .from('orcamentos')
+        .select('id')
+        .gte('criado_em', inicio + 'T00:00:00')
+        .lte('criado_em', fim + 'T23:59:59.999');
+      return statusFiltro ? q.eq('status', statusFiltro) : q.neq('status', 'cancelado');
+    };
+    let orcRows: Array<{ id: string }> = [];
+    let orcErr: unknown = null;
+    try { orcRows = await lerTudo(montarOrc); } catch (e) { orcErr = e; }
     if (orcErr) {
       console.error('[metros-ferro] erro orcamentos:', orcErr);
       return NextResponse.json({ error: 'Erro ao buscar orcamentos' }, { status: 500 });
@@ -50,11 +53,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 2) orcamento_itens vinculados a esses orcamentos. Pega id + subtotal.
-    const { data: itensRows, error: itensErr } = await supabaseAdmin
-      .from('orcamento_itens')
-      .select('id, orcamento_id, subtotal')
-      .in('orcamento_id', orcIds)
-      .limit(100000);
+    let itensRows: Array<Record<string, unknown>> = [];
+    let itensErr: unknown = null;
+    try {
+      itensRows = await lerTudoEmLotes(orcIds, lote => supabaseAdmin
+        .from('orcamento_itens')
+        .select('id, orcamento_id, subtotal')
+        .in('orcamento_id', lote));
+    } catch (e) { itensErr = e; }
     if (itensErr) {
       console.error('[metros-ferro] erro orcamento_itens:', itensErr);
       return NextResponse.json({ error: 'Erro ao buscar itens' }, { status: 500 });
@@ -72,11 +78,14 @@ export async function GET(request: NextRequest) {
     }
 
     // 3) ferragem_consumo dos itens.
-    const { data: fcRows, error: fcErr } = await supabaseAdmin
-      .from('ferragem_consumo')
-      .select('orcamento_item_id, tipo_ferro, metros')
-      .in('orcamento_item_id', itemIds)
-      .limit(100000);
+    let fcRows: Array<Record<string, unknown>> = [];
+    let fcErr: unknown = null;
+    try {
+      fcRows = await lerTudoEmLotes(itemIds, lote => supabaseAdmin
+        .from('ferragem_consumo')
+        .select('orcamento_item_id, tipo_ferro, metros')
+        .in('orcamento_item_id', lote));
+    } catch (e) { fcErr = e; }
     if (fcErr) {
       console.error('[metros-ferro] erro ferragem_consumo:', fcErr);
       return NextResponse.json({ error: 'Erro ao buscar consumo de ferragem' }, { status: 500 });

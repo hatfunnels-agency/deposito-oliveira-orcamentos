@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { lerTudo, lerTudoEmLotes } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
 
 export const dynamic = 'force-dynamic';
@@ -33,11 +34,12 @@ export async function GET() {
     // alfabetico (sem regressao visivel).
     const vendasPorProduto = new Map<string, number>();
     try {
-      const { data: vendasRaw } = await supabaseAdmin
+      // lerTudo: com .limit(100000) o Supabase devolvia 1.000 itens, e o
+      // "mais vendidos" era calculado sobre uma amostra.
+      const vendasRaw = await lerTudo(() => supabaseAdmin
         .from('orcamento_itens')
         .select('produto_id, orcamentos!inner(status)')
-        .not('orcamentos.status', 'eq', 'cancelado')
-        .limit(100000);
+        .not('orcamentos.status', 'eq', 'cancelado'));
       for (const v of (vendasRaw || []) as Array<{ produto_id: string | null }>) {
         if (!v.produto_id) continue;
         vendasPorProduto.set(v.produto_id, (vendasPorProduto.get(v.produto_id) || 0) + 1);
@@ -51,10 +53,9 @@ export async function GET() {
     // silenciosa: ultima_atualizacao_custo fica null pra todos.
     const ultimaAtualizacaoCustoPorProduto = new Map<string, string>();
     try {
-      const { data: histRaw } = await supabaseAdmin
+      const histRaw = await lerTudo(() => supabaseAdmin
         .from('historico_custos')
-        .select('produto_id, criado_em')
-        .limit(100000);
+        .select('produto_id, criado_em'));
       for (const h of (histRaw || []) as Array<{ produto_id: string; criado_em: string }>) {
         const atual = ultimaAtualizacaoCustoPorProduto.get(h.produto_id);
         if (!atual || h.criado_em > atual) {
@@ -79,32 +80,31 @@ export async function GET() {
     try {
       // 1) IDs de orcamentos rascunho (status='orcamento') sem ferro
       // baixado.
-      const { data: orcsRaw } = await supabaseAdmin
+      const orcsRaw = await lerTudo(() => supabaseAdmin
         .from('orcamentos')
         .select('id')
         .eq('status', 'orcamento')
-        .eq('ferro_baixado', false)
-        .limit(100000);
+        .eq('ferro_baixado', false));
       const orcIds = (orcsRaw || []).map(o => o.id as string);
 
       if (orcIds.length > 0) {
         // 2) Itens desses orcamentos.
-        const { data: itensRaw } = await supabaseAdmin
+        // Em lotes: centenas de ids num .in() estouram a URL, o erro era
+        // engolido e o ferro reservado aparecia como zero.
+        const itensRaw = await lerTudoEmLotes(orcIds, lote => supabaseAdmin
           .from('orcamento_itens')
           .select('id, produto_id, quantidade')
-          .in('orcamento_id', orcIds)
-          .limit(100000);
+          .in('orcamento_id', lote));
         const itens = (itensRaw || []) as Array<{ id: string; produto_id: string | null; quantidade: number }>;
 
         // 3) ferragem_consumo dos itens.
         const itemIds = itens.map(i => i.id);
         let ferragemRows: Array<{ tipo_ferro: string; metros: number }> = [];
         if (itemIds.length > 0) {
-          const { data: fcRaw } = await supabaseAdmin
+          const fcRaw = await lerTudoEmLotes(itemIds, lote => supabaseAdmin
             .from('ferragem_consumo')
             .select('tipo_ferro, metros')
-            .in('orcamento_item_id', itemIds)
-            .limit(100000);
+            .in('orcamento_item_id', lote));
           ferragemRows = (fcRaw || []) as Array<{ tipo_ferro: string; metros: number }>;
         }
 
