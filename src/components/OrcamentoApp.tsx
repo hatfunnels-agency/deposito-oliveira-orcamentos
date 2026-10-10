@@ -6413,14 +6413,8 @@ export default function OrcamentoApp() {  // Auth state
                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]"
               />
             </div>
-            {modoParcial === 'programar' && (
-              <div className="mb-4">
-                <label className="block text-xs font-medium text-gray-600 mb-1">E o restante vai quando? (opcional)</label>
-                <input type="date" min={dataParcial || todayStr} value={dataRestanteParcial} onChange={e => setDataRestanteParcial(e.target.value)}
-                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]" />
-                <p className="text-[11px] text-gray-400 mt-0.5">Com data, já cria a próxima entrega com tudo o que sobrar. Em branco, o restante fica em &quot;entregas sem data&quot; até alguém combinar.</p>
-              </div>
-            )}
+            {/* "E o restante vai quando?" saiu (10/10): o cliente quase nunca sabe.
+                O restante sem entrega fica em "entregas sem data" na aba Entregas. */}
             {modoParcial === 'registrar' && (
               <div className="mb-4">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Quando vai o restante? (opcional)</label>
