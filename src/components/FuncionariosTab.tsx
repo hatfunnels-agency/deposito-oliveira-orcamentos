@@ -1,9 +1,12 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Users, Wallet, CalendarClock, HandCoins, Plus, X, Trash2, Pencil } from 'lucide-react';
+import { Users, Wallet, CalendarClock, HandCoins, Plus, X, Trash2, Pencil, Paperclip, FileText, AlertTriangle } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import { FREQUENCIA_LABELS, valorPeriodo, type Frequencia } from '@/lib/folha';
+import {
+  BUCKET_DOCUMENTOS, MIMES_ACEITOS, TAMANHO_MAXIMO, TIPOS_DOCUMENTO, type TipoDocumento,
+} from '@/lib/documentos-funcionario';
 
 interface Vale {
   id: string;
@@ -41,6 +44,7 @@ interface Funcionario {
   vales_abertos: Vale[];
   ultimo_pagamento: { pago_em: string; valor_liquido: number } | null;
   tempo_casa: { anos: number; meses: number; proximo_aniversario: string };
+  documentos: { total: number; tipos: string[]; vencidos: string[]; vencendo: string[] };
   encargos: {
     salario: number;
     fgts: number;
@@ -69,6 +73,27 @@ interface Pagamento {
 }
 
 type Vista = 'pagamentos' | 'equipe' | 'historico' | 'encargos';
+
+interface Documento {
+  id: string;
+  tipo: TipoDocumento;
+  descricao: string | null;
+  validade: string | null;
+  nome_arquivo: string;
+  mime: string | null;
+  tamanho: number | null;
+  criado_em: string;
+}
+
+const tipoLabel = (t: string) => TIPOS_DOCUMENTO[t as TipoDocumento] ?? t;
+
+// Documentos basicos de todo funcionario; CNH so pra quem dirige.
+const docsEsperados = (f: Funcionario): TipoDocumento[] => {
+  const base: TipoDocumento[] = ['rg', 'cpf', 'ctps', 'comprovante_residencia'];
+  return /motorista|entregador/i.test(f.funcao ?? '') ? [...base, 'cnh'] : base;
+};
+
+const DOC_VAZIO = { tipo: 'rg' as TipoDocumento, validade: '', descricao: '', arquivo: null as File | null };
 
 const brl = (v: number) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const dataBR = (s: string | null | undefined) => (s ? s.split('-').reverse().join('/') : '—');
@@ -128,6 +153,10 @@ export default function FuncionariosTab() {
   const [modalFunc, setModalFunc] = useState<{ id: string | null; form: typeof FORM_VAZIO } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
+  const [modalDocs, setModalDocs] = useState<Funcionario | null>(null);
+  const [docs, setDocs] = useState<Documento[]>([]);
+  const [novoDoc, setNovoDoc] = useState(DOC_VAZIO);
+  const [enviando, setEnviando] = useState(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -262,6 +291,87 @@ export default function FuncionariosTab() {
     }
   };
 
+  // ---------- documentos ----------
+  const abrirDocs = async (f: Funcionario) => {
+    setModalDocs(f);
+    setDocs([]);
+    setNovoDoc(DOC_VAZIO);
+    try {
+      const json = await api(`/api/funcionarios/documentos?funcionario_id=${f.id}`);
+      setDocs(json.documentos || []);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const enviarDoc = async () => {
+    if (!modalDocs || !novoDoc.arquivo) return;
+    const arq = novoDoc.arquivo;
+    if (!MIMES_ACEITOS.includes(arq.type)) return alert('Envie foto (JPG, PNG, HEIC) ou PDF.');
+    if (arq.size > TAMANHO_MAXIMO) return alert('Arquivo maior que 15 MB.');
+    setEnviando(true);
+    try {
+      // 1) API (admin) gera um token de upload; 2) o arquivo vai direto pro
+      // Storage, sem passar pela Vercel; 3) registra o documento.
+      const { path, token } = await api('/api/funcionarios/documentos/upload', {
+        method: 'POST',
+        body: JSON.stringify({ funcionario_id: modalDocs.id, nome_arquivo: arq.name, mime: arq.type, tamanho: arq.size }),
+      });
+      const { error } = await supabaseBrowser.storage
+        .from(BUCKET_DOCUMENTOS)
+        .uploadToSignedUrl(path, token, arq, { contentType: arq.type });
+      if (error) throw new Error('Falha ao enviar o arquivo: ' + error.message);
+      await api('/api/funcionarios/documentos', {
+        method: 'POST',
+        body: JSON.stringify({
+          funcionario_id: modalDocs.id,
+          tipo: novoDoc.tipo,
+          storage_path: path,
+          nome_arquivo: arq.name,
+          mime: arq.type,
+          tamanho: arq.size,
+          validade: novoDoc.validade || null,
+          descricao: novoDoc.descricao,
+        }),
+      });
+      setNovoDoc(DOC_VAZIO);
+      await Promise.all([abrirDocs(modalDocs), carregar()]);
+    } catch (e) {
+      alert((e as Error).message);
+    } finally {
+      setEnviando(false);
+    }
+  };
+
+  const verDoc = async (d: Documento) => {
+    // Abre a aba ja no clique (senao o navegador bloqueia o pop-up) e
+    // depois aponta pro link temporario.
+    const aba = window.open('', '_blank');
+    try {
+      const { url } = await api(`/api/funcionarios/documentos/${d.id}`);
+      if (aba) aba.location.href = url;
+      else window.location.href = url;
+    } catch (e) {
+      aba?.close();
+      alert((e as Error).message);
+    }
+  };
+
+  const apagarDoc = async (d: Documento) => {
+    if (!modalDocs || !confirm(`Apagar ${tipoLabel(d.tipo)} (${d.nome_arquivo})? O arquivo some de vez.`)) return;
+    try {
+      await api(`/api/funcionarios/documentos?id=${d.id}`, { method: 'DELETE' });
+      await Promise.all([abrirDocs(modalDocs), carregar()]);
+    } catch (e) {
+      alert((e as Error).message);
+    }
+  };
+
+  const alertasDocs = ativos.flatMap(f => [
+    ...f.documentos.vencidos.map(t => ({ f, txt: `${tipoLabel(t)} de ${f.nome} está vencida`, grave: true })),
+    ...f.documentos.vencendo.map(t => ({ f, txt: `${tipoLabel(t)} de ${f.nome} vence em menos de 30 dias`, grave: false })),
+  ]);
+
   // ---------- render ----------
   const quando = (f: Funcionario) => {
     const d = f.proximo.dias_ate;
@@ -330,6 +440,18 @@ export default function FuncionariosTab() {
       </div>
 
       {erro && <div className="p-3 rounded-lg bg-red-50 text-red-700 text-sm">{erro}</div>}
+
+      {alertasDocs.length > 0 && (
+        <div className="space-y-1">
+          {alertasDocs.map((a, i) => (
+            <button
+              key={i}
+              onClick={() => abrirDocs(a.f)}
+              className={`w-full flex items-center gap-2 text-left p-2 rounded-lg text-sm ${a.grave ? 'bg-red-50 text-red-700' : 'bg-yellow-50 text-yellow-800'}`}
+            ><AlertTriangle size={14} /> {a.txt}</button>
+          ))}
+        </div>
+      )}
       {carregando && <p className="text-sm text-gray-500">Carregando…</p>}
 
       {!carregando && !erro && funcs.length === 0 && vista !== 'historico' && (
@@ -422,6 +544,7 @@ export default function FuncionariosTab() {
                   <th className="px-3 py-2 text-right">Salário/mês</th>
                   <th className="px-3 py-2 text-right">Por período</th>
                   <th className="px-3 py-2">Carteira</th>
+                  <th className="px-3 py-2">Documentos</th>
                   <th className="px-3 py-2"></th>
                 </tr>
               </thead>
@@ -441,6 +564,18 @@ export default function FuncionariosTab() {
                     <td className="px-3 py-2 text-right">{brl(f.salario_mensal)}</td>
                     <td className="px-3 py-2 text-right">{brl(valorPeriodo(f.frequencia, Number(f.salario_mensal)))}</td>
                     <td className="px-3 py-2">{f.registrado ? 'Sim' : 'Não'}</td>
+                    <td className="px-3 py-2">
+                      {(() => {
+                        const faltam = docsEsperados(f).filter(t => !f.documentos.tipos.includes(t));
+                        const alerta = f.documentos.vencidos.length > 0 ? 'text-red-600' : f.documentos.vencendo.length > 0 ? 'text-yellow-700' : 'text-gray-700';
+                        return (
+                          <button onClick={() => abrirDocs(f)} className={`flex items-center gap-1 hover:text-[#F7941D] ${alerta}`}>
+                            <Paperclip size={14} /> {f.documentos.total}
+                            {faltam.length > 0 && <span className="text-xs text-gray-400">· faltam {faltam.length}</span>}
+                          </button>
+                        );
+                      })()}
+                    </td>
                     <td className="px-3 py-2 text-right">
                       <button onClick={() => abrirEditarFunc(f)} className="text-gray-500 hover:text-[#F7941D]" aria-label="Editar"><Pencil size={16} /></button>
                     </td>
@@ -533,6 +668,83 @@ export default function FuncionariosTab() {
           </p>
         </div>
       )}
+
+      {/* ===== MODAL DOCUMENTOS ===== */}
+      {modalDocs && (() => {
+        const f = funcs.find(x => x.id === modalDocs.id) ?? modalDocs;
+        const faltam = docsEsperados(f).filter(t => !docs.some(d => d.tipo === t));
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl w-full max-w-lg p-5 space-y-3 my-8">
+              <div className="flex items-center justify-between">
+                <h3 className="font-bold text-lg">Documentos de {f.nome}</h3>
+                <button onClick={() => setModalDocs(null)} aria-label="Fechar"><X size={20} /></button>
+              </div>
+
+              {faltam.length > 0 && (
+                <p className="text-xs text-gray-500">Faltando: {faltam.map(tipoLabel).join(', ')}</p>
+              )}
+
+              {docs.length === 0 ? (
+                <p className="text-sm text-gray-500">Nenhum documento ainda.</p>
+              ) : (
+                <ul className="divide-y border rounded-lg">
+                  {docs.map(d => {
+                    const vencido = d.validade && hoje && d.validade < hoje;
+                    return (
+                      <li key={d.id} className="flex items-center gap-3 p-2">
+                        <FileText size={18} className="text-gray-400 shrink-0" />
+                        <button onClick={() => verDoc(d)} className="flex-1 min-w-0 text-left hover:text-[#F7941D]">
+                          <p className="text-sm font-medium">{tipoLabel(d.tipo)}{d.descricao ? ` · ${d.descricao}` : ''}</p>
+                          <p className="text-xs text-gray-500 truncate">
+                            {d.nome_arquivo}
+                            {d.validade && <span className={vencido ? 'text-red-600' : ''}> · validade {dataBR(d.validade)}{vencido ? ' (vencida)' : ''}</span>}
+                          </p>
+                        </button>
+                        <button onClick={() => apagarDoc(d)} className="text-gray-400 hover:text-red-600" aria-label="Apagar documento"><Trash2 size={14} /></button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+
+              <div className="border-t pt-3 space-y-2">
+                <p className="text-sm font-semibold">Adicionar documento</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className={label}>Tipo</label>
+                    <select className={input} value={novoDoc.tipo} onChange={e => setNovoDoc({ ...novoDoc, tipo: e.target.value as TipoDocumento })}>
+                      {(Object.keys(TIPOS_DOCUMENTO) as TipoDocumento[]).map(t => <option key={t} value={t}>{TIPOS_DOCUMENTO[t]}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className={label}>Validade (se tiver)</label>
+                    <input type="date" className={input} value={novoDoc.validade} onChange={e => setNovoDoc({ ...novoDoc, validade: e.target.value })} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className={label}>Observação (opcional)</label>
+                    <input className={input} placeholder="ex.: frente e verso" value={novoDoc.descricao} onChange={e => setNovoDoc({ ...novoDoc, descricao: e.target.value })} />
+                  </div>
+                  <div className="col-span-2">
+                    <label className={label}>Arquivo (foto ou PDF, até 15 MB)</label>
+                    <input
+                      type="file"
+                      accept={MIMES_ACEITOS.join(',')}
+                      className="block w-full text-sm"
+                      onChange={e => setNovoDoc({ ...novoDoc, arquivo: e.target.files?.[0] ?? null })}
+                    />
+                  </div>
+                </div>
+                <button
+                  onClick={enviarDoc}
+                  disabled={enviando || !novoDoc.arquivo}
+                  className="w-full py-2 rounded-lg bg-[#F7941D] text-white font-medium disabled:opacity-50"
+                >{enviando ? 'Enviando…' : 'Enviar documento'}</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ===== MODAL VALE ===== */}
       {modalVale && (
