@@ -2100,11 +2100,12 @@ export default function OrcamentoApp() {  // Auth state
 
   const atualizarStatusOrcamento = async (id: string, novoStatus: string, statusAnterior?: string) => {
     try {
-      await fetch(`/api/orcamentos/${id}`, {
+      const res = await fetch(`/api/orcamentos/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: novoStatus, _previous_status: statusAnterior }),
       });
+      if (!res.ok) { alert('Não foi possível atualizar o pedido. Tente de novo.'); return; }
       carregarHistorico();
       if (novoStatus === 'entrega_pendente' || novoStatus === 'retirada_pendente' || novoStatus === 'cancelado') carregarProdutos();
       if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
@@ -4079,14 +4080,10 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
               )}
                             <div className="bg-orange-50 border border-orange-200 rounded-xl p-4 mb-4">
-                <h3 className="font-bold text-[#F7941D] text-sm mb-3">⚙️ Gestão do Pedido</h3>
+                {/* Sem seletor de status: o andamento e pelos botoes (Confirmar
+                    venda, entregas, retirada, cancelar venda). */}
+                <h3 className="font-bold text-[#F7941D] text-sm mb-3">💰 Pagamento</h3>
                 <div className="grid grid-cols-1 gap-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Status do Pedido</label>
-                    <select value={statusPedidoForm} onChange={e => { const v = e.target.value; setStatusPedidoForm(v); if (editandoId) { atualizarStatusOrcamento(editandoId, v, statusPedidoForm); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
-                      {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                    </select>
-                  </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Condição</label>
                     <select value={condicaoPagamentoForm} onChange={e => { const v = e.target.value; setCondicaoPagamentoForm(v); if (editandoId) { fetch(`/api/orcamentos/${editandoId}`, { method: "PATCH", headers: {"Content-Type":"application/json"}, body: JSON.stringify({ condicao_pagamento: v }) }); } }} className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-orange-300">
@@ -4389,10 +4386,6 @@ export default function OrcamentoApp() {  // Auth state
                         <div className="text-right">
                           <p className="text-lg font-bold text-gray-800">R$ {formatBRL(orc.total)}</p>
                           <p className="text-xs text-gray-500 mb-2">{orc.tipo_entrega === 'entrega' ? 'Entrega' : 'Retirada'}</p>
-                          <select value={orc.status} onClick={e => e.stopPropagation()} onChange={e => atualizarStatusOrcamento(orc.id, e.target.value, orc.status)}
-                            className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                            {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          </select>
                         </div>
                       </div>
                     </div>
@@ -5886,6 +5879,19 @@ export default function OrcamentoApp() {  // Auth state
                       >✋ Marcar como perdido</button>
                     )
                   )}
+                  {/* Unico caso que o seletor de status ainda cobria: o cliente
+                      desistiu depois de fechar. Volta o estoque (servidor faz,
+                      pelo _previous_status). Completo fica de fora — ja
+                      entregue e com pagamento, e devolucao. */}
+                  {['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota', 'ocorrencia'].includes(orcamentoDetalhe.status) && (
+                    <button
+                      onClick={() => {
+                        if (!window.confirm(`Cancelar a venda ${orcamentoDetalhe.codigo}?\n\nO cliente desistiu: o pedido vira Cancelado e o material volta pro estoque.`)) return;
+                        atualizarStatusOrcamento(orcamentoDetalhe.id, 'cancelado', orcamentoDetalhe.status);
+                      }}
+                      className="w-full border border-red-300 text-red-700 py-2 rounded-xl font-bold hover:bg-red-50 transition text-sm"
+                    >✕ Cancelar venda</button>
+                  )}
                   {['orcamento', 'cancelado'].includes(orcamentoDetalhe.status) && (
                     <button
                       onClick={() => excluirOrcamento(orcamentoDetalhe.id)}
@@ -5899,19 +5905,12 @@ export default function OrcamentoApp() {  // Auth state
                       </div>
                     </div>
 
-                    {/* Status manual e pagamento */}
-                {/* Gestão do Pedido */}
+                    {/* Pagamento. O status nao tem mais seletor: o andamento e
+                        pelos botoes acima. */}
                 <div>
                   <div className="border border-[#F7941D] rounded-xl bg-[#FFF8F0] p-3">
-                    <h3 className="font-bold text-[#F7941D] text-sm mb-2">⚙️ Gestão do Pedido</h3>
+                    <h3 className="font-bold text-[#F7941D] text-sm mb-2">💰 Pagamento</h3>
                     <div className="space-y-2">
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
-                        <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
-                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                          {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                      </div>
                       {/* Pagamento nao e mais um select: e o saldo real, vindo da
                           soma dos registros em `pagamentos`. Marcar como pago exige
                           registrar o dinheiro que entrou. */}

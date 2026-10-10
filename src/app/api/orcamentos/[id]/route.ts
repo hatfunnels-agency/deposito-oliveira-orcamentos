@@ -400,7 +400,9 @@ export async function PATCH(
             if (
                       status === 'cancelado' &&
                       previousStatus &&
-                      ['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota'].includes(previousStatus) &&
+                      // 'ocorrencia' tambem: ja baixou estoque (COMMITTED_STATUSES) e
+                      // cancelar a partir dela perdia o material.
+                      ['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota', 'ocorrencia'].includes(previousStatus) &&
                       orderItems &&
                       orderItems.length > 0
                     ) {
