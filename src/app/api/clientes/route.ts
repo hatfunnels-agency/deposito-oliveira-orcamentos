@@ -85,9 +85,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: 'Erro ao buscar clientes' }, { status: 500 });
     }
 
-    // 2) Agregados de compras (qtd, ultima e total gasto em status=completo)
-    //    + tags em duas queries paralelas. total_gasto considera so completos
-    //    (venda concluida); qtd_compras conta tudo exceto orcamento/cancelado.
+    // 2) Agregados de compras (qtd, ultima e total gasto) + tags em duas
+    //    queries paralelas. qtd_compras e total_gasto contam a MESMA coisa:
+    //    toda venda (tudo exceto orcamento/cancelado). Antes o total so
+    //    somava 'completo' — a Tay aparecia com R$ 99.890 em vez de R$ 106
+    //    mil (entregas pendentes fora) e o ticket medio saia torto.
     // lerTudo nas duas: 2.791 vendas e ~900 tags no banco em 06/10 — com o
     // corte de 1.000, total gasto, qtd de compras e ultima compra saiam errados.
     const [comprasData, tagsData] = await Promise.all([
@@ -113,9 +115,7 @@ export async function GET(request: NextRequest) {
       if (data && (!cur.ultima || new Date(data).getTime() > new Date(cur.ultima).getTime())) {
         cur.ultima = data;
       }
-      if (o.status === 'completo') {
-        cur.totalGasto += Number(o.total) || 0;
-      }
+      cur.totalGasto += Number(o.total) || 0;
       compraStats.set(cid, cur);
     }
 
@@ -155,12 +155,24 @@ export async function GET(request: NextRequest) {
       return true;
     });
 
-    // 5) Ordena por ultima_compra DESC, NULLS LAST
-    filtrados.sort((a, b) => {
+    // 5) Ordena. Padrao: ultima_compra DESC, NULLS LAST.
+    const ordem = searchParams.get('ordem') || 'ultima_compra';
+    const porUltima = (a: any, b: any) => {
       if (!a.ultima_compra && !b.ultima_compra) return 0;
       if (!a.ultima_compra) return 1;
       if (!b.ultima_compra) return -1;
       return new Date(b.ultima_compra).getTime() - new Date(a.ultima_compra).getTime();
+    };
+    filtrados.sort((a, b) => {
+      if (ordem === 'nome') return String(a.nome || '').localeCompare(String(b.nome || ''), 'pt-BR');
+      if (ordem === 'total') return b.total_gasto - a.total_gasto || porUltima(a, b);
+      if (ordem === 'pedidos') return b.qtd_compras - a.qtd_compras || porUltima(a, b);
+      if (ordem === 'ticket') {
+        const ta = a.qtd_compras ? a.total_gasto / a.qtd_compras : 0;
+        const tb = b.qtd_compras ? b.total_gasto / b.qtd_compras : 0;
+        return tb - ta || porUltima(a, b);
+      }
+      return porUltima(a, b);
     });
 
     // 6) Pagina em memória
@@ -168,8 +180,36 @@ export async function GET(request: NextRequest) {
     const total_pages = Math.max(1, Math.ceil(total / limit));
     const inicio = (page - 1) * limit;
 
+    // Bairro/cidade da tabela: o endereco mora em enderecos_clientes (os
+    // campos clientes.bairro/cidade sao legado e quase sempre vazios). So
+    // pros clientes da pagina.
+    const pagina = filtrados.slice(inicio, inicio + limit);
+    const idsPagina = pagina.map(c => c.id as string);
+    const locais = new Map<string, { bairro: string | null; cidade: string | null; padrao: boolean }>();
+    if (idsPagina.length) {
+      const { data: ends } = await supabaseAdmin
+        .from('enderecos_clientes')
+        .select('cliente_id, bairro, cidade, is_padrao, criado_em')
+        .in('cliente_id', idsPagina)
+        .order('criado_em', { ascending: false });
+      for (const e of ends || []) {
+        const atual = locais.get(e.cliente_id);
+        if (!atual || (e.is_padrao && !atual.padrao)) {
+          locais.set(e.cliente_id, { bairro: e.bairro, cidade: e.cidade, padrao: !!e.is_padrao });
+        }
+      }
+    }
+    const comLocal = pagina.map(c => {
+      const l = locais.get(c.id as string);
+      return {
+        ...c,
+        bairro_exibicao: l?.bairro || (c.bairro as string | null) || null,
+        cidade_exibicao: l?.cidade || (c.cidade as string | null) || null,
+      };
+    });
+
     return NextResponse.json({
-      clientes: filtrados.slice(inicio, inicio + limit),
+      clientes: comLocal,
       total,
       page,
       total_pages,

@@ -233,7 +233,10 @@ export async function GET(request: NextRequest) {
 
     const porDia: Record<string, { faturado: number; pedidos: number; cmv: number }> = {}
     vendas.forEach((o: Record<string, unknown>) => {
-      const dia = ((o.criado_em as string) || '').slice(0, 10)
+      // Dia em horario de Brasilia: o slice do ISO (UTC) jogava venda das
+      // 21h em diante pro dia seguinte.
+      const ms = Date.parse((o.criado_em as string) || '')
+      const dia = Number.isNaN(ms) ? '' : new Date(ms - 3 * 3600_000).toISOString().slice(0, 10)
       if (!porDia[dia]) porDia[dia] = { faturado: 0, pedidos: 0, cmv: 0 }
       porDia[dia].faturado += Number(o.total) || 0
       porDia[dia].pedidos += 1

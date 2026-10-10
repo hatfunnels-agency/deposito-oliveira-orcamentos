@@ -165,6 +165,81 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString('pt-BR')
 }
 
+// ---- Graficos simples (CSS, sem biblioteca) ----
+
+function fmtQtd(v: number): string {
+  return v % 1 === 0 ? String(v) : v.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+}
+
+// Faturamento por dia do periodo inteiro — dia sem venda aparece vazio, pra
+// nao parecer que a semana foi continua.
+function GraficoDiario({ dias, inicio, fim }: { dias: EvolucaoDia[]; inicio: string; fim: string }) {
+  const porDia = new Map(dias.map(d => [d.dia, d]));
+  const serie: { dia: string; faturado: number; pedidos: number }[] = [];
+  const ini = new Date(inicio + 'T12:00:00');
+  const end = new Date(fim + 'T12:00:00');
+  for (let d = new Date(ini); d <= end && serie.length < 400; d.setDate(d.getDate() + 1)) {
+    const k = d.toISOString().slice(0, 10);
+    const v = porDia.get(k);
+    serie.push({ dia: k, faturado: v?.faturado || 0, pedidos: v?.pedidos || 0 });
+  }
+  const max = Math.max(1, ...serie.map(s => s.faturado));
+  const passo = Math.max(1, Math.ceil(serie.length / 12));
+  const curto = (v: number) => v >= 1000 ? `R$ ${(v / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil` : fmt(v);
+  return (
+    <div className="flex gap-2">
+      <div className="flex flex-col justify-between text-[10px] text-gray-400 text-right pb-5 w-14 shrink-0">
+        <span>{curto(max)}</span><span>{curto(max / 2)}</span><span>R$ 0</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="relative h-48 border-b border-gray-200">
+          <div className="absolute inset-x-0 top-0 border-t border-dashed border-gray-100" />
+          <div className="absolute inset-x-0 top-1/2 border-t border-dashed border-gray-100" />
+          <div className="absolute inset-0 flex items-end gap-[2px]">
+            {serie.map(s => (
+              <div key={s.dia} className="group relative flex-1 h-full flex items-end">
+                <div className="w-full rounded-t bg-[#F7941D] group-hover:bg-[#E8850A] transition"
+                  style={{ height: `${(s.faturado / max) * 100}%`, minHeight: s.faturado > 0 ? 2 : 0 }} />
+                <div className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-1 hidden group-hover:block whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-[11px] text-white z-10">
+                  {new Date(s.dia + 'T12:00:00').toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' })}: {fmt(s.faturado)} · {s.pedidos} venda(s)
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-[2px] mt-1">
+          {serie.map((s, i) => (
+            <div key={s.dia} className="flex-1 text-center text-[10px] text-gray-400 overflow-visible whitespace-nowrap">
+              {i % passo === 0 ? new Date(s.dia + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : ''}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Ranking({ itens, vazio }: { itens: { chave: string; rotulo: string; valor: number; texto: string; sub?: string }[]; vazio: string }) {
+  if (itens.length === 0) return <p className="text-xs text-gray-400 py-6 text-center">{vazio}</p>;
+  const max = Math.max(1, ...itens.map(i => i.valor));
+  return (
+    <ol className="space-y-2.5">
+      {itens.map((it, i) => (
+        <li key={it.chave}>
+          <div className="flex items-baseline justify-between gap-2 text-sm">
+            <span className="min-w-0 truncate text-gray-700"><span className="text-gray-400 mr-1">{i + 1}.</span>{it.rotulo}</span>
+            <span className="shrink-0 font-semibold text-gray-900">{it.texto}</span>
+          </div>
+          <div className="mt-1 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+            <div className="h-full rounded-full bg-[#F7941D]" style={{ width: `${(it.valor / max) * 100}%` }} />
+          </div>
+          {it.sub && <p className="text-[11px] text-gray-400 mt-0.5">{it.sub}</p>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
 export default function DashboardTab() {
   const hoje = new Date().toISOString().split('T')[0];
   const trintaDiasAtras = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -172,6 +247,7 @@ export default function DashboardTab() {
   const [dataInicio, setDataInicio] = useState(trintaDiasAtras);
   const [dataFim, setDataFim] = useState(hoje);
   const [filtroProduto, setFiltroProduto] = useState('');
+  const [topProdutosPor, setTopProdutosPor] = useState<'valor' | 'qtd'>('valor');
   const [listaProdutos, setListaProdutos] = useState<string[]>([]);
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(false);
@@ -459,6 +535,77 @@ export default function DashboardTab() {
               </div>
             </div>
           )}
+
+          {/* FATURAMENTO POR DIA (grafico) */}
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <h3 className="text-sm font-bold text-gray-800">Faturamento por dia</h3>
+            <p className="text-xs text-gray-400 mb-4">Vendas confirmadas, pelo dia em que o pedido foi criado. Passe o mouse numa barra pra ver o dia.</p>
+            <GraficoDiario dias={data.evolucao_diaria} inicio={data.periodo.inicio} fim={data.periodo.fim} />
+          </div>
+
+          {/* TOP PRODUTOS / TOP CLIENTES / CATEGORIAS */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex items-center justify-between mb-4 gap-2">
+                <h3 className="text-sm font-bold text-gray-800">Top 10 produtos</h3>
+                <div className="flex rounded-lg bg-gray-100 p-0.5 text-xs">
+                  {(['valor', 'qtd'] as const).map(m => (
+                    <button key={m} onClick={() => setTopProdutosPor(m)}
+                      className={`px-2.5 py-1 rounded-md font-medium transition ${topProdutosPor === m ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500'}`}>
+                      {m === 'valor' ? 'Valor' : 'Quantidade'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <Ranking vazio="Sem vendas no período."
+                itens={[...data.top_produtos]
+                  .sort((a, b) => topProdutosPor === 'valor' ? b.receita - a.receita : b.qtd - a.qtd)
+                  .slice(0, 10)
+                  .map(p => ({
+                    chave: p.nome,
+                    rotulo: p.nome,
+                    valor: topProdutosPor === 'valor' ? p.receita : p.qtd,
+                    texto: topProdutosPor === 'valor' ? fmt(p.receita) : fmtQtd(p.qtd),
+                    sub: topProdutosPor === 'valor' ? `${fmtQtd(p.qtd)} vendidos` : fmt(p.receita),
+                  }))} />
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-4">Top 10 clientes</h3>
+              <Ranking vazio="Sem vendas no período."
+                itens={[...data.clientes_breakdown]
+                  .sort((a, b) => b.valor_total - a.valor_total)
+                  .slice(0, 10)
+                  .map(c => ({
+                    chave: c.cliente_id || c.nome,
+                    rotulo: c.nome || 'Cliente',
+                    valor: c.valor_total,
+                    texto: fmt(c.valor_total),
+                    sub: `${c.qtd_pedidos} pedido(s)${c.cidade ? ` · ${c.cidade}` : ''}`,
+                  }))} />
+            </div>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <h3 className="text-sm font-bold text-gray-800 mb-4">Vendas por categoria</h3>
+              <Ranking vazio="Sem vendas no período."
+                itens={Object.entries(
+                  data.top_produtos.reduce<Record<string, { receita: number; margem: number }>>((acc, p) => {
+                    const cat = p.categoria || 'Sem categoria';
+                    acc[cat] = acc[cat] || { receita: 0, margem: 0 };
+                    acc[cat].receita += p.receita;
+                    acc[cat].margem += p.margem_valor;
+                    return acc;
+                  }, {}),
+                )
+                  .sort((a, b) => b[1].receita - a[1].receita)
+                  .slice(0, 10)
+                  .map(([cat, v]) => ({
+                    chave: cat,
+                    rotulo: cat,
+                    valor: v.receita,
+                    texto: fmt(v.receita),
+                    sub: `margem ${fmtPct(v.receita > 0 ? (v.margem / v.receita) * 100 : 0)}`,
+                  }))} />
+            </div>
+          </div>
 
           {/* EVOLUCAO DIARIA */}
           {data.evolucao_diaria.length > 0 && (

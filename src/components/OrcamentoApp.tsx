@@ -287,6 +287,8 @@ interface ClienteListaItem {
   ultima_compra: string | null;
   total_gasto: number;
   tags: string[];
+  bairro_exibicao?: string | null;
+  cidade_exibicao?: string | null;
 }
 
 interface RotaResponse {
@@ -632,6 +634,7 @@ export default function OrcamentoApp() {  // Auth state
   // Aba Clientes
   const [clientesLista, setClientesLista] = useState<ClienteListaItem[]>([]);
   const [clientesBusca, setClientesBusca] = useState('');
+  const [clientesOrdem, setClientesOrdem] = useState('ultima_compra');
   const [clientesPagina, setClientesPagina] = useState(1);
   const [clientesTotal, setClientesTotal] = useState(0);
   const [clientesTotalPages, setClientesTotalPages] = useState(1);
@@ -976,6 +979,7 @@ export default function OrcamentoApp() {  // Auth state
     try {
       const params = new URLSearchParams({ page: String(clientesPagina), limit: '50' });
       if (clientesBusca.trim()) params.set('search', clientesBusca.trim());
+      params.set('ordem', clientesOrdem);
       if (clientesTagsFiltro.size > 0) params.set('tags', Array.from(clientesTagsFiltro).join(','));
       if (clientesMinValor.trim()) params.set('minValor', clientesMinValor.trim());
       if (clientesMaxValor.trim()) params.set('maxValor', clientesMaxValor.trim());
@@ -990,7 +994,7 @@ export default function OrcamentoApp() {  // Auth state
       setClientesTotalPages(1);
     }
     setClientesLoading(false);
-  }, [clientesPagina, clientesBusca, clientesTagsFiltro, clientesMinValor, clientesMaxValor]);
+  }, [clientesPagina, clientesBusca, clientesOrdem, clientesTagsFiltro, clientesMinValor, clientesMaxValor]);
 
   // Busca com debounce de 300ms (tambem dispara ao abrir a aba / trocar pagina)
   useEffect(() => {
@@ -5129,14 +5133,27 @@ export default function OrcamentoApp() {  // Auth state
 
             {/* ===== CLIENTES TAB ===== */}
         {abaAtiva === 'clientes' && (
-          <div className="max-w-4xl mx-auto py-6">
-            <input
-              type="text"
-              value={clientesBusca}
-              onChange={e => { setClientesBusca(e.target.value); setClientesPagina(1); }}
-              placeholder="Buscar cliente por nome ou telefone..."
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
-            />
+          <div className="max-w-6xl mx-auto py-6">
+            <div className="flex gap-2 mb-3">
+              <input
+                type="text"
+                value={clientesBusca}
+                onChange={e => { setClientesBusca(e.target.value); setClientesPagina(1); }}
+                placeholder="Buscar por nome ou telefone..."
+                className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              />
+              <select
+                value={clientesOrdem}
+                onChange={e => { setClientesOrdem(e.target.value); setClientesPagina(1); }}
+                className="shrink-0 border border-gray-300 rounded-lg px-2 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+              >
+                <option value="ultima_compra">Última compra</option>
+                <option value="total">Maior total comprado</option>
+                <option value="pedidos">Mais pedidos</option>
+                <option value="ticket">Maior ticket médio</option>
+                <option value="nome">Ordem alfabética</option>
+              </select>
+            </div>
             {/* Feature 2: chips de tags + min/max valor */}
             <div className="mb-2 flex flex-wrap items-center gap-1.5">
               <span className="text-xs text-gray-500 mr-1">Tags:</span>
@@ -5206,42 +5223,66 @@ export default function OrcamentoApp() {  // Auth state
               <p className="text-center text-gray-400 text-sm py-10">Nenhum cliente encontrado.</p>
             ) : (
               <>
-                <div className="space-y-2">
-                  {clientesLista.map(c => (
-                    <button
-                      key={c.id}
-                      onClick={() => setClienteProfileId(c.id)}
-                      className="w-full text-left cursor-pointer bg-white border border-gray-200 rounded-lg p-4 hover:border-orange-300 hover:shadow-sm transition flex items-center justify-between gap-3"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-semibold text-gray-800 truncate">{c.nome || 'Cliente'}</p>
-                        <p className="text-xs text-gray-500">{formatarTelefoneBR(c.telefone)}</p>
-                        {c.tags.length > 0 && (
-                          <div className="flex flex-wrap gap-1 mt-1">
-                            {/* nao_perturbe vai na frente: e a unica tag que muda o
-                                que o sistema faz com o cliente, e o corte de 3 nao
-                                pode ser o motivo de ela ficar escondida. */}
-                            {[...c.tags]
-                              .sort((a, b) => Number(b === 'nao_perturbe') - Number(a === 'nao_perturbe'))
-                              .slice(0, 3)
-                              .map(t => (
-                                <span
-                                  key={t}
-                                  className={`text-[10px] rounded-full px-1.5 py-0.5 ${
-                                    t === 'nao_perturbe' ? 'bg-red-100 text-red-800 font-semibold' : 'bg-orange-100 text-orange-800'
-                                  }`}
-                                >{t === 'nao_perturbe' ? 'não perturbe' : t.replace(/_/g, ' ')}</span>
-                              ))}
-                          </div>
-                        )}
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-sm font-bold text-gray-700">{c.qtd_compras} compra{c.qtd_compras === 1 ? '' : 's'}</p>
-                        <p className="text-xs font-medium text-green-700">R$ {formatBRL(c.total_gasto || 0)}</p>
-                        <p className="text-xs text-gray-500">{c.ultima_compra ? formatarDataBR(c.ultima_compra) : 'sem compras'}</p>
-                      </div>
-                    </button>
-                  ))}
+                <div className="bg-white border border-gray-200 rounded-xl overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50 text-xs text-gray-500">
+                      <tr>
+                        <th className="text-left font-medium px-3 py-2">Cliente</th>
+                        <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Telefone</th>
+                        <th className="text-left font-medium px-3 py-2 hidden md:table-cell">Bairro/Cidade</th>
+                        <th className="text-right font-medium px-3 py-2">Pedidos</th>
+                        <th className="text-right font-medium px-3 py-2 whitespace-nowrap">Total comprado</th>
+                        <th className="text-right font-medium px-3 py-2 whitespace-nowrap hidden sm:table-cell">Ticket médio</th>
+                        <th className="text-right font-medium px-3 py-2 whitespace-nowrap">Última compra</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {clientesLista.map(c => {
+                        const ticket = c.qtd_compras > 0 ? (c.total_gasto || 0) / c.qtd_compras : 0;
+                        const local = [c.bairro_exibicao, c.cidade_exibicao].filter(Boolean).join(' — ');
+                        const dias = c.ultima_compra
+                          ? Math.floor((Date.now() - new Date(c.ultima_compra.length === 10 ? `${c.ultima_compra}T12:00:00` : c.ultima_compra).getTime()) / 86400000)
+                          : null;
+                        return (
+                          <tr key={c.id} onClick={() => setClienteProfileId(c.id)}
+                            className="border-t border-gray-100 cursor-pointer hover:bg-orange-50 transition">
+                            <td className="px-3 py-2.5">
+                              <p className="font-semibold text-gray-800">{c.nome || 'Cliente'}</p>
+                              {c.tags.length > 0 && (
+                                <div className="flex flex-wrap gap-1 mt-0.5">
+                                  {/* nao_perturbe vai na frente: e a unica tag que muda o
+                                      que o sistema faz com o cliente. */}
+                                  {[...c.tags]
+                                    .sort((a, b) => Number(b === 'nao_perturbe') - Number(a === 'nao_perturbe'))
+                                    .slice(0, 3)
+                                    .map(t => (
+                                      <span key={t}
+                                        className={`text-[10px] rounded-full px-1.5 py-0.5 ${
+                                          t === 'nao_perturbe' ? 'bg-red-100 text-red-800 font-semibold' : 'bg-orange-100 text-orange-800'
+                                        }`}
+                                      >{t === 'nao_perturbe' ? 'não perturbe' : t.replace(/_/g, ' ')}</span>
+                                    ))}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{formatarTelefoneBR(c.telefone)}</td>
+                            <td className="px-3 py-2.5 text-gray-600 hidden md:table-cell">{local || '—'}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-700">{c.qtd_compras}</td>
+                            <td className="px-3 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">R$ {formatBRL(c.total_gasto || 0)}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap hidden sm:table-cell">{c.qtd_compras > 0 ? `R$ ${formatBRL(ticket)}` : '—'}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600 whitespace-nowrap">
+                              {c.ultima_compra ? (
+                                <>
+                                  {formatarDataBR(c.ultima_compra)}
+                                  <span className="block text-[11px] text-gray-400">{dias !== null && dias <= 0 ? 'hoje' : dias === 1 ? 'ontem' : `há ${dias} dias`}</span>
+                                </>
+                              ) : 'sem compras'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
                 <div className="flex items-center justify-between mt-4 text-sm">
                   <button
