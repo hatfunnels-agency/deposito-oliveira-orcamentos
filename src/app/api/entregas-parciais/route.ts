@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { livreParaProgramar, sincronizarPedidoEntregas } from '@/lib/entregas-programadas';
 
 export const dynamic = 'force-dynamic';
 
@@ -9,20 +10,32 @@ interface ItemEntrega {
 }
 
 // POST /api/entregas-parciais
-// Body: { orcamento_id, itens: [{ orcamento_item_id, quantidade }], observacoes?, data_entrega? }
+// Body: { orcamento_id, itens: [{ orcamento_item_id, quantidade }], observacoes?, data_entrega?,
+//         programada?, data_proxima? }
+//   programada=true  -> viagem COMBINADA pra data_entrega (obrigatoria); nao
+//                       conta como entregue ate PATCH { acao: 'entregar' }.
+//   programada=false -> viagem FEITA (como sempre foi). data_proxima: quando
+//                       vai o restante; vazio = pedido fica "sem data".
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { orcamento_id, itens, observacoes, data_entrega } = body as {
+    const { orcamento_id, itens, observacoes, data_entrega, programada, data_proxima } = body as {
       orcamento_id: string;
       itens: ItemEntrega[];
       observacoes?: string;
       data_entrega?: string;
+      programada?: boolean;
+      data_proxima?: string | null;
     };
 
     if (!orcamento_id || !Array.isArray(itens) || itens.length === 0) {
       return NextResponse.json({ error: 'orcamento_id e itens sao obrigatorios' }, { status: 400 });
     }
+    if (programada && !/^\d{4}-\d{2}-\d{2}$/.test(data_entrega || '')) {
+      return NextResponse.json({ error: 'Informe a data da entrega programada' }, { status: 400 });
+    }
+    // Programar so pode o que nao esta entregue NEM ja programado em outra viagem.
+    const livre = programada ? await livreParaProgramar(orcamento_id) : null;
 
     // 1) Carrega itens atuais do orcamento (para validar e atualizar quantidade_entregue)
     const { data: orcItens, error: itensErr } = await supabaseAdmin
@@ -54,10 +67,12 @@ export async function POST(request: NextRequest) {
       if (!Number.isFinite(q) || q <= 0) {
         return NextResponse.json({ error: `Quantidade invalida para ${ref.produto_nome}` }, { status: 400 });
       }
-      const restante = ref.quantidade - ref.quantidade_entregue;
+      const restante = livre ? (livre.get(ref.id) || 0) : ref.quantidade - ref.quantidade_entregue;
       if (q > restante + 1e-9) {
         return NextResponse.json({
-          error: `Quantidade excede o restante de ${ref.produto_nome} (restante: ${restante})`,
+          error: livre
+            ? `${ref.produto_nome}: so ${Math.max(0, restante)} ainda sem viagem programada`
+            : `Quantidade excede o restante de ${ref.produto_nome} (restante: ${restante})`,
         }, { status: 400 });
       }
     }
@@ -76,13 +91,15 @@ export async function POST(request: NextRequest) {
       orcamento_id,
       numero_entrega: numeroEntrega,
       observacoes: observacoes || null,
+      status: programada ? 'programada' : 'entregue',
+      entregue_em: programada ? null : new Date().toISOString(),
     };
     if (data_entrega) insertEntrega.data_entrega = data_entrega;
 
     const { data: entrega, error: entregaErr } = await supabaseAdmin
       .from('entregas_parciais')
       .insert(insertEntrega)
-      .select('id, numero_entrega, data_entrega, observacoes, criado_em')
+      .select('id, numero_entrega, data_entrega, observacoes, criado_em, status')
       .single();
 
     if (entregaErr || !entrega) {
@@ -104,6 +121,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Erro ao salvar itens da entrega' }, { status: 500 });
     }
 
+    // Programada: nao mexe no que foi entregue — so leva a data do pedido
+    // pra viagem mais cedo, pra ele aparecer na aba Entregas no dia certo.
+    if (programada) {
+      const sinc = await sincronizarPedidoEntregas(orcamento_id);
+      return NextResponse.json({ success: true, entrega_parcial: entrega, novo_status: sinc.status, tudo_entregue: false });
+    }
+
     // 5) Atualiza quantidade_entregue em orcamento_itens (acumula)
     for (const linha of itens) {
       const ref = itensMap.get(linha.orcamento_item_id)!;
@@ -115,26 +139,12 @@ export async function POST(request: NextRequest) {
       ref.quantidade_entregue = novaQtd;
     }
 
-    // 6) Verifica se todos os itens foram totalmente entregues e ajusta status do orcamento
-    let tudoEntregue = true;
-    for (const ref of Array.from(itensMap.values())) {
-      if (ref.quantidade_entregue + 1e-9 < ref.quantidade) {
-        tudoEntregue = false;
-        break;
-      }
-    }
-    const novoStatus = tudoEntregue ? 'completo' : 'entrega_parcial';
-    // Confere o erro: antes esta gravacao falhava em silencio quando
-    // 'entrega_parcial' nao existia no CHECK constraint, deixando o pedido
-    // preso no status anterior. Nao desfaz os registros ja criados, mas loga
-    // pra falha nunca mais passar despercebida.
-    const { error: statusErr } = await supabaseAdmin
-      .from('orcamentos')
-      .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
-      .eq('id', orcamento_id);
-    if (statusErr) {
-      console.error('[entregas-parciais POST] falha ao atualizar status do orcamento', novoStatus, statusErr);
-    }
+    // 6) Status e data do pedido. Sem viagem programada, o restante vai pra
+    //    data_proxima — ou fica sem data (quadro "sem data" da aba Entregas)
+    //    em vez de preso no dia que ja passou.
+    const sinc = await sincronizarPedidoEntregas(orcamento_id, { dataProxima: data_proxima || null });
+    const novoStatus = sinc.status;
+    const tudoEntregue = novoStatus === 'completo';
 
     return NextResponse.json({
       success: true,
@@ -160,7 +170,7 @@ export async function GET(request: NextRequest) {
     const { data, error } = await supabaseAdmin
       .from('entregas_parciais')
       .select(`
-        id, numero_entrega, data_entrega, observacoes, criado_em,
+        id, numero_entrega, data_entrega, observacoes, criado_em, status, entregue_em,
         entregas_parciais_itens (
           id, orcamento_item_id, quantidade,
           orcamento_itens:orcamento_item_id ( produto_nome, unidade )

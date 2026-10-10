@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { cargaDoDia } from '@/lib/entregas-programadas';
 
 const DEPOSITO_ADDRESS = 'Av. InocÃªncio SerÃ¡fico, 4020 - Centro, CarapicuÃ­ba - SP, 06380-021';
 const DEPOSITO_LAT = -23.5237;
@@ -88,19 +89,27 @@ export async function GET(request: NextRequest) {
           cep, rua, numero, complemento, bairro, cidade, estado, lat, lng
         ),
         orcamento_itens (
-          produto_nome, quantidade, quantidade_entregue, unidade
+          id, produto_nome, quantidade, quantidade_entregue, unidade
+        ),
+        entregas_parciais (
+          id, numero_entrega, status, data_entrega,
+          entregas_parciais_itens ( orcamento_item_id, quantidade )
         )
       `)
       .eq('tipo_entrega', 'entrega')
       .in('status', statusEntrega)
       .order('criado_em', { ascending: true });
 
-    if (data) {
-      query = query.eq('data_entrega', data);
-    } else {
-      const hoje = new Date().toISOString().slice(0, 10);
-      query = query.eq('data_entrega', hoje);
-    }
+    // Dia pedido + pedidos com viagem PROGRAMADA nesse dia (um pedido pode
+    // ter varias viagens; a data dele e so a mais cedo).
+    const dia = data || new Date().toISOString().slice(0, 10);
+    const { data: viagensDoDia } = await supabaseAdmin
+      .from('entregas_parciais').select('orcamento_id')
+      .eq('status', 'programada').eq('data_entrega', dia);
+    const idsComViagem = Array.from(new Set((viagensDoDia || []).map(v => String(v.orcamento_id))));
+    query = idsComViagem.length
+      ? query.or(`data_entrega.eq.${dia},id.in.(${idsComViagem.join(',')})`)
+      : query.eq('data_entrega', dia);
 
     const { data: entregas, error } = await query;
     if (error) {
@@ -123,9 +132,9 @@ export async function GET(request: NextRequest) {
           | null;
 
         const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
-        const itensResumo = (itens || [])
-          .map((i) => String(i.quantidade) + (i.unidade === 'unidade' ? 'x' : String(i.unidade)) + ' ' + String(i.produto_nome))
-          .join(', ');
+        // So o que vai NESTA viagem (programada do dia, ou o que falta).
+        const carga = cargaDoDia(itens, e.entregas_parciais as never, dia);
+        const itensResumo = carga.resumo;
         const faltaResumo = (itens || [])
           .map((i) => {
             const total = Number(i.quantidade) || 0;
@@ -171,6 +180,9 @@ export async function GET(request: NextRequest) {
           forma_pagamento: e.forma_pagamento ? String(e.forma_pagamento) : '',
           itens_resumo: itensResumo,
           falta_resumo: faltaResumo,
+          carga_tipo: carga.tipo,
+          viagem_numero: carga.numero,
+          viagem_id: carga.viagemId,
           data_entrega: e.data_entrega ? String(e.data_entrega) : null,
           observacoes: e.observacoes ? String(e.observacoes) : '',
           distancia_km: distanciaKm,
@@ -228,7 +240,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { ids, distancias } = body as { ids: string[]; distancias?: Record<string, number | null> };
+    const { ids, distancias, data: diaRota } = body as { ids: string[]; distancias?: Record<string, number | null>; data?: string };
 
     if (!ids || ids.length === 0) {
       return NextResponse.json({ error: 'Nenhuma entrega selecionada' }, { status: 400 });
@@ -245,7 +257,11 @@ export async function POST(request: NextRequest) {
           cep, rua, numero, complemento, bairro, cidade, estado
         ),
         orcamento_itens (
-          produto_nome, quantidade, unidade
+          id, produto_nome, quantidade, quantidade_entregue, unidade
+        ),
+        entregas_parciais (
+          id, numero_entrega, status, data_entrega,
+          entregas_parciais_itens ( orcamento_item_id, quantidade )
         )
       `)
       .in('id', ids);
@@ -268,9 +284,9 @@ export async function POST(request: NextRequest) {
         | Record<string, unknown>
         | null;
       const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
-      const itensResumo = (itens || [])
-        .map((i) => String(i.quantidade) + (i.unidade === 'unidade' ? 'x' : String(i.unidade)) + ' ' + String(i.produto_nome))
-        .join(', ');
+      // Folha de rota: so o que vai nesta viagem — nunca o pedido inteiro de
+      // novo quando parte ja foi entregue.
+      const itensResumo = cargaDoDia(itens, e.entregas_parciais as never, diaRota || (e.data_entrega ? String(e.data_entrega) : null)).resumo;
       return {
         id: String(e.id), codigo: String(e.codigo),
         cliente_nome: cliente?.nome ? String(cliente.nome) : 'Sem nome',

@@ -90,6 +90,9 @@ interface EntregaParcial {
   id: string;
   numero_entrega: number;
   data_entrega: string | null;
+  // 'programada' = viagem combinada (nao conta como entregue); 'entregue' = feita
+  status?: 'programada' | 'entregue';
+  entregue_em?: string | null;
   observacoes: string | null;
   criado_em: string;
   entregas_parciais_itens: Array<{
@@ -261,6 +264,11 @@ interface EntregaRota {
   forma_pagamento?: string;
   itens_resumo: string;
   falta_resumo?: string;
+  // O que vai NESTA viagem: 'programada' (viagem #N do dia), 'restante'
+  // (ja houve entrega, vai o que falta) ou 'completa' (pedido todo).
+  carga_tipo?: 'programada' | 'restante' | 'completa';
+  viagem_numero?: number | null;
+  viagem_id?: string | null;
   data_entrega: string | null;
   observacoes: string;
   motorista_id?: string | null;
@@ -895,6 +903,11 @@ export default function OrcamentoApp() {  // Auth state
   const [parcialQtds, setParcialQtds] = useState<Record<string, string>>({});
   const [parcialObs, setParcialObs] = useState('');
   const [salvandoParcial, setSalvandoParcial] = useState(false);
+  // Mesmo modal pra REGISTRAR uma viagem feita ou PROGRAMAR uma futura.
+  const [modoParcial, setModoParcial] = useState<'registrar' | 'programar'>('registrar');
+  const [dataParcial, setDataParcial] = useState('');
+  const [dataProximaParcial, setDataProximaParcial] = useState('');
+  const [acaoViagemId, setAcaoViagemId] = useState<string | null>(null);
   const [marcandoTudoEntregue, setMarcandoTudoEntregue] = useState(false);
   const [entregaParaCancelar, setEntregaParaCancelar] = useState<EntregaParcial | null>(null);
   const [cancelandoParcial, setCancelandoParcial] = useState(false);
@@ -2040,13 +2053,33 @@ export default function OrcamentoApp() {  // Auth state
     }
     // Condicoes de entrega. So sai quando o pedido E entrega: na retirada o
     // cliente carrega o proprio veiculo e a clausula nao faz sentido.
+    // Pedido com entrega parcial: a folha impressa vai pro caminhao, entao diz
+    // logo no topo o que JA foi e o que falta — imprimir o pedido inteiro
+    // fazia o time levar de novo o que ja tinha sido entregue (10/10).
+    const situacaoEntregaImp = (() => {
+      if (!d || tipo !== 'entrega') return '';
+      const algum = d.orcamento_itens.some(i => (Number(i.quantidade_entregue) || 0) > 1e-9);
+      const progs = d.id === orcamentoDetalhe?.id ? entregasParciais.filter(ep => ep.status === 'programada') : [];
+      if (!algum && progs.length === 0) return '';
+      const linha = (q: number, u: string, n: string) => `${Math.round(q * 100) / 100} ${u} de ${n}`;
+      const ja = d.orcamento_itens.filter(i => (Number(i.quantidade_entregue) || 0) > 1e-9)
+        .map(i => linha(Number(i.quantidade_entregue), i.unidade, i.produto_nome)).join(' · ');
+      const falta = d.orcamento_itens.map(i => ({ i, f: Number(i.quantidade) - (Number(i.quantidade_entregue) || 0) }))
+        .filter(x => x.f > 1e-9).map(x => linha(x.f, x.i.unidade, x.i.produto_nome)).join(' · ');
+      const viagens = progs.map(ep => `<div>&#128197; <b>Entrega #${ep.numero_entrega}</b>${ep.data_entrega ? ' — ' + new Date(ep.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR') : ''}: ${ep.entregas_parciais_itens.map(x => linha(Number(x.quantidade), x.orcamento_itens?.unidade || '', x.orcamento_itens?.produto_nome || '')).join(' · ')}</div>`).join('');
+      return '<div class="callout" style="border-left-color:#4338ca;border-width:2px;border-left-width:5px;page-break-inside:avoid"><div style="font-weight:700;color:#4338ca;margin-bottom:4px">ENTREGA PARCIAL</div>'
+        + (ja ? `<div><b>Já entregue:</b> ${ja}</div>` : '')
+        + (falta ? `<div><b>Falta entregar:</b> ${falta}</div>` : '')
+        + viagens
+        + '<div style="font-size:12px;color:#666;margin-top:4px">Pra carregar o caminhão, imprima a entrega do dia (no pedido, em "Entregas programadas").</div></div>';
+    })();
     const condEntregaImp = tipo === 'entrega'
       ? '<div class="callout cond-entrega"><span class="clabel">Condições de entrega:</span> '
         + 'o descarregamento é feito em superfície plana, ao lado do caminhão. '
         + 'A equipe não faz o armazenamento do material na obra.</div>'
       : '';
 
-    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.pagto-row{margin:4px 0;font-size:13px}.pagto-row b{color:#333}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}.fabrica{margin:12px 0;border:2px solid #333;border-radius:6px;padding:10px 14px;background:#f7f7f7;page-break-inside:avoid}.fabrica-t{font-weight:bold;font-size:14px;letter-spacing:.5px;margin-bottom:8px;color:#111}.fabrica-item{margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed #ccc;font-size:13px}.fabrica-item:last-of-type{border-bottom:none;margin-bottom:0;padding-bottom:0}.fabrica-g{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-top:4px;font-size:12px;color:#444}.fabrica-alerta{margin-top:6px;padding:5px 8px;background:#ffe5e5;border:1px solid #d33;border-radius:4px;color:#a00;font-weight:bold;font-size:12px}.fabrica-aviso{margin-top:8px;padding-top:6px;border-top:1px solid #ccc;font-size:11px;color:#666;font-style:italic}.callout{margin:7px 0;padding:7px 12px;border:1px solid #eee;border-left-width:3px;border-radius:5px;font-size:13.5px;line-height:1.4;background:#fafafa;color:#374151}.callout .clabel{font-weight:700}.obs-box{border-left-color:#F7941D}.pay-ok{border-left-color:#16a34a;color:#15803d}.pay-cobrar{border-left-color:#d97706;color:#92400e}.pay-prazo{border-left-color:#ca8a04;color:#a16207}.cond-entrega{border-left-color:#334155;page-break-inside:avoid}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}</div>${obsBoxImp}${payBoxImp}<table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><div class="pagto-row"><b>&#128181; À vista (PIX/dinheiro):</b> R$ ${formatBRL(tot)}</div><div class="pagto-row"><b>&#128179; Cartão até 3x sem juros:</b> ${semJurosImp}</div><div class="pagto-row"><b>&#128179; Cartão 4x-6x (+8%):</b> ${comAcrescimoImp}</div></div>${blocoFabrica}${condEntregaImp}<div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
+    const htmlImp = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Orçamento ${cod}</title><style>@page{size:A4 portrait;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:10px 0;font-size:14px}th{background:#F7941D;color:white;padding:8px 10px;text-align:left}td{padding:7px 10px;border-bottom:1px solid #eee}.tr{text-align:right}.tc{text-align:center}tfoot td{font-weight:bold;border-top:2px solid #F7941D;border-bottom:none}.totrow td{font-size:20px;color:#F7941D;padding:8px 10px}.pagto{margin:10px 0;padding:10px 14px;border:1px solid #ddd;border-radius:6px;background:#fffbf0;font-size:14px}.pagto-row{margin:4px 0;font-size:13px}.pagto-row b{color:#333}.ftr{margin-top:10px;padding-top:8px;border-top:1px solid #ddd;font-size:12px;color:#999;text-align:center}.fabrica{margin:12px 0;border:2px solid #333;border-radius:6px;padding:10px 14px;background:#f7f7f7;page-break-inside:avoid}.fabrica-t{font-weight:bold;font-size:14px;letter-spacing:.5px;margin-bottom:8px;color:#111}.fabrica-item{margin-bottom:8px;padding-bottom:8px;border-bottom:1px dashed #ccc;font-size:13px}.fabrica-item:last-of-type{border-bottom:none;margin-bottom:0;padding-bottom:0}.fabrica-g{display:grid;grid-template-columns:1fr 1fr;gap:2px 16px;margin-top:4px;font-size:12px;color:#444}.fabrica-alerta{margin-top:6px;padding:5px 8px;background:#ffe5e5;border:1px solid #d33;border-radius:4px;color:#a00;font-weight:bold;font-size:12px}.fabrica-aviso{margin-top:8px;padding-top:6px;border-top:1px solid #ccc;font-size:11px;color:#666;font-style:italic}.callout{margin:7px 0;padding:7px 12px;border:1px solid #eee;border-left-width:3px;border-radius:5px;font-size:13.5px;line-height:1.4;background:#fafafa;color:#374151}.callout .clabel{font-weight:700}.obs-box{border-left-color:#F7941D}.pay-ok{border-left-color:#16a34a;color:#15803d}.pay-cobrar{border-left-color:#d97706;color:#92400e}.pay-prazo{border-left-color:#ca8a04;color:#a16207}.cond-entrega{border-left-color:#334155;page-break-inside:avoid}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><div class="ig">${cod?'<div class="ir"><b>Código:</b> '+cod+'</div>':''}<div class="ir"><b>Data:</b> ${dataCriacao}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Entrega:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}${dataEnt?'<div class="ir"><b>Data entrega:</b> '+new Date(dataEnt+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}${dataRet?'<div class="ir"><b>Data retirada:</b> '+new Date(dataRet+'T12:00:00').toLocaleDateString('pt-BR')+'</div>':''}</div>${situacaoEntregaImp}${obsBoxImp}${payBoxImp}<table><thead><tr><th>Produto</th><th class="tc">Qtd</th><th class="tc">Un</th><th class="tr">Unit.</th><th class="tr">Total</th></tr></thead><tbody>${itensHtml}</tbody><tfoot><tr><td colspan="4" class="tr">Subtotal:</td><td class="tr">R$ ${formatBRL(sub)}</td></tr><tr class="totrow"><td colspan="4" class="tr">TOTAL:</td><td class="tr">R$ ${formatBRL(tot)}</td></tr></tfoot></table><div class="pagto"><div class="pagto-row"><b>&#128181; À vista (PIX/dinheiro):</b> R$ ${formatBRL(tot)}</div><div class="pagto-row"><b>&#128179; Cartão até 3x sem juros:</b> ${semJurosImp}</div><div class="pagto-row"><b>&#128179; Cartão 4x-6x (+8%):</b> ${comAcrescimoImp}</div></div>${blocoFabrica}${condEntregaImp}<div class="ftr">Orçamento válido por 7 dias &middot; Sujeito à disponibilidade de estoque</div></body></html>`;
     printWindow.document.write(htmlImp);
     printWindow.document.close();
     setTimeout(() => printWindow.print(), 250);
@@ -2232,16 +2265,78 @@ export default function OrcamentoApp() {  // Auth state
     setSalvandoPDV(false);
   };
 
-  const abrirRegistrarParcial = () => {
+  // Quanto de cada item ainda nao esta entregue nem programado em outra viagem.
+  const livreParaProgramarUI = (itemId: string, total: number, entregue: number) => {
+    const programado = entregasParciais
+      .filter(ep => ep.status === 'programada')
+      .reduce((s2, ep) => s2 + ep.entregas_parciais_itens
+        .filter(i => i.orcamento_item_id === itemId)
+        .reduce((a, i) => a + (Number(i.quantidade) || 0), 0), 0);
+    return total - entregue - programado;
+  };
+
+  const abrirRegistrarParcial = (modo: 'registrar' | 'programar' = 'registrar') => {
     if (!orcamentoDetalhe) return;
     const init: Record<string, string> = {};
     for (const it of orcamentoDetalhe.orcamento_itens) {
-      const restante = Number(it.quantidade) - (Number(it.quantidade_entregue) || 0);
-      if (restante > 1e-9) init[it.id] = '';
+      const total = Number(it.quantidade);
+      const entregue = Number(it.quantidade_entregue) || 0;
+      const disponivel = modo === 'programar' ? livreParaProgramarUI(it.id, total, entregue) : total - entregue;
+      if (disponivel > 1e-9) init[it.id] = '';
     }
+    setModoParcial(modo);
+    setDataParcial('');
+    setDataProximaParcial('');
     setParcialQtds(init);
     setParcialObs('');
     setMostrarRegistrarParcial(true);
+  };
+
+  const recarregarPedidoEntregas = async (id: string) => {
+    const orcRes = await fetch(`/api/orcamentos/${id}`, { cache: 'no-store' });
+    const orc = await orcRes.json();
+    if (orc && !orc.error) {
+      setOrcamentoDetalhe({
+        ...orc,
+        reagendamentos: orc.reagendamentos ?? 0,
+        orcamento_itens: orc.orcamento_itens || [],
+        observacoes: orc.observacoes || null,
+        clientes: orc.clientes || null,
+      });
+    }
+    carregarEntregasParciais(id);
+    carregarHistorico();
+  };
+
+  // Viagem programada que saiu e foi entregue.
+  const entregarViagem = async (ep: EntregaParcial) => {
+    if (!orcamentoDetalhe) return;
+    if (!window.confirm(`Confirmar que a entrega #${ep.numero_entrega} foi feita?\n\nOs itens dela passam a contar como entregues.`)) return;
+    setAcaoViagemId(ep.id);
+    try {
+      const r = await fetch(`/api/entregas-parciais/${ep.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ acao: 'entregar' }), cache: 'no-store',
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok || d.error) alert(d.error || 'Erro ao registrar a entrega');
+      await recarregarPedidoEntregas(orcamentoDetalhe.id);
+    } catch { alert('Erro ao registrar a entrega'); }
+    setAcaoViagemId(null);
+  };
+
+  const mudarDataViagem = async (ep: EntregaParcial, novaData: string) => {
+    if (!orcamentoDetalhe || !novaData) return;
+    setAcaoViagemId(ep.id);
+    try {
+      const r = await fetch(`/api/entregas-parciais/${ep.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data_entrega: novaData }), cache: 'no-store',
+      });
+      if (!r.ok) alert('Erro ao mudar a data');
+      await recarregarPedidoEntregas(orcamentoDetalhe.id);
+    } catch { alert('Erro ao mudar a data'); }
+    setAcaoViagemId(null);
   };
 
   const confirmarEntregaParcial = async () => {
@@ -2256,6 +2351,10 @@ export default function OrcamentoApp() {  // Auth state
       alert('Informe pelo menos uma quantidade.');
       return;
     }
+    if (modoParcial === 'programar' && !dataParcial) {
+      alert('Escolha a data desta entrega.');
+      return;
+    }
     setSalvandoParcial(true);
     try {
       const res = await fetch('/api/entregas-parciais', {
@@ -2265,6 +2364,9 @@ export default function OrcamentoApp() {  // Auth state
           orcamento_id: orcamentoDetalhe.id,
           itens: itensPayload,
           observacoes: parcialObs || null,
+          ...(modoParcial === 'programar'
+            ? { programada: true, data_entrega: dataParcial }
+            : { data_proxima: dataProximaParcial || null }),
         }),
         cache: 'no-store',
       });
@@ -2668,7 +2770,7 @@ export default function OrcamentoApp() {  // Auth state
       const resRota = await fetch('/api/entregas/rota', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids, distancias }),
+        body: JSON.stringify({ ids, distancias, data: dataEntregas || undefined }),
         cache: 'no-store',
       });
       if (resRota.ok) setRotaGerada(await resRota.json());
@@ -2901,12 +3003,26 @@ export default function OrcamentoApp() {  // Auth state
       const amanha = new Date();
       amanha.setDate(amanha.getDate() + 1);
       const dataAlvo = dataEntregas || amanha.toISOString().slice(0, 10);
-      await fetch('/api/entregas/rota', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids: [id], novoStatus: 'completo' }),
-        cache: 'no-store',
-      });
+      // Viagem programada: entrega SO ela (o pedido pode ter outras viagens).
+      // Marcar o pedido inteiro como completo aqui fechava tudo e sumia com
+      // o restante.
+      const card = [...entregasDia, ...entregasEmRota].find(x => x.id === id);
+      if (card?.viagem_id) {
+        const r = await fetch(`/api/entregas-parciais/${card.viagem_id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ acao: 'entregar' }),
+          cache: 'no-store',
+        });
+        if (!r.ok) { const d = await r.json().catch(() => ({})); alert(d.error || 'Erro ao registrar a entrega'); }
+      } else {
+        await fetch('/api/entregas/rota', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids: [id], novoStatus: 'completo' }),
+          cache: 'no-store',
+        });
+      }
       const reloadRes = await fetch('/api/entregas/rota?data=' + dataAlvo, { cache: 'no-store' });
       const reloadData = await reloadRes.json();
       const todasRaw: EntregaRota[] = reloadData.entregas || [];
@@ -4907,8 +5023,10 @@ export default function OrcamentoApp() {  // Auth state
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
-                          {e.status === 'entrega_parcial' && e.falta_resumo && (
-                            <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
+                          {e.carga_tipo && e.carga_tipo !== 'completa' && e.itens_resumo && (
+                            <p className="text-xs text-indigo-700 font-medium mt-0.5">
+                              {e.carga_tipo === 'programada' ? `📦 Viagem #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
+                            </p>
                           )}
                         </div>
                         <button
@@ -5030,8 +5148,10 @@ export default function OrcamentoApp() {  // Auth state
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
-                          {e.status === 'entrega_parcial' && e.falta_resumo && (
-                            <p className="text-xs text-indigo-700 font-medium mt-0.5">⚠️ PARCIAL — Falta: {e.falta_resumo}</p>
+                          {e.carga_tipo && e.carga_tipo !== 'completa' && e.itens_resumo && (
+                            <p className="text-xs text-indigo-700 font-medium mt-0.5">
+                              {e.carga_tipo === 'programada' ? `📦 Viagem #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
+                            </p>
                           )}
                           {/* O que o motorista tem que cobrar na porta. Vem do saldo
                               real (total - valor_pago), nao de um rotulo digitado. */}
@@ -5727,11 +5847,45 @@ export default function OrcamentoApp() {  // Auth state
                   );
                 })()}
                 {/* Histórico de entregas parciais */}
-                {entregasParciais.length > 0 && (
+                {entregasParciais.some(ep => ep.status === 'programada') && (
                   <div className="px-4 py-3 border-b border-gray-100">
-                    <h3 className="font-bold text-gray-700 mb-2 text-sm">📋 Histórico de Entregas</h3>
+                    <h3 className="font-bold text-gray-700 mb-2 text-sm">📅 Entregas programadas</h3>
                     <div className="space-y-3">
-                      {entregasParciais.map(ep => {
+                      {entregasParciais.filter(ep => ep.status === 'programada').map(ep => (
+                        <div key={ep.id} className="border border-indigo-200 rounded-lg p-2 bg-indigo-50/60">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <div className="flex items-center gap-2">
+                              <p className="text-sm font-semibold text-indigo-900">Entrega #{ep.numero_entrega}</p>
+                              <input type="date" min={todayStr} value={ep.data_entrega || ''} disabled={acaoViagemId === ep.id}
+                                onChange={e => mudarDataViagem(ep, e.target.value)}
+                                className="text-xs border border-indigo-200 rounded px-1.5 py-0.5 bg-white" />
+                            </div>
+                            <div className="flex items-center gap-1">
+                              <button onClick={() => entregarViagem(ep)} disabled={acaoViagemId === ep.id}
+                                className="text-xs bg-green-600 text-white px-2 py-1 rounded hover:bg-green-700 whitespace-nowrap disabled:opacity-50">✓ Entregue</button>
+                              <button onClick={() => imprimirEntregaParcial(ep)}
+                                className="text-xs bg-[#F7941D] text-white px-2 py-1 rounded hover:bg-[#E8850A] whitespace-nowrap"
+                                title="Imprimir só os itens desta viagem">🖨️ Imprimir</button>
+                              <button onClick={() => setEntregaParaCancelar(ep)}
+                                className="text-xs bg-red-100 text-red-700 px-2 py-1 rounded hover:bg-red-200 whitespace-nowrap">Cancelar</button>
+                            </div>
+                          </div>
+                          <ul className="mt-1 ml-3 text-xs text-gray-700 list-disc">
+                            {ep.entregas_parciais_itens.map(epi => (
+                              <li key={epi.id}>{epi.orcamento_itens?.produto_nome || '—'}: {epi.quantidade} {epi.orcamento_itens?.unidade || ''}</li>
+                            ))}
+                          </ul>
+                          {ep.observacoes && <p className="mt-1 text-xs text-gray-500 italic">Obs: {ep.observacoes}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {entregasParciais.some(ep => ep.status !== 'programada') && (
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <h3 className="font-bold text-gray-700 mb-2 text-sm">📋 Entregas feitas</h3>
+                    <div className="space-y-3">
+                      {entregasParciais.filter(ep => ep.status !== 'programada').map(ep => {
                         const dataFmt = ep.data_entrega
                           ? new Date(ep.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')
                           : new Date(ep.criado_em).toLocaleDateString('pt-BR');
@@ -5848,7 +6002,10 @@ export default function OrcamentoApp() {  // Auth state
                 <div className="space-y-1.5">
                   {(orcamentoDetalhe.status === 'entrega_pendente' || orcamentoDetalhe.status === 'entrega_parcial') && (
                     <>
-                      <button onClick={abrirRegistrarParcial} className="w-full bg-indigo-500 text-white py-2 rounded-xl font-bold hover:bg-indigo-600 transition text-sm">📦 Registrar Entrega Parcial</button>
+                      <button onClick={() => abrirRegistrarParcial('programar')} className="w-full bg-indigo-500 text-white py-2 rounded-xl font-bold hover:bg-indigo-600 transition text-sm">📅 Programar entrega parcial</button>
+                      {/* "Registrar entrega ja feita" (abrirRegistrarParcial('registrar'))
+                          saiu da tela a pedido do Roger em 10/10 — o modo continua
+                          no modal se precisar voltar. */}
                       <button onClick={marcarTudoEntregue} disabled={marcandoTudoEntregue} className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">{marcandoTudoEntregue ? 'Salvando...' : '✅ Marcar Tudo Entregue'}</button>
                     </>
                   )}
@@ -6179,18 +6336,35 @@ export default function OrcamentoApp() {  // Auth state
       {mostrarRegistrarParcial && orcamentoDetalhe && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => !salvandoParcial && setMostrarRegistrarParcial(false)}>
           <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-5" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-3">📦 Registrar Entrega Parcial</h2>
-            <p className="text-xs text-gray-500 mb-3">Pedido {orcamentoDetalhe.codigo}. Informe a quantidade de cada item nesta viagem.</p>
+            <h2 className="text-lg font-bold text-gray-800 mb-1">
+              {modoParcial === 'programar' ? '📅 Programar entrega parcial' : '📦 Registrar entrega já feita'}
+            </h2>
+            <p className="text-xs text-gray-500 mb-3">
+              {modoParcial === 'programar'
+                ? `Pedido ${orcamentoDetalhe.codigo}. Escolha o dia e o que vai nesta viagem. Só conta como entregue quando você marcar "Entregue".`
+                : `Pedido ${orcamentoDetalhe.codigo}. Informe o que foi entregue na viagem que já aconteceu.`}
+            </p>
+            {modoParcial === 'programar' && (
+              <div className="mb-3">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Data desta entrega *</label>
+                <input type="date" min={todayStr} value={dataParcial} onChange={e => setDataParcial(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]" />
+              </div>
+            )}
             <div className="space-y-2 mb-4">
               {orcamentoDetalhe.orcamento_itens.map(it => {
                 const total = Number(it.quantidade);
                 const entregue = Number(it.quantidade_entregue) || 0;
-                const restante = total - entregue;
+                const restante = modoParcial === 'programar' ? livreParaProgramarUI(it.id, total, entregue) : total - entregue;
                 if (restante <= 1e-9) return null;
                 return (
                   <div key={it.id} className="border border-gray-200 rounded-lg p-2">
-                    <p className="text-sm font-medium text-gray-800">{it.produto_nome}</p>
-                    <p className="text-xs text-gray-500 mb-1">Restante: {restante} {it.unidade}</p>
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-medium text-gray-800">{it.produto_nome}</p>
+                      <button type="button" onClick={() => setParcialQtds(prev => ({ ...prev, [it.id]: String(restante) }))}
+                        className="text-[11px] font-semibold text-indigo-600 hover:underline shrink-0">tudo</button>
+                    </div>
+                    <p className="text-xs text-gray-500 mb-1">{modoParcial === 'programar' ? 'Sem viagem marcada' : 'Restante'}: {restante} {it.unidade}</p>
                     <input
                       type="number"
                       min="0"
@@ -6215,6 +6389,14 @@ export default function OrcamentoApp() {  // Auth state
                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]"
               />
             </div>
+            {modoParcial === 'registrar' && (
+              <div className="mb-4">
+                <label className="block text-xs font-medium text-gray-600 mb-1">Quando vai o restante? (opcional)</label>
+                <input type="date" min={todayStr} value={dataProximaParcial} onChange={e => setDataProximaParcial(e.target.value)}
+                  className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]" />
+                <p className="text-[11px] text-gray-400 mt-0.5">Em branco, o pedido aparece em &quot;entregas sem data&quot; na aba Entregas até alguém combinar o dia.</p>
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => setMostrarRegistrarParcial(false)}
@@ -6225,7 +6407,7 @@ export default function OrcamentoApp() {  // Auth state
                 onClick={confirmarEntregaParcial}
                 disabled={salvandoParcial}
                 className="flex-1 bg-indigo-500 text-white py-2 rounded-lg font-bold hover:bg-indigo-600 transition disabled:opacity-50"
-              >{salvandoParcial ? 'Salvando...' : 'Confirmar Entrega Parcial'}</button>
+              >{salvandoParcial ? 'Salvando...' : modoParcial === 'programar' ? 'Programar entrega' : 'Registrar entrega'}</button>
             </div>
           </div>
         </div>
