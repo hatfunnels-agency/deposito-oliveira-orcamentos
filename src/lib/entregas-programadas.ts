@@ -4,9 +4,13 @@
 //   'programada' -> viagem combinada (data + itens), ainda nao saiu
 //   'entregue'   -> viagem feita; ja somou em orcamento_itens.quantidade_entregue
 //
-// A aba Entregas e a folha de rota listam pedidos por orcamentos.data_entrega.
-// Por isso, depois de qualquer mudanca, o pedido e "sincronizado":
-//   - data_entrega = a viagem programada mais cedo, se houver;
+// A aba Entregas e a folha de rota listam pedidos por orcamentos.data_entrega
+// E por viagem programada (cada viagem e um cartao no dia dela). Depois de
+// qualquer mudanca, o pedido e "sincronizado":
+//   - com viagem programada, o PEDIDO PRINCIPAL fica sem data — so controle.
+//     Antes ele ganhava a data da viagem mais cedo e entrava inteiro na lista
+//     daquele dia (e sumia do dia original). Pedido do Roger em 10/10: o
+//     principal nao tem data; quem tem data e cada entrega;
 //   - sem programada e com coisa faltando: a data informada pra proxima
 //     viagem, ou null (vai pro quadro "entregas sem data" — melhor que ficar
 //     preso num dia que ja passou, invisivel);
@@ -47,8 +51,8 @@ export async function sincronizarPedidoEntregas(
 
   let dataEntrega = (orc.data_entrega as string | null) ?? null;
   if (!tudoEntregue) {
-    const proxima = programadas?.[0]?.data_entrega as string | undefined;
-    if (proxima) dataEntrega = proxima;
+    const temViagem = !!programadas?.[0]?.data_entrega;
+    if (temViagem) dataEntrega = null;
     else if (opcoes.dataProxima !== undefined) dataEntrega = opcoes.dataProxima;
     update.data_entrega = dataEntrega;
   }

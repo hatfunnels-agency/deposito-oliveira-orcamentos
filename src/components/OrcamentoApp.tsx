@@ -907,6 +907,8 @@ export default function OrcamentoApp() {  // Auth state
   const [modoParcial, setModoParcial] = useState<'registrar' | 'programar'>('registrar');
   const [dataParcial, setDataParcial] = useState('');
   const [dataProximaParcial, setDataProximaParcial] = useState('');
+  // Programar: data opcional pra uma 2a entrega com TUDO o que sobrar.
+  const [dataRestanteParcial, setDataRestanteParcial] = useState('');
   const [acaoViagemId, setAcaoViagemId] = useState<string | null>(null);
   const [marcandoTudoEntregue, setMarcandoTudoEntregue] = useState(false);
   const [entregaParaCancelar, setEntregaParaCancelar] = useState<EntregaParcial | null>(null);
@@ -2287,6 +2289,7 @@ export default function OrcamentoApp() {  // Auth state
     setModoParcial(modo);
     setDataParcial('');
     setDataProximaParcial('');
+    setDataRestanteParcial('');
     setParcialQtds(init);
     setParcialObs('');
     setMostrarRegistrarParcial(true);
@@ -2374,6 +2377,26 @@ export default function OrcamentoApp() {  // Auth state
       if (!res.ok || data.error) {
         alert(data.error || 'Erro ao registrar entrega parcial');
       } else {
+        // "E o restante vai quando?": cria a 2a entrega com tudo o que nao
+        // entrou nesta nem em outra ja programada.
+        if (modoParcial === 'programar' && dataRestanteParcial) {
+          const restoPayload = orcamentoDetalhe.orcamento_itens
+            .map(it => {
+              const livre = livreParaProgramarUI(it.id, Number(it.quantidade), Number(it.quantidade_entregue) || 0);
+              const nesta = itensPayload.find(p2 => p2.orcamento_item_id === it.id)?.quantidade || 0;
+              return { orcamento_item_id: it.id, quantidade: Math.round((livre - nesta) * 1000) / 1000 };
+            })
+            .filter(p2 => p2.quantidade > 1e-9);
+          if (restoPayload.length) {
+            const r2 = await fetch('/api/entregas-parciais', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ orcamento_id: orcamentoDetalhe.id, itens: restoPayload, programada: true, data_entrega: dataRestanteParcial, observacoes: 'Restante do pedido' }),
+              cache: 'no-store',
+            });
+            if (!r2.ok) alert('A primeira entrega foi programada, mas a do restante não. Programe o restante de novo.');
+          }
+        }
         setMostrarRegistrarParcial(false);
         setParcialQtds({});
         setParcialObs('');
@@ -4852,7 +4875,7 @@ export default function OrcamentoApp() {  // Auth state
                   {entregasSemData.map(e => (
                     <div key={e.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                       <div className="min-w-0">
-                        <p className="font-medium text-gray-800 truncate">{e.clientes?.nome || 'Cliente'} <span className="text-gray-400 font-normal">· {e.codigo}</span></p>
+                        <p className="font-medium text-gray-800 truncate">{e.clientes?.nome || 'Cliente'} <span className="text-gray-400 font-normal">· {e.codigo}</span>{e.parcialmente_programada && <span className="ml-1 text-[11px] font-normal text-indigo-700">· parte já programada, falta o restante</span>}</p>
                         <p className="text-xs text-gray-500">
                           {[e.endereco_completo?.bairro, e.endereco_completo?.cidade].filter(Boolean).join(' — ') || 'sem endereço'} · R$ {formatBRL(Number(e.total) || 0)} · confirmado em {new Date(e.criado_em).toLocaleDateString('pt-BR')}
                         </p>
@@ -5025,7 +5048,7 @@ export default function OrcamentoApp() {  // Auth state
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
                           {e.carga_tipo && e.carga_tipo !== 'completa' && e.itens_resumo && (
                             <p className="text-xs text-indigo-700 font-medium mt-0.5">
-                              {e.carga_tipo === 'programada' ? `📦 Viagem #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
+                              {e.carga_tipo === 'programada' ? `📦 ${e.codigo} · Entrega #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
                             </p>
                           )}
                         </div>
@@ -5150,7 +5173,7 @@ export default function OrcamentoApp() {  // Auth state
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}
                           {e.carga_tipo && e.carga_tipo !== 'completa' && e.itens_resumo && (
                             <p className="text-xs text-indigo-700 font-medium mt-0.5">
-                              {e.carga_tipo === 'programada' ? `📦 Viagem #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
+                              {e.carga_tipo === 'programada' ? `📦 ${e.codigo} · Entrega #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
                             </p>
                           )}
                           {/* O que o motorista tem que cobrar na porta. Vem do saldo
@@ -6010,7 +6033,8 @@ export default function OrcamentoApp() {  // Auth state
                     </>
                   )}
                   {/* Feature 9 - Reschedule button */}
-                  {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
+                  {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega'
+                    && !entregasParciais.some(ep => ep.status === 'programada') && (
                     <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
                       className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
@@ -6389,6 +6413,8 @@ export default function OrcamentoApp() {  // Auth state
                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-[#F7941D]"
               />
             </div>
+            {/* "E o restante vai quando?" saiu (10/10): o cliente quase nunca sabe.
+                O restante sem entrega fica em "entregas sem data" na aba Entregas. */}
             {modoParcial === 'registrar' && (
               <div className="mb-4">
                 <label className="block text-xs font-medium text-gray-600 mb-1">Quando vai o restante? (opcional)</label>
