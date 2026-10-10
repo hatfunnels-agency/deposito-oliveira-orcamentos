@@ -3716,6 +3716,7 @@ export default function OrcamentoApp() {  // Auth state
                         placeholder="Buscar produto por nome ou código..."
                         value={buscaProdutoForm}
                         onChange={e => setBuscaProdutoForm(e.target.value)}
+                        onBlur={() => setTimeout(() => setBuscaProdutoForm(''), 150)}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
                       />
                       {buscaProdutoForm.trim().length >= 2 && (() => {
@@ -3730,11 +3731,11 @@ export default function OrcamentoApp() {  // Auth state
                               <p className="px-3 py-2 text-sm text-gray-500">Nenhum produto encontrado.</p>
                             ) : achados.map(p => (
                               <button key={p.id}
-                                onClick={() => { adicionarItem(p); setBuscaProdutoForm(''); }}
+                                onMouseDown={e => { e.preventDefault(); adicionarItem(p); setBuscaProdutoForm(''); }}
                                 className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 hover:bg-orange-50 border-b border-gray-50 last:border-0">
                                 <span className="min-w-0">
                                   <span className="block text-sm font-medium text-gray-800 truncate">{p.nome}</span>
-                                  <span className="block text-xs text-gray-500">{p.categoria}{p.estoque <= 0 ? ' · sem estoque' : ''}</span>
+                                  <span className="block text-xs text-gray-500">{p.categoria}</span>
                                 </span>
                                 <span className="shrink-0 text-sm font-semibold text-[#F7941D]">R$ {formatBRL(p.preco)}/{p.unidade}</span>
                               </button>
@@ -5265,7 +5266,7 @@ export default function OrcamentoApp() {  // Auth state
                                 </div>
                               )}
                             </td>
-                            <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{formatarTelefoneBR(c.telefone)}</td>
+                            <td className="px-3 py-2.5 text-gray-600 whitespace-nowrap">{(c.telefone || '').startsWith('pdv-') ? <span className="text-gray-400">Balcão</span> : formatarTelefoneBR(c.telefone)}</td>
                             <td className="px-3 py-2.5 text-gray-600 hidden md:table-cell">{local || '—'}</td>
                             <td className="px-3 py-2.5 text-right text-gray-700">{c.qtd_compras}</td>
                             <td className="px-3 py-2.5 text-right font-semibold text-gray-900 whitespace-nowrap">R$ {formatBRL(c.total_gasto || 0)}</td>
@@ -5715,7 +5716,7 @@ export default function OrcamentoApp() {  // Auth state
                 {(() => {
                   const p = montarParcelasCartao(orcamentoDetalhe.total, ACRESCIMO_CARTAO);
                   return (
-                    <div className="mt-1 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm">
+                    <div className="mx-4 mt-3 bg-orange-50 border border-orange-200 rounded-xl px-3 py-1.5 text-sm">
                       <div className="flex justify-between mb-1"><span className="text-gray-600">💵 À vista (PIX/dinheiro):</span><span className="font-bold">R$ {formatBRL(p.valorAVista)}</span></div>
                       <div className="mb-1"><span className="text-gray-600 block font-medium">💳 Cartão até 3x sem juros:</span>
                         <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-300 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
