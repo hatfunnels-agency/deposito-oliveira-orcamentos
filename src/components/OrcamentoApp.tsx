@@ -855,6 +855,14 @@ export default function OrcamentoApp() {  // Auth state
   const [clienteTelefoneNovo, setClienteTelefoneNovo] = useState('');
   const [clienteNotasNovo, setClienteNotasNovo] = useState('');
   const [clienteNumeroNovo, setClienteNumeroNovo] = useState('');
+  // Busca unica de cliente no orcamento (nome OU telefone), igual ao sistema
+  // de referencia: um campo, lista de resultados, "+ Cadastrar novo cliente".
+  const [buscaClienteForm, setBuscaClienteForm] = useState('');
+  const [resultadosClienteForm, setResultadosClienteForm] = useState<any[]>([]);
+  const [buscandoClienteForm, setBuscandoClienteForm] = useState(false);
+  const [modoNovoCliente, setModoNovoCliente] = useState(false);
+  // Busca de produto dentro do orcamento — sem voltar pro catalogo.
+  const [buscaProdutoForm, setBuscaProdutoForm] = useState('');
   const [clienteBuscandoNum, setClienteBuscandoNum] = useState(false);
   const [clienteEncontrado, setClienteEncontrado] = useState<{id:string;nome:string;telefone:string;endereco:string|null;bairro:string|null;cidade:string|null;estado:string|null;cep:string|null;numero:string|null;complemento:string|null;recebedor:string|null}|null>(null);
   const [mostrarNotasColapsado, setMostrarNotasColapsado] = useState(false);
@@ -1115,6 +1123,60 @@ export default function OrcamentoApp() {  // Auth state
       setModoEndereco('novo');
     }
   }, [carregarEnderecosDoCliente]);
+
+  // Busca por nome ou telefone pro campo unico do orcamento. Telefone
+  // digitado com mascara vira so digitos; virgula e parenteses quebram o
+  // filtro .or() do Supabase, entao saem.
+  useEffect(() => {
+    const bruto = buscaClienteForm.trim();
+    const soNumero = /^[\d\s()+.-]+$/.test(bruto);
+    const termo = soNumero ? bruto.replace(/\D/g, '').replace(/^55(?=\d{10,11}$)/, '') : bruto.replace(/[,()]/g, ' ').trim();
+    if (termo.length < (soNumero ? 4 : 2)) { setResultadosClienteForm([]); return; }
+    let cancelado = false;
+    setBuscandoClienteForm(true);
+    const t = setTimeout(async () => {
+      try {
+        const r = await fetch(`/api/clientes?busca=${encodeURIComponent(termo)}&limite=8`, { cache: 'no-store' });
+        const data = await r.json();
+        if (!cancelado) setResultadosClienteForm(data.clientes || []);
+      } catch { if (!cancelado) setResultadosClienteForm([]); }
+      if (!cancelado) setBuscandoClienteForm(false);
+    }, 300);
+    return () => { cancelado = true; clearTimeout(t); };
+  }, [buscaClienteForm]);
+
+  const escolherClienteForm = async (cli: any) => {
+    setBuscaClienteForm('');
+    setResultadosClienteForm([]);
+    setModoNovoCliente(false);
+    await aplicarClienteEncontrado(cli);
+  };
+
+  // "Trocar": volta o bloco de cliente pra busca, sem mexer nos itens.
+  const trocarClienteForm = () => {
+    setClienteEncontrado(null);
+    setNomeCliente('');
+    setWhatsappCliente('');
+    setClienteNomeNovo('');
+    setClienteTelefoneNovo('');
+    setRecebedor('');
+    setEnderecosDoCliente([]);
+    setEnderecoIdSelecionado(null);
+    setModoEndereco('novo');
+    setModoNovoCliente(false);
+  };
+
+  // Comecar cliente novo a partir do que foi digitado na busca.
+  const iniciarClienteNovo = () => {
+    const bruto = buscaClienteForm.trim();
+    const soNumero = /^[\d\s()+.-]+$/.test(bruto);
+    trocarClienteForm();
+    setModoNovoCliente(true);
+    if (soNumero) { setWhatsappCliente(bruto); setClienteTelefoneNovo(bruto); }
+    else if (bruto) { setNomeCliente(bruto); setClienteNomeNovo(bruto); }
+    setBuscaClienteForm('');
+    setResultadosClienteForm([]);
+  };
 
   // Abre o sub-picker de troca de endereco no modal de detalhe. Carrega
   // os enderecos do cliente do orcamento atual (se houver).
@@ -1422,6 +1484,10 @@ export default function OrcamentoApp() {  // Auth state
     setErroFrete('');
     setEditandoId(null);
     setClienteEncontrado(null);
+    setBuscaClienteForm('');
+    setResultadosClienteForm([]);
+    setModoNovoCliente(false);
+    setBuscaProdutoForm('');
     setMostrarSimulador(false);
     setEtapaOrcamento('catalogo');
     setEnderecosDoCliente([]);
@@ -3538,13 +3604,7 @@ export default function OrcamentoApp() {  // Auth state
         {/* ===== ORCAMENTO TAB ===== */}
         {abaAtiva === 'orcamento' && (
           <div className="max-w-2xl mx-auto pb-8">
-            {itens.length === 0 ? (
-              <div className="text-center py-16 text-gray-400">
-                <p className="text-5xl mb-4">🛒</p>
-                <p className="text-lg">Seu orçamento está vazio</p>
-                <button onClick={() => setAbaAtiva('produtos')} className="mt-4 bg-[#F7941D] text-white px-6 py-2 rounded-lg hover:bg-[#E8850A] transition">Ver Produtos</button>
-              </div>
-            ) : (
+            {(
               <div className="space-y-4">
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
@@ -3554,49 +3614,25 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 )}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 mb-0">
-                  <h2 className="font-bold text-gray-700 mb-3">📋 Dados do Cliente</h2>
-                  <div className="space-y-3">
-                    <div>
-                      <label className="block text-xs font-medium text-gray-500 mb-1">📱 Número do cliente</label>
-                      <div className="relative">
-                        <input
-                          type="tel"
-                          placeholder="Digite o número para buscar cadastro..."
-                          value={clienteNumeroNovo}
-                          onChange={e => {
-                            const v = e.target.value;
-                            setClienteNumeroNovo(v);
-                            const digits = v.replace(/\D/g, '');
-                            if (digits.length >= 8) {
-                              setClienteBuscandoNum(true);
-                              setClienteEncontrado(null);
-                              clearTimeout((window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer);
-                              (window as typeof window & {_clienteTimer?: ReturnType<typeof setTimeout>})._clienteTimer = setTimeout(async () => {
-                                try {
-                                  const cli = await buscarClientePorTelefoneExato(digits);
-                                  if (cli) {
-                                    await aplicarClienteEncontrado(cli);
-                                  } else {
-                                    setClienteEncontrado(null);
-                                  }
-                                } catch {}
-                                setClienteBuscandoNum(false);
-                              }, 400);
-                            } else {
-                              setClienteEncontrado(null);
-                            }
-                          }}
-                          className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
-                        />
-                        {clienteBuscandoNum && <span className="absolute right-3 top-2.5 text-xs text-gray-400">🔍</span>}
+                  <h2 className="font-bold text-gray-700 mb-3">Cliente</h2>
+                  {(clienteEncontrado || (editandoId && nomeCliente)) ? (
+                    <div className="flex items-start justify-between gap-3 rounded-xl bg-orange-50 border border-orange-200 p-3">
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900">{clienteEncontrado?.nome || nomeCliente}</p>
+                        <p className="text-sm text-gray-700">{formatarTelefoneBR(clienteEncontrado?.telefone || whatsappCliente)}</p>
+                        {(() => {
+                          const e = enderecosDoCliente.find(x => x.id === enderecoIdSelecionado) || enderecosDoCliente.find(x => x.is_padrao) || enderecosDoCliente[0];
+                          return e ? <p className="text-xs text-gray-500 mt-0.5">{formatarEnderecoUI(e)}</p> : null;
+                        })()}
+                        {clienteEncontrado?.id && (
+                          <button onClick={() => setClienteProfileId(clienteEncontrado.id)} className="mt-1 text-xs font-semibold text-[#F7941D] hover:underline">Ver perfil</button>
+                        )}
                       </div>
-                      {clienteEncontrado && (
-                        <div className="mt-1 p-2 bg-green-50 border border-green-200 rounded-lg text-xs text-green-700">
-                          ✅ Cliente encontrado: <strong>{clienteEncontrado.nome}</strong>
-                          {clienteEncontrado.endereco && <span> — {clienteEncontrado.endereco}{clienteEncontrado.numero ? `, ${clienteEncontrado.numero}` : ''}</span>}
-                        </div>
-                      )}
+                      <button onClick={trocarClienteForm}
+                        className="shrink-0 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">Trocar</button>
                     </div>
+                  ) : modoNovoCliente ? (
+                    <div className="space-y-3">
                     <div>
                       <label className="block text-xs font-medium text-gray-500 mb-1">Nome do cliente *</label>
                       <input type="text" placeholder="Nome completo" value={nomeCliente} onChange={e => { setNomeCliente(e.target.value); setClienteNomeNovo(e.target.value); }}
@@ -3629,11 +3665,86 @@ export default function OrcamentoApp() {  // Auth state
                       }}
                         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
                     </div>
-                  </div>
+                      <button onClick={() => setModoNovoCliente(false)} className="text-xs font-semibold text-[#F7941D] hover:underline">← Buscar cliente cadastrado</button>
+                    </div>
+                  ) : (
+                    <div>
+                      <div className="relative">
+                        <input
+                          type="text"
+                          autoFocus
+                          placeholder="Telefone ou nome do cliente..."
+                          value={buscaClienteForm}
+                          onChange={e => setBuscaClienteForm(e.target.value)}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                        />
+                        {buscandoClienteForm && <span className="absolute right-3 top-3 text-xs text-gray-400">buscando…</span>}
+                        {resultadosClienteForm.length > 0 && (
+                          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-72 overflow-y-auto">
+                            {resultadosClienteForm.map(c => (
+                              <button key={c.id} onClick={() => escolherClienteForm(c)}
+                                className="w-full text-left px-3 py-2 hover:bg-orange-50 border-b border-gray-50 last:border-0">
+                                <p className="text-sm font-medium text-gray-800">{c.nome}</p>
+                                <p className="text-xs text-gray-500">{formatarTelefoneBR(c.telefone)}{c.bairro || c.cidade ? ` · ${[c.bairro, c.cidade].filter(Boolean).join(' — ')}` : ''}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {buscaClienteForm.trim().length >= 2 && !buscandoClienteForm && resultadosClienteForm.length === 0 && (
+                        <p className="text-xs text-gray-500 mt-1.5">Nenhum cliente encontrado.</p>
+                      )}
+                      <button onClick={iniciarClienteNovo} className="mt-2 text-sm font-semibold text-[#F7941D] hover:underline">
+                        + Cadastrar novo cliente{buscaClienteForm.trim() ? ` "${buscaClienteForm.trim()}"` : ''}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-                  <div className="p-4 border-b border-gray-100 bg-gray-50"><h2 className="font-bold text-gray-700">Itens do Orçamento</h2></div>
+                  <div className="p-4 border-b border-gray-100 bg-gray-50">
+                    <h2 className="font-bold text-gray-700 mb-2">Produtos</h2>
+                    {/* Busca de produto direto no orcamento. Calculadoras (ferro,
+                        madeira, laje) e meio m3 continuam no Catalogo. */}
+                    <div className="relative">
+                      <input
+                        type="text"
+                        placeholder="Buscar produto por nome ou código..."
+                        value={buscaProdutoForm}
+                        onChange={e => setBuscaProdutoForm(e.target.value)}
+                        className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
+                      />
+                      {buscaProdutoForm.trim().length >= 2 && (() => {
+                        const q = buscaProdutoForm.trim().toLowerCase();
+                        const achados = produtos
+                          .filter(p => !ehProdutoCalculadoraMadeira(p))
+                          .filter(p => p.nome.toLowerCase().includes(q) || (p.codigo || '').toLowerCase().includes(q))
+                          .slice(0, 10);
+                        return (
+                          <div className="absolute z-20 mt-1 w-full bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-80 overflow-y-auto">
+                            {achados.length === 0 ? (
+                              <p className="px-3 py-2 text-sm text-gray-500">Nenhum produto encontrado.</p>
+                            ) : achados.map(p => (
+                              <button key={p.id}
+                                onClick={() => { adicionarItem(p); setBuscaProdutoForm(''); }}
+                                className="w-full flex items-center justify-between gap-3 text-left px-3 py-2 hover:bg-orange-50 border-b border-gray-50 last:border-0">
+                                <span className="min-w-0">
+                                  <span className="block text-sm font-medium text-gray-800 truncate">{p.nome}</span>
+                                  <span className="block text-xs text-gray-500">{p.categoria}{p.estoque <= 0 ? ' · sem estoque' : ''}</span>
+                                </span>
+                                <span className="shrink-0 text-sm font-semibold text-[#F7941D]">R$ {formatBRL(p.preco)}/{p.unidade}</span>
+                              </button>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  </div>
+                  {itens.length === 0 && (
+                    <p className="p-4 text-sm text-gray-400">
+                      Nenhum produto ainda. Busque acima ou use o <button onClick={() => setAbaAtiva('produtos')} className="text-[#F7941D] font-semibold hover:underline">Catálogo</button> (calculadoras de ferro, madeira e laje).
+                    </p>
+                  )}
                   {itens.map(item => {
                     const stepVal = item.produto.unidade === 'm³' ? 0.5 : 1;
                     return (
@@ -3661,6 +3772,9 @@ export default function OrcamentoApp() {  // Auth state
                           <button onClick={() => adicionarItem(item.produto)} className="w-7 h-7 bg-green-100 text-green-600 rounded font-bold hover:bg-green-200 transition text-sm">+</button>
                         </div>
                         <p className="w-24 text-right font-bold text-[#F7941D] text-sm">R$ {formatBRL((item.preco_custom ?? item.produto.preco) * item.quantidade)}</p>
+                        <button onClick={() => setItens(prev => prev.filter(i => i.produto.id !== item.produto.id))}
+                          title="Tirar este produto do orçamento"
+                          className="text-xs font-medium text-red-600 hover:text-red-700 hover:underline">Remover</button>
                       </div>
                     );
                   })}
@@ -4121,10 +4235,25 @@ export default function OrcamentoApp() {  // Auth state
                                 Informe o endereço de entrega antes de salvar.
                               </div>
                             )}
-                            <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento || !enderecoResolvido}
+                            {itens.length === 0 && (
+                              <div className="text-sm text-gray-500 mb-2">Adicione pelo menos um produto pra salvar.</div>
+                            )}
+                            <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
                   className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
                   {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
                 </button>
+                {/* Descartar: o cliente desistiu e o carrinho ficava pro proximo
+                    cliente. Editando, so larga a edicao — o orcamento salvo fica. */}
+                {(itens.length > 0 || nomeCliente || editandoId) && (
+                  <button
+                    onClick={() => {
+                      if (editandoId) { if (window.confirm('Sair da edição sem salvar as mudanças?')) cancelarEdicao(); return; }
+                      if (window.confirm('Descartar este orçamento? Os produtos e o cliente saem do formulário.')) resetarFormulario();
+                    }}
+                    className="w-full mt-2 border border-gray-300 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                    {editandoId ? 'Descartar mudanças' : '🗑️ Descartar orçamento'}
+                  </button>
+                )}
               </div>
             )}
           </div>
