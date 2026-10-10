@@ -845,6 +845,10 @@ export default function OrcamentoApp() {  // Auth state
   // "Confirmar venda" no detalhe do pedido: data pedida ali mesmo (a
   // atendente esquecia de mudar o status e de por a data) e aviso de recibo.
   const [dataConfirmacao, setDataConfirmacao] = useState('');
+  // Cliente fechou mas ainda vai combinar o dia com o pedreiro.
+  const [semDataConfirmacao, setSemDataConfirmacao] = useState(false);
+  // Entregas confirmadas sem data: a aba Entregas lista por dia e elas sumiam.
+  const [entregasSemData, setEntregasSemData] = useState<any[]>([]);
   const [confirmandoVenda, setConfirmandoVenda] = useState(false);
   const [vendaConfirmadaId, setVendaConfirmadaId] = useState<string | null>(null);
   const [textoCopiado, setTextoCopiado] = useState(false);
@@ -1427,6 +1431,8 @@ export default function OrcamentoApp() {  // Auth state
       carregarFerragemFila();
     }
     if (abaAtiva === 'entregas') {
+      fetch('/api/entregas/sem-data', { cache: 'no-store' })
+        .then(r => r.json()).then(d => setEntregasSemData(d.entregas || [])).catch(() => setEntregasSemData([]));
       // Load retiradas pendentes
       carregarRetiradas();
     }  }, [abaAtiva]);
@@ -1512,10 +1518,15 @@ export default function OrcamentoApp() {  // Auth state
     setAbaAtiva('historico');
   };
 
-  const salvarEGerarOrcamento = async () => {
+  // statusForcado: "Salvar e confirmar venda" do painel lateral — o cliente ja
+  // fechou, entao salva direto como Entrega/Retirada Pendente sem passar
+  // pelo orcamento.
+  const salvarEGerarOrcamento = async (statusForcado?: string) => {
+    const statusFinal = statusForcado || statusPedidoForm || 'orcamento';
     // Venda confirmada de entrega sem data: a atendente esquecia. Pergunta
-    // antes, como no "Confirmar venda" do detalhe.
-    if (tipoEntrega === 'entrega' && !dataEntrega && STATUS_VENDA_CONFIRMADA.includes(statusPedidoForm)
+    // antes, como no "Confirmar venda" do detalhe. OK segue sem data (cliente
+    // vai confirmar com o pedreiro).
+    if (tipoEntrega === 'entrega' && !dataEntrega && STATUS_VENDA_CONFIRMADA.includes(statusFinal)
       && !window.confirm('Esta entrega está sem data.\n\nO cliente realmente não passou data de entrega?\n\nOK = salvar sem data · Cancelar = voltar e preencher')) {
       return;
     }
@@ -1547,7 +1558,7 @@ export default function OrcamentoApp() {  // Auth state
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
-        status: statusPedidoForm || 'orcamento',
+        status: statusFinal,
         condicao_pagamento: condicaoPagamentoForm || 'a_vista',
         vencimento: condicaoPagamentoForm === 'prazo' && vencimentoForm ? vencimentoForm : null,
         forma_pagamento: formaPagamentoForm || null,
@@ -1665,6 +1676,7 @@ export default function OrcamentoApp() {  // Auth state
         // pelo Roger — o atalho de WhatsApp pos-edicao economiza um
         // clique vs ir pra aba Historico e buscar o pedido manualmente.
         carregarHistorico();
+        if (STATUS_VENDA_CONFIRMADA.includes(statusFinal)) { setVendaConfirmadaId(savedId); carregarProdutos(); }
         abrirDetalhe(savedId);
       }
     } catch (e) {
@@ -1869,14 +1881,15 @@ export default function OrcamentoApp() {  // Auth state
   const confirmarVenda = async (d: OrcamentoDetalhe) => {
     const entrega = d.tipo_entrega === 'entrega';
     const novoStatus = entrega ? 'entrega_pendente' : 'retirada_pendente';
-    const data = dataConfirmacao || d.data_entrega || '';
-    if (entrega && !data && !window.confirm(
+    const data = semDataConfirmacao ? '' : (dataConfirmacao || d.data_entrega || '');
+    if (entrega && !data && !semDataConfirmacao && !window.confirm(
       'Esta entrega está sem data.\n\nO cliente realmente não passou data de entrega?\n\nOK = confirmar sem data · Cancelar = voltar e preencher',
     )) return;
     setConfirmandoVenda(true);
     try {
       const body: Record<string, unknown> = { status: novoStatus, _previous_status: d.status };
       if (entrega && data && data !== d.data_entrega) body.data_entrega = data;
+      if (entrega && !data && d.data_entrega) body.data_entrega = null;
       const res = await fetch(`/api/orcamentos/${d.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1886,6 +1899,7 @@ export default function OrcamentoApp() {  // Auth state
       setOrcamentoDetalhe({ ...d, status: novoStatus, data_entrega: entrega ? (data || null) : d.data_entrega });
       setVendaConfirmadaId(d.id);
       setDataConfirmacao('');
+      setSemDataConfirmacao(false);
       carregarHistorico();
       carregarProdutos();
     } catch (e) {
@@ -3607,7 +3621,8 @@ export default function OrcamentoApp() {  // Auth state
 
         {/* ===== ORCAMENTO TAB ===== */}
         {abaAtiva === 'orcamento' && (
-          <div className="max-w-2xl mx-auto pb-8">
+          <div className="max-w-6xl mx-auto pb-8 lg:grid lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6 lg:items-start">
+          <div className="min-w-0">
             {(
               <div className="space-y-4">
                 {editandoId && (
@@ -4057,25 +4072,6 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 )}
 
-                <div className="bg-[#E8850A] text-white rounded-xl p-4">
-                  <div className="flex justify-between mb-1"><span className="text-white/80 text-sm">Subtotal:</span><span className="font-medium">R$ {formatBRL(subtotal)}</span></div>
-                  <div className="flex justify-between mt-2 pt-2 border-t border-[#F7941D]"><span className="font-bold text-lg">TOTAL:</span><span className="font-bold text-xl">R$ {formatBRL(totalFinal)}</span></div>
-                </div>
-              {/* Card pricing */}
-              {(() => {
-                const p = montarParcelasCartao(totalFinal, ACRESCIMO_CARTAO);
-                return (
-                  <div className="mt-2 bg-white border border-gray-200 rounded-xl px-3 py-2 text-sm">
-                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista (PIX/dinheiro):</span><span className="font-bold text-gray-800">R$ {formatBRL(p.valorAVista)}</span></div>
-                    <div className="text-gray-600 mb-1"><span className="block font-medium">💳 Cartão até 3x sem juros:</span>
-                      <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-200 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
-                    </div>
-                    <div className="text-gray-600"><span className="block font-medium">💳 Cartão 4x-6x (+8%):</span>
-                      <div className="flex flex-wrap gap-1 mt-1">{p.comAcrescimo.map(par => (<span key={par.n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
-                    </div>
-                  </div>
-                );
-              })()}
               {editandoId && (
                 <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 px-4 py-2 rounded-xl mb-2 text-sm font-medium flex justify-between items-center">
                   <span>✏️ Editando orçamento {orcamentos.find(o => o.id === editandoId)?.codigo || editandoId}</span>
@@ -4235,6 +4231,38 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 ) : null;
               })()}
+              </div>
+            )}
+          </div>
+          {/* Painel lateral: resumo e acoes, como no sistema de referencia — o
+              cliente que ja quer fechar nao precisa gerar orcamento, abrir e
+              confirmar. No celular desce pra baixo do formulario. */}
+          <aside className="mt-4 lg:mt-0">
+            <div className="lg:sticky lg:top-4 space-y-3">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <h2 className="font-bold text-gray-800 mb-2">Resumo</h2>
+                <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal ({itens.length} {itens.length === 1 ? 'item' : 'itens'})</span><span className="font-medium text-gray-800">R$ {formatBRL(subtotal)}</span></div>
+                {totalFinal < subtotal - 0.005 && (
+                  <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Desconto</span><span className="font-medium text-green-700">− R$ {formatBRL(subtotal - totalFinal)}</span></div>
+                )}
+                <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-gray-800">Total</span><span className="font-bold text-2xl text-[#E8850A]">R$ {formatBRL(totalFinal)}</span></div>
+              {/* Card pricing */}
+              {(() => {
+                const p = montarParcelasCartao(totalFinal, ACRESCIMO_CARTAO);
+                return (
+                  <div className="mt-3 pt-3 border-t border-gray-100 text-sm">
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista (PIX/dinheiro):</span><span className="font-bold text-gray-800">R$ {formatBRL(p.valorAVista)}</span></div>
+                    <div className="text-gray-600 mb-1"><span className="block font-medium">💳 Cartão até 3x sem juros:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-200 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                    </div>
+                    <div className="text-gray-600"><span className="block font-medium">💳 Cartão 4x-6x (+8%):</span>
+                      <div className="flex flex-wrap gap-1 mt-1">{p.comAcrescimo.map(par => (<span key={par.n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+              </div>
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
                             {!enderecoResolvido && tipoEntrega === 'entrega' && (
                               <div className="text-sm text-red-600 mb-2">
                                 Informe o endereço de entrega antes de salvar.
@@ -4243,9 +4271,19 @@ export default function OrcamentoApp() {  // Auth state
                             {itens.length === 0 && (
                               <div className="text-sm text-gray-500 mb-2">Adicione pelo menos um produto pra salvar.</div>
                             )}
-                            <button onClick={salvarEGerarOrcamento} disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
-                  className="w-full bg-green-600 text-white py-4 rounded-xl text-lg font-bold hover:bg-green-700 transition shadow-lg disabled:opacity-60">
-                  {salvandoOrcamento ? 'Salvando...' : editandoId ? 'Atualizar Orçamento' : 'Gerar Orçamento'}
+                            {statusPedidoForm === 'orcamento' && (
+                              <button onClick={() => salvarEGerarOrcamento(tipoEntrega === 'entrega' ? 'entrega_pendente' : 'retirada_pendente')}
+                                disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
+                                className="w-full bg-[#F7941D] text-white py-3 px-2 rounded-xl text-sm font-bold hover:bg-[#E8850A] transition shadow disabled:opacity-60">
+                                {salvandoOrcamento ? 'Salvando...' : tipoEntrega === 'entrega' ? '✅ Salvar e confirmar venda (entrega)' : '✅ Salvar e confirmar venda (retirada)'}
+                              </button>
+                            )}
+                            {statusPedidoForm === 'orcamento' && (
+                              <p className="text-[11px] text-gray-500 mt-1 mb-2 leading-snug">O cliente já fechou? Pula o orçamento: vai direto pra {tipoEntrega === 'entrega' ? 'Entrega' : 'Retirada'} Pendente e baixa o estoque.</p>
+                            )}
+                            <button onClick={() => salvarEGerarOrcamento()} disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
+                  className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition shadow disabled:opacity-60">
+                  {salvandoOrcamento ? 'Salvando...' : editandoId ? (statusPedidoForm === 'orcamento' ? 'Atualizar orçamento' : 'Salvar pedido') : 'Salvar orçamento'}
                 </button>
                 {/* Descartar: o cliente desistiu e o carrinho ficava pro proximo
                     cliente. Editando, so larga a edicao — o orcamento salvo fica. */}
@@ -4260,7 +4298,8 @@ export default function OrcamentoApp() {  // Auth state
                   </button>
                 )}
               </div>
-            )}
+            </div>
+          </aside>
           </div>
         )}
 
@@ -4694,6 +4733,28 @@ export default function OrcamentoApp() {  // Auth state
         {/* ===== ENTREGAS TAB ===== */}
         {abaAtiva === 'entregas' && (
           <div className="pb-8 space-y-6">
+
+            {entregasSemData.length > 0 && (
+              <details className="rounded-xl border border-amber-300 bg-amber-50 p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-amber-900">
+                  📅 {entregasSemData.length} entrega{entregasSemData.length > 1 ? 's' : ''} confirmada{entregasSemData.length > 1 ? 's' : ''} sem data — o cliente ainda vai combinar o dia
+                </summary>
+                <div className="mt-2 divide-y divide-amber-200">
+                  {entregasSemData.map(e => (
+                    <div key={e.id} className="flex items-center justify-between gap-3 py-2 text-sm">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-800 truncate">{e.clientes?.nome || 'Cliente'} <span className="text-gray-400 font-normal">· {e.codigo}</span></p>
+                        <p className="text-xs text-gray-500">
+                          {[e.endereco_completo?.bairro, e.endereco_completo?.cidade].filter(Boolean).join(' — ') || 'sem endereço'} · R$ {formatBRL(Number(e.total) || 0)} · confirmado em {new Date(e.criado_em).toLocaleDateString('pt-BR')}
+                        </p>
+                      </div>
+                      <button onClick={() => abrirDetalhe(e.id)}
+                        className="shrink-0 text-xs font-semibold text-amber-900 border border-amber-300 bg-white rounded-lg px-2.5 py-1.5 hover:bg-amber-100">Definir data</button>
+                    </div>
+                  ))}
+                </div>
+              </details>
+            )}
 
             {/* Toggle Lista | Mapa */}
             <div className="flex items-center gap-3 flex-wrap">
@@ -5770,9 +5831,14 @@ export default function OrcamentoApp() {  // Auth state
                               <label className="block mb-1.5">
                                 <span className="text-xs font-medium text-gray-600">Data de entrega</span>
                                 <input type="date" min={todayStr}
-                                  value={dataConfirmacao || orcamentoDetalhe.data_entrega || ''}
+                                  disabled={semDataConfirmacao}
+                                  value={semDataConfirmacao ? '' : (dataConfirmacao || orcamentoDetalhe.data_entrega || '')}
                                   onChange={e => setDataConfirmacao(e.target.value)}
-                                  className="mt-0.5 w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#F7941D]" />
+                                  className="mt-0.5 w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#F7941D] disabled:bg-gray-100 disabled:text-gray-400" />
+                                <span className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-600">
+                                  <input type="checkbox" checked={semDataConfirmacao} onChange={e => setSemDataConfirmacao(e.target.checked)} className="accent-[#F7941D]" />
+                                  Sem data ainda (cliente vai confirmar)
+                                </span>
                               </label>
                             )}
                             <button onClick={() => confirmarVenda(orcamentoDetalhe)} disabled={confirmandoVenda}
