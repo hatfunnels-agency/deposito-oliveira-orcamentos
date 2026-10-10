@@ -13,6 +13,7 @@ import {
   Sparkles,
   ListChecks,
   Headset,
+  IdCard,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,6 +28,7 @@ export type AbaKey =
   | 'entregas'
   | 'estoque'
   | 'financeiro'
+  | 'funcionarios'
   | 'ia'
   | 'dashboard';
 
@@ -36,7 +38,7 @@ interface SidebarItem {
   icon: LucideIcon;
 }
 
-// Ordem definitiva dos 10 items. abasVisiveis (no parent) filtra por role.
+// Ordem definitiva dos 11 items. abasVisiveis (no parent) filtra por role.
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'produtos', label: 'Catálogo', icon: Package },
   { key: 'orcamento', label: 'Orçamento', icon: ShoppingCart },
@@ -46,6 +48,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'entregas', label: 'Entregas', icon: Truck },
   { key: 'estoque', label: 'Estoque', icon: Warehouse },
   { key: 'financeiro', label: 'Financeiro', icon: Wallet },
+  { key: 'funcionarios', label: 'Funcionários', icon: IdCard },
   { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
   { key: 'ia', label: 'IA', icon: Sparkles },
 ];

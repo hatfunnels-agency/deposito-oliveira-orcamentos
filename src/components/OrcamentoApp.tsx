@@ -8,6 +8,7 @@ import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } f
 import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
 import ExtratosTab from './ExtratosTab';
+import FuncionariosTab from './FuncionariosTab';
 import ClienteProfile from './ClienteProfile';
 import BuscaEndereco from './BuscaEndereco';
 import MapaEntregas from './MapaEntregas';
@@ -572,7 +573,7 @@ export default function OrcamentoApp() {  // Auth state
       ? ['entregas']
       : papelUsuario === 'atendente'
       ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro']
-      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro', 'dashboard', 'ia'];
+      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro', 'funcionarios', 'dashboard', 'ia'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -5036,6 +5037,12 @@ export default function OrcamentoApp() {  // Auth state
               ? <ExtratosTab />
               : <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />}
           </div>
+        )}
+
+        {/* ===== FUNCIONARIOS TAB ===== */}
+        {/* Salario e so do admin: a API tambem confere o papel. */}
+        {abaAtiva === 'funcionarios' && papelUsuario === 'admin' && (
+          <FuncionariosTab />
         )}
 
         {/* ===== ESTOQUE TAB ===== */}
