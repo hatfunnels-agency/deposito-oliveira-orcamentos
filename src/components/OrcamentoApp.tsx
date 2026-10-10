@@ -367,6 +367,10 @@ const STATUS_LABELS: Record<string, string> = {
   cancelado: 'Cancelado',
 };
 
+// Status de venda fechada (o cliente confirmou): o detalhe manda o RECIBO em
+// vez do orcamento.
+const STATUS_VENDA_CONFIRMADA = ['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota', 'completo'];
+
 const STATUS_COLORS: Record<string, string> = {
   orcamento: 'bg-gray-100 text-gray-700',
   entrega_pendente: 'bg-orange-100 text-orange-800',
@@ -835,6 +839,12 @@ export default function OrcamentoApp() {  // Auth state
   const [excluindoId, setExcluindoId] = useState<string | null>(null);
   // Seletor de motivo do 'Marcar como perdido' aberto pra este orcamento.
   const [perdaAbertaId, setPerdaAbertaId] = useState<string | null>(null);
+  // "Confirmar venda" no detalhe do pedido: data pedida ali mesmo (a
+  // atendente esquecia de mudar o status e de por a data) e aviso de recibo.
+  const [dataConfirmacao, setDataConfirmacao] = useState('');
+  const [confirmandoVenda, setConfirmandoVenda] = useState(false);
+  const [vendaConfirmadaId, setVendaConfirmadaId] = useState<string | null>(null);
+  const [textoCopiado, setTextoCopiado] = useState(false);
   const [excluindoProdutoId, setExcluindoProdutoId] = useState<string | null>(null);
   // Feature 3 - Logo base64 for print
   const [logoBase64, setLogoBase64] = useState<string>('');
@@ -1433,6 +1443,12 @@ export default function OrcamentoApp() {  // Auth state
   };
 
   const salvarEGerarOrcamento = async () => {
+    // Venda confirmada de entrega sem data: a atendente esquecia. Pergunta
+    // antes, como no "Confirmar venda" do detalhe.
+    if (tipoEntrega === 'entrega' && !dataEntrega && STATUS_VENDA_CONFIRMADA.includes(statusPedidoForm)
+      && !window.confirm('Esta entrega está sem data.\n\nO cliente realmente não passou data de entrega?\n\nOK = salvar sem data · Cancelar = voltar e preencher')) {
+      return;
+    }
     setSalvandoOrcamento(true);
     setOrcamentoSalvo(null);
     try {
@@ -1611,6 +1627,67 @@ export default function OrcamentoApp() {  // Auth state
     } catch (e) { console.error('Erro ao reagendar', e); alert('Erro ao reagendar entrega.'); }
   };
 
+  // Endereco do pedido: o gravado nele (endereco_completo); o do cadastro do
+  // cliente so pra pedido antigo sem endereco proprio.
+  const enderecoDoPedido = (d: OrcamentoDetalhe): string => {
+    const ec = d.endereco_completo;
+    const cl = d.clientes;
+    const partes = ec
+      ? [ec.rua, ec.numero ? `nº ${ec.numero}` : '', ec.complemento, ec.bairro, ec.cidade ? `${ec.cidade}-${ec.estado || ''}` : '']
+      : cl?.endereco
+        ? [cl.endereco, cl.numero ? `nº ${cl.numero}` : '', cl.complemento, cl.bairro, cl.cidade ? `${cl.cidade}-${cl.estado || ''}` : '']
+        : [];
+    return partes.filter(Boolean).join(', ');
+  };
+
+  // Recibo do pedido confirmado — o que vai pro cliente depois do "Confirmar
+  // venda". Leva endereco, data e os dois avisos: conferir no recebimento e
+  // que a equipe nao guarda o material na obra (o mesmo da impressao).
+  const gerarReciboWhatsApp = (d: OrcamentoDetalhe): string => {
+    const fmtData = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
+    const SEP = '------------------------------';
+    const c = d.clientes;
+    const entrega = d.tipo_entrega === 'entrega';
+    const endereco = entrega ? enderecoDoPedido(d) : '';
+    const formas: Record<string, string> = {
+      pix: 'Pix', dinheiro: 'Dinheiro', debito: 'Cartão de débito', credito: 'Cartão de crédito',
+      cartao: 'Cartão', boleto: 'Boleto', pagamento_na_entrega: 'Na entrega',
+    };
+    const itensTxt = d.orcamento_itens.map(i => {
+      const nome = i.produto_nome || '';
+      if (nome.toLowerCase().includes('barras')) return `· ${nome} = R$ ${formatBRL(Number(i.subtotal))}`;
+      const un = i.unidade === 'm³' ? 'm³' : (i.unidade ? ' ' + i.unidade : '');
+      return `· ${nome} ${Number(i.quantidade)}${un} = R$ ${formatBRL(Number(i.subtotal))}`;
+    });
+    const linhas = [
+      '✅ *PEDIDO CONFIRMADO - Depósito Oliveira*',
+      `Pedido: ${d.codigo}`,
+      SEP,
+      `*Cliente:* ${c?.nome || 'Cliente'}`,
+      c?.telefone ? `*Telefone:* ${c.telefone}` : null,
+      c?.recebedor ? `*Recebedor:* ${c.recebedor}` : null,
+      entrega ? `*Endereço de entrega:* ${endereco || 'a confirmar'}` : '*Retirada na loja*',
+      entrega
+        ? `*Data de entrega:* ${d.data_entrega ? fmtData(d.data_entrega) : 'a combinar'}`
+        : d.data_retirada ? `*Data de retirada:* ${fmtData(d.data_retirada)}` : null,
+      SEP,
+      '*Produtos:*',
+      ...itensTxt,
+      '',
+      Number(d.valor_frete) > 0 ? `Frete: R$ ${formatBRL(Number(d.valor_frete))}` : null,
+      `*TOTAL: R$ ${formatBRL(d.total)}*`,
+      d.forma_pagamento ? `*Pagamento:* ${formas[d.forma_pagamento] || d.forma_pagamento}` : null,
+      SEP,
+      entrega
+        ? '⚠️ *Confira os produtos e as quantidades no recebimento.* Depois da entrega não aceitamos reclamações sobre o pedido.'
+        : '⚠️ *Confira os produtos e as quantidades na retirada.* Depois da retirada não aceitamos reclamações sobre o pedido.',
+      entrega ? '🚚 O descarregamento é feito em superfície plana, ao lado do caminhão. *A equipe não guarda o material na obra.*' : null,
+      '',
+      'Obrigado pela preferência! 🧡',
+    ].filter((l): l is string => l !== null);
+    return linhas.join('\n');
+  };
+
   const gerarTextoWhatsApp = (detalhe?: OrcamentoDetalhe | null) => {
     // Itens da calculadora ja contem metragem total no nome (ex.: "... | 15.2m");
     // nao concatenar quantidade/unidade. Heuristica: nome contem "barras".
@@ -1622,16 +1699,13 @@ export default function OrcamentoApp() {  // Auth state
     };
     const fmtData = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
     const SEP = '------------------------------';
+    // Aviso pedido pelo Roger em 10/10: conferir ANTES de confirmar — depois
+    // nao aceitamos reclamacao. Vai no orcamento e no recibo.
+    const AVISO_CONFERIR = '⚠️ *Confira os produtos e as quantidades antes de confirmar.* Após a confirmação não aceitamos reclamações sobre o pedido.';
 
     if (detalhe) {
       const c = detalhe.clientes;
-      const endCompleto = [
-        c?.endereco,
-        c?.numero ? `nº ${c.numero}` : '',
-        c?.complemento,
-        c?.bairro,
-        c?.cidade ? `${c.cidade}-${c.estado}` : '',
-      ].filter(Boolean).join(', ');
+      const endCompleto = enderecoDoPedido(detalhe);
       const linhas = [
         '*ORÇAMENTO - Depósito Oliveira*',
         `Código: ${detalhe.codigo}`,
@@ -1651,6 +1725,8 @@ export default function OrcamentoApp() {  // Auth state
         '',
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         'Em até 3x sem juros',
+        '',
+        AVISO_CONFERIR,
       ].filter((l): l is string => typeof l === 'string' && l.length > 0);
       return linhas.join('\n');
     }
@@ -1685,6 +1761,8 @@ export default function OrcamentoApp() {  // Auth state
       '',
       `*TOTAL: R$ ${formatBRL(totalFinal)}*`,
       'Em até 3x sem juros',
+      '',
+      AVISO_CONFERIR,
     ].filter((l): l is string => typeof l === 'string' && l.length > 0);
     return linhas.join('\n');
   };
@@ -1696,11 +1774,55 @@ export default function OrcamentoApp() {  // Auth state
     else window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
   };
 
+  // Orcamento ainda aberto manda o orcamento; venda confirmada manda o recibo.
+  const textoDoDetalhe = (detalhe: OrcamentoDetalhe) =>
+    STATUS_VENDA_CONFIRMADA.includes(detalhe.status) ? gerarReciboWhatsApp(detalhe) : gerarTextoWhatsApp(detalhe);
+
   const compartilharWhatsAppDetalhe = (detalhe: OrcamentoDetalhe) => {
-    const msg = gerarTextoWhatsApp(detalhe);
-    const numLimpo = (detalhe.clientes?.telefone || '').replace(/\D/g, '');
-    if (numLimpo) window.open(`https://api.whatsapp.com/send?phone=55${numLimpo}&text=${encodeURIComponent(msg)}`, '_blank');
+    const msg = textoDoDetalhe(detalhe);
+    const numero = telefoneWhatsApp(detalhe.clientes?.telefone);
+    if (numero) window.open(`https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(msg)}`, '_blank');
     else window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(msg)}`, '_blank');
+  };
+
+  const copiarTextoDetalhe = async (detalhe: OrcamentoDetalhe) => {
+    try {
+      await navigator.clipboard.writeText(textoDoDetalhe(detalhe));
+      setTextoCopiado(true);
+      setTimeout(() => setTextoCopiado(false), 2000);
+    } catch { alert('Não deu pra copiar. Use "Enviar no WhatsApp".'); }
+  };
+
+  // Confirmar venda: um clique leva o orcamento pra entrega/retirada pendente
+  // (o que baixa o estoque no servidor) e grava a data junto. Sem data de
+  // entrega, pergunta antes — a atendente esquecia de por.
+  const confirmarVenda = async (d: OrcamentoDetalhe) => {
+    const entrega = d.tipo_entrega === 'entrega';
+    const novoStatus = entrega ? 'entrega_pendente' : 'retirada_pendente';
+    const data = dataConfirmacao || d.data_entrega || '';
+    if (entrega && !data && !window.confirm(
+      'Esta entrega está sem data.\n\nO cliente realmente não passou data de entrega?\n\nOK = confirmar sem data · Cancelar = voltar e preencher',
+    )) return;
+    setConfirmandoVenda(true);
+    try {
+      const body: Record<string, unknown> = { status: novoStatus, _previous_status: d.status };
+      if (entrega && data && data !== d.data_entrega) body.data_entrega = data;
+      const res = await fetch(`/api/orcamentos/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setOrcamentoDetalhe({ ...d, status: novoStatus, data_entrega: entrega ? (data || null) : d.data_entrega });
+      setVendaConfirmadaId(d.id);
+      setDataConfirmacao('');
+      carregarHistorico();
+      carregarProdutos();
+    } catch (e) {
+      console.error('Erro ao confirmar venda', e);
+      alert('Não foi possível confirmar a venda. Tente de novo.');
+    }
+    setConfirmandoVenda(false);
   };
 
   // Telefone do cliente pronto pro wa.me (com DDI 55). null quando nao
@@ -5216,7 +5338,7 @@ export default function OrcamentoApp() {  // Auth state
       {/* Modal Detalhe do Orcamento (Bug 6 fix - edit button restored) */}
       {mostrarDetalhe && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-5xl w-full max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
             {loadingDetalhe ? (
               <div className="flex justify-center py-16"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#F7941D]"></div></div>
             ) : orcamentoDetalhe ? (
@@ -5235,6 +5357,8 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                   <p className="text-xs text-gray-400">Criado em: {new Date(orcamentoDetalhe.criado_em).toLocaleDateString('pt-BR')} {new Date(orcamentoDetalhe.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
                 </div>
+                <div className="md:grid md:grid-cols-[minmax(0,1fr)_320px]">
+                  <div className="min-w-0 md:border-r md:border-gray-100 pb-3">
                 <div className="px-4 py-2 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-1 text-sm">Cliente</h3>
                   <p className="text-sm text-gray-800 font-medium">{orcamentoDetalhe.clientes?.nome || 'Cliente'}</p>
@@ -5315,125 +5439,6 @@ export default function OrcamentoApp() {  // Auth state
                   {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
-                </div>
-                {/* Gestão do Pedido */}
-                <div className="px-4 pt-3 pb-1">
-                  <div className="border border-[#F7941D] rounded-xl bg-[#FFF8F0] p-3">
-                    <h3 className="font-bold text-[#F7941D] text-sm mb-2">⚙️ Gestão do Pedido</h3>
-                    <div className="space-y-2">
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
-                        <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
-                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
-                          {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                        </select>
-                      </div>
-                      {/* Pagamento nao e mais um select: e o saldo real, vindo da
-                          soma dos registros em `pagamentos`. Marcar como pago exige
-                          registrar o dinheiro que entrou. */}
-                      <div>
-                        <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
-                        {(() => {
-                          const totalOrc = Number(orcamentoDetalhe.total) || 0;
-                          const pago = Number(orcamentoDetalhe.valor_pago) || 0;
-                          const saldo = totalOrc - pago;
-                          const quitado = saldo <= 0.01;
-                          return (
-                            <div className={`rounded-lg border px-3 py-2 ${quitado ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}`}>
-                              <div className="flex items-center justify-between text-sm">
-                                <span className={quitado ? 'text-green-800 font-medium' : 'text-orange-900 font-medium'}>
-                                  {quitado ? '✅ Pago' : `Em aberto: ${saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
-                                </span>
-                                {pago > 0 && !quitado && (
-                                  <span className="text-xs text-gray-600">
-                                    pago {pago.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  </span>
-                                )}
-                              </div>
-                              {!quitado && (
-                                <div className="flex gap-2 mt-2">
-                                  <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={pgtoValor}
-                                    onChange={e => setPgtoValor(e.target.value)}
-                                    placeholder={saldo.toFixed(2)}
-                                    className="flex-1 min-w-0 text-sm border border-orange-200 rounded-lg px-2 py-1.5"
-                                  />
-                                  <select
-                                    value={pgtoMetodo}
-                                    onChange={e => setPgtoMetodo(e.target.value)}
-                                    className="text-sm border border-orange-200 rounded-lg px-2 py-1.5 bg-white"
-                                  >
-                                    <option value="pix">Pix</option>
-                                    <option value="debito">Débito</option>
-                                    <option value="credito">Crédito</option>
-                                    <option value="dinheiro">Dinheiro</option>
-                                    <option value="transferencia">Transf.</option>
-                                    <option value="boleto">Boleto</option>
-                                  </select>
-                                  <button
-                                    onClick={async () => {
-                                      const valorNum = Number((pgtoValor || String(saldo)).replace(',', '.'));
-                                      if (!Number.isFinite(valorNum) || valorNum <= 0) { alert('Valor invalido'); return; }
-                                      const res = await fetch('/api/pagamentos', {
-                                        method: 'POST',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ orcamento_id: orcamentoDetalhe.id, valor: valorNum, metodo: pgtoMetodo }),
-                                      });
-                                      const json = await res.json();
-                                      if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); return; }
-                                      setPgtoValor('');
-                                      setOrcamentoDetalhe({
-                                        ...orcamentoDetalhe,
-                                        valor_pago: Number(json.orcamento?.valor_pago) || 0,
-                                        status_pagamento: json.orcamento?.status_pagamento ?? orcamentoDetalhe.status_pagamento,
-                                      });
-                                      carregarPagamentosDetalhe(orcamentoDetalhe.id);
-                                      carregarHistorico();
-                                    }}
-                                    className="text-sm bg-[#F7941D] text-white px-3 py-1.5 rounded-lg hover:bg-[#E8850A] transition whitespace-nowrap"
-                                  >
-                                    Receber
-                                  </button>
-                                </div>
-                              )}
-                            </div>
-                          );
-                        })()}
-                        {orcamentoDetalhe.entregue_sem_pagamento && (
-                          <p className="mt-1 inline-block text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
-                            ⚠️ Entregue sem pagamento
-                          </p>
-                        )}
-                      </div>
-                      {/* Admin: pagamentos registrados, com estorno. Corrige pedido
-                          marcado como pago por engano — remover o lancamento faz o
-                          trigger recalcular e o status volta a pendente/parcial. */}
-                      {papelUsuario === 'admin' && pagamentosDetalhe.length > 0 && (
-                        <div>
-                          <label className="text-xs font-medium text-gray-600 block mb-1">Pagamentos registrados</label>
-                          <div className="space-y-1">
-                            {pagamentosDetalhe.map(p => (
-                              <div key={p.id} className="flex items-center justify-between text-sm border border-gray-200 rounded-lg px-3 py-1.5">
-                                <span className="text-gray-700">
-                                  {Number(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-                                  <span className="text-gray-400"> · {p.metodo} · {new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</span>
-                                  {p.origem === 'legado' && <span className="text-gray-400"> · migrado</span>}
-                                </span>
-                                <button
-                                  onClick={() => estornarPagamento(p.id)}
-                                  className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded px-2 py-0.5 whitespace-nowrap"
-                                >
-                                  Estornar
-                                </button>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </div>
                 <div className="px-4 py-2 border-b border-gray-100">
                   <h3 className="font-bold text-gray-700 mb-2 text-sm">Produtos</h3>
@@ -5557,10 +5562,60 @@ export default function OrcamentoApp() {  // Auth state
               <p className="text-sm text-gray-700 whitespace-pre-wrap">{orcamentoDetalhe.observacoes}</p>
             </div>
           )}
-                <div className="px-4 py-3 space-y-1.5">
-                  <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)} className="w-full bg-green-500 text-white py-2 rounded-xl font-bold hover:bg-green-600 transition text-sm">📱 Enviar por WhatsApp</button>
-                  <button onClick={() => imprimirOrcamento(orcamentoDetalhe)} className="w-full bg-[#F7941D] text-white py-2 rounded-xl font-bold hover:bg-[#F7941D] transition text-sm">🖨️ Imprimir</button>
-                  <button onClick={() => editarOrcamento(orcamentoDetalhe)} className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✏️ Editar Orçamento</button>
+                  </div>
+                  <div className="p-3 space-y-3 md:sticky md:top-0 md:self-start">
+                    {/* Enviar para o cliente */}
+                    <div className="rounded-xl border border-gray-200 p-3">
+                      <h3 className="font-bold text-gray-800 text-sm mb-2">Enviar para o cliente</h3>
+                      {vendaConfirmadaId === orcamentoDetalhe.id && (
+                        <p className="mb-2 rounded-lg bg-green-50 border border-green-200 px-2 py-1.5 text-xs text-green-800">
+                          ✓ Venda confirmada. Agora envie o recibo pro cliente.
+                        </p>
+                      )}
+                      <button onClick={() => compartilharWhatsAppDetalhe(orcamentoDetalhe)}
+                        className="w-full bg-green-600 text-white py-2.5 rounded-xl font-bold hover:bg-green-700 transition text-sm">
+                        {STATUS_VENDA_CONFIRMADA.includes(orcamentoDetalhe.status) ? '📱 Enviar recibo no WhatsApp' : '📱 Enviar orçamento no WhatsApp'}
+                      </button>
+                      <div className="grid grid-cols-2 gap-1.5 mt-1.5">
+                        <button onClick={() => copiarTextoDetalhe(orcamentoDetalhe)}
+                          className="border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50 transition text-sm">
+                          {textoCopiado ? '✓ Copiado' : 'Copiar texto'}
+                        </button>
+                        <button onClick={() => imprimirOrcamento(orcamentoDetalhe)}
+                          className="border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50 transition text-sm">
+                          🖨️ Imprimir
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Andamento */}
+                    <div className="rounded-xl border border-gray-200 p-3">
+                      <h3 className="font-bold text-gray-800 text-sm mb-1">Andamento</h3>
+                      <p className="text-xs text-gray-500 mb-2">Status atual: <span className="font-semibold text-gray-700">{STATUS_LABELS[orcamentoDetalhe.status] || orcamentoDetalhe.status}</span></p>
+                      <div className="space-y-1.5">
+                        {orcamentoDetalhe.status === 'orcamento' && (
+                          <div className="rounded-xl bg-[#FFF8F0] border border-[#F7941D]/40 p-2">
+                            {orcamentoDetalhe.tipo_entrega === 'entrega' && (
+                              <label className="block mb-1.5">
+                                <span className="text-xs font-medium text-gray-600">Data de entrega</span>
+                                <input type="date" min={todayStr}
+                                  value={dataConfirmacao || orcamentoDetalhe.data_entrega || ''}
+                                  onChange={e => setDataConfirmacao(e.target.value)}
+                                  className="mt-0.5 w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#F7941D]" />
+                              </label>
+                            )}
+                            <button onClick={() => confirmarVenda(orcamentoDetalhe)} disabled={confirmandoVenda}
+                              className="w-full bg-[#F7941D] text-white py-2.5 rounded-xl font-bold hover:bg-[#E8850A] transition text-sm disabled:opacity-50">
+                              {confirmandoVenda ? 'Confirmando...' : orcamentoDetalhe.tipo_entrega === 'entrega' ? '✅ Confirmar venda (entrega)' : '✅ Confirmar venda (retirada)'}
+                            </button>
+                            <p className="text-[11px] text-gray-500 mt-1 leading-snug">O cliente fechou? Confirme aqui — o pedido vai pra {orcamentoDetalhe.tipo_entrega === 'entrega' ? 'Entrega Pendente' : 'Retirada Pendente'} e o estoque é baixado.</p>
+                          </div>
+                        )}
+                        <button onClick={() => editarOrcamento(orcamentoDetalhe)}
+                          className="w-full border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50 transition text-sm">
+                          ✏️ {orcamentoDetalhe.status === 'orcamento' ? 'Editar orçamento' : 'Editar pedido'}
+                        </button>
+                <div className="space-y-1.5">
                   {(orcamentoDetalhe.status === 'entrega_pendente' || orcamentoDetalhe.status === 'entrega_parcial') && (
                     <>
                       <button onClick={abrirRegistrarParcial} className="w-full bg-indigo-500 text-white py-2 rounded-xl font-bold hover:bg-indigo-600 transition text-sm">📦 Registrar Entrega Parcial</button>
@@ -5600,9 +5655,134 @@ export default function OrcamentoApp() {  // Auth state
                       disabled={excluindoId === orcamentoDetalhe.id}
                       className="w-full bg-red-500 text-white py-2 rounded-xl font-bold hover:bg-red-600 transition text-sm disabled:opacity-50"
                     >
-                      {excluindoId === orcamentoDetalhe.id ? 'Excluindo...' : '🗑️ Excluir Orçamento'}
+                      {excluindoId === orcamentoDetalhe.id ? 'Descartando...' : '🗑️ Descartar orçamento'}
                     </button>
                   )}
+                </div>
+                      </div>
+                    </div>
+
+                    {/* Status manual e pagamento */}
+                {/* Gestão do Pedido */}
+                <div>
+                  <div className="border border-[#F7941D] rounded-xl bg-[#FFF8F0] p-3">
+                    <h3 className="font-bold text-[#F7941D] text-sm mb-2">⚙️ Gestão do Pedido</h3>
+                    <div className="space-y-2">
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Status do pedido</label>
+                        <select value={orcamentoDetalhe.status} onChange={e => atualizarStatusOrcamento(orcamentoDetalhe.id, e.target.value, orcamentoDetalhe.status)}
+                          className="w-full text-sm border border-orange-200 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-[#F7941D] bg-white">
+                          {Object.entries(STATUS_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                        </select>
+                      </div>
+                      {/* Pagamento nao e mais um select: e o saldo real, vindo da
+                          soma dos registros em `pagamentos`. Marcar como pago exige
+                          registrar o dinheiro que entrou. */}
+                      <div>
+                        <label className="text-xs font-medium text-gray-600 block mb-1">Pagamento</label>
+                        {(() => {
+                          const totalOrc = Number(orcamentoDetalhe.total) || 0;
+                          const pago = Number(orcamentoDetalhe.valor_pago) || 0;
+                          const saldo = totalOrc - pago;
+                          const quitado = saldo <= 0.01;
+                          return (
+                            <div className={`rounded-lg border px-3 py-2 ${quitado ? 'border-green-200 bg-green-50' : 'border-orange-200 bg-orange-50'}`}>
+                              <div className="flex items-center justify-between text-sm">
+                                <span className={quitado ? 'text-green-800 font-medium' : 'text-orange-900 font-medium'}>
+                                  {quitado ? '✅ Pago' : `Em aberto: ${saldo.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`}
+                                </span>
+                                {pago > 0 && !quitado && (
+                                  <span className="text-xs text-gray-600">
+                                    pago {pago.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  </span>
+                                )}
+                              </div>
+                              {!quitado && (
+                                <div className="flex gap-2 mt-2">
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={pgtoValor}
+                                    onChange={e => setPgtoValor(e.target.value)}
+                                    placeholder={saldo.toFixed(2)}
+                                    className="flex-1 min-w-0 text-sm border border-orange-200 rounded-lg px-2 py-1.5"
+                                  />
+                                  <select
+                                    value={pgtoMetodo}
+                                    onChange={e => setPgtoMetodo(e.target.value)}
+                                    className="text-sm border border-orange-200 rounded-lg px-2 py-1.5 bg-white"
+                                  >
+                                    <option value="pix">Pix</option>
+                                    <option value="debito">Débito</option>
+                                    <option value="credito">Crédito</option>
+                                    <option value="dinheiro">Dinheiro</option>
+                                    <option value="transferencia">Transf.</option>
+                                    <option value="boleto">Boleto</option>
+                                  </select>
+                                  <button
+                                    onClick={async () => {
+                                      const valorNum = Number((pgtoValor || String(saldo)).replace(',', '.'));
+                                      if (!Number.isFinite(valorNum) || valorNum <= 0) { alert('Valor invalido'); return; }
+                                      const res = await fetch('/api/pagamentos', {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ orcamento_id: orcamentoDetalhe.id, valor: valorNum, metodo: pgtoMetodo }),
+                                      });
+                                      const json = await res.json();
+                                      if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); return; }
+                                      setPgtoValor('');
+                                      setOrcamentoDetalhe({
+                                        ...orcamentoDetalhe,
+                                        valor_pago: Number(json.orcamento?.valor_pago) || 0,
+                                        status_pagamento: json.orcamento?.status_pagamento ?? orcamentoDetalhe.status_pagamento,
+                                      });
+                                      carregarPagamentosDetalhe(orcamentoDetalhe.id);
+                                      carregarHistorico();
+                                    }}
+                                    className="text-sm bg-[#F7941D] text-white px-3 py-1.5 rounded-lg hover:bg-[#E8850A] transition whitespace-nowrap"
+                                  >
+                                    Receber
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
+                        {orcamentoDetalhe.entregue_sem_pagamento && (
+                          <p className="mt-1 inline-block text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded px-2 py-0.5">
+                            ⚠️ Entregue sem pagamento
+                          </p>
+                        )}
+                      </div>
+                      {/* Admin: pagamentos registrados, com estorno. Corrige pedido
+                          marcado como pago por engano — remover o lancamento faz o
+                          trigger recalcular e o status volta a pendente/parcial. */}
+                      {papelUsuario === 'admin' && pagamentosDetalhe.length > 0 && (
+                        <div>
+                          <label className="text-xs font-medium text-gray-600 block mb-1">Pagamentos registrados</label>
+                          <div className="space-y-1">
+                            {pagamentosDetalhe.map(p => (
+                              <div key={p.id} className="flex items-center justify-between text-sm border border-gray-200 rounded-lg px-3 py-1.5">
+                                <span className="text-gray-700">
+                                  {Number(p.valor).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                                  <span className="text-gray-400"> · {p.metodo} · {new Date(p.data_pagamento).toLocaleDateString('pt-BR')}</span>
+                                  {p.origem === 'legado' && <span className="text-gray-400"> · migrado</span>}
+                                </span>
+                                <button
+                                  onClick={() => estornarPagamento(p.id)}
+                                  className="text-xs text-red-600 hover:text-red-800 hover:bg-red-50 rounded px-2 py-0.5 whitespace-nowrap"
+                                >
+                                  Estornar
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+                  </div>
                 </div>
               </div>
             ) : (
