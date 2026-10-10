@@ -6003,7 +6003,9 @@ export default function OrcamentoApp() {  // Auth state
                   {(orcamentoDetalhe.status === 'entrega_pendente' || orcamentoDetalhe.status === 'entrega_parcial') && (
                     <>
                       <button onClick={() => abrirRegistrarParcial('programar')} className="w-full bg-indigo-500 text-white py-2 rounded-xl font-bold hover:bg-indigo-600 transition text-sm">📅 Programar entrega parcial</button>
-                      <button onClick={() => abrirRegistrarParcial('registrar')} className="w-full border border-indigo-300 text-indigo-700 py-2 rounded-xl font-bold hover:bg-indigo-50 transition text-sm">📦 Registrar entrega já feita</button>
+                      {/* "Registrar entrega ja feita" (abrirRegistrarParcial('registrar'))
+                          saiu da tela a pedido do Roger em 10/10 — o modo continua
+                          no modal se precisar voltar. */}
                       <button onClick={marcarTudoEntregue} disabled={marcandoTudoEntregue} className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">{marcandoTudoEntregue ? 'Salvando...' : '✅ Marcar Tudo Entregue'}</button>
                     </>
                   )}
