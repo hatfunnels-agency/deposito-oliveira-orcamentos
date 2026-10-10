@@ -33,7 +33,9 @@ export async function GET() {
     // a query quebrar, qtd_vendas fica 0 pra todos e o sort cai no
     // alfabetico (sem regressao visivel).
     const vendasPorProduto = new Map<string, number>();
-    try {
+    // Os tres agregados abaixo sao independentes: rodam ao mesmo tempo. Em
+    // fila, somavam 10-15s a cada abertura do sistema (10/10).
+    const tarefaVendas = (async () => { try {
       // lerTudo: com .limit(100000) o Supabase devolvia 1.000 itens, e o
       // "mais vendidos" era calculado sobre uma amostra.
       const vendasRaw = await lerTudo(() => supabaseAdmin
@@ -46,13 +48,13 @@ export async function GET() {
       }
     } catch (e) {
       console.error('Erro ao contar vendas por produto (sort cai no alfabetico):', e);
-    }
+    } })();
 
     // Ultima atualizacao de preco_custo por produto (Batch B Fase 3).
     // Pega MAX(criado_em) por produto_id da historico_custos. Falha
     // silenciosa: ultima_atualizacao_custo fica null pra todos.
     const ultimaAtualizacaoCustoPorProduto = new Map<string, string>();
-    try {
+    const tarefaCustos = (async () => { try {
       const histRaw = await lerTudo(() => supabaseAdmin
         .from('historico_custos')
         .select('produto_id, criado_em'));
@@ -64,7 +66,7 @@ export async function GET() {
       }
     } catch (e) {
       console.error('Erro ao agregar historico_custos (ultima_atualizacao_custo fica null):', e);
-    }
+    } })();
 
     // metros_reservados por produto de ferro (Batch C Task C.3). Soma:
     //   (a) ferragem_consumo.metros de itens em orcamentos status=
@@ -77,37 +79,26 @@ export async function GET() {
     // como reservado. Falha silenciosa: metros_reservados=0 pra todos
     // se as queries quebrarem.
     const metrosReservadosPorProduto = new Map<string, number>();
-    try {
-      // 1) IDs de orcamentos rascunho (status='orcamento') sem ferro
-      // baixado.
-      const orcsRaw = await lerTudo(() => supabaseAdmin
-        .from('orcamentos')
-        .select('id')
-        .eq('status', 'orcamento')
-        .eq('ferro_baixado', false));
-      const orcIds = (orcsRaw || []).map(o => o.id as string);
-
-      if (orcIds.length > 0) {
-        // 2) Itens desses orcamentos.
-        // Em lotes: centenas de ids num .in() estouram a URL, o erro era
-        // engolido e o ferro reservado aparecia como zero.
-        const itensRaw = await lerTudoEmLotes(orcIds, lote => supabaseAdmin
+    const tarefaReservado = (async () => { try {
+      // 1-3) Itens e ferragem dos orcamentos rascunho (status='orcamento')
+      // sem ferro baixado, filtrando pelo join em vez de mandar listas de
+      // ids: 840 orcamentos abertos viravam ~25 consultas em fila.
+      const [itensRaw, fcRaw] = await Promise.all([
+        lerTudo(() => supabaseAdmin
           .from('orcamento_itens')
-          .select('id, produto_id, quantidade')
-          .in('orcamento_id', lote));
-        const itens = (itensRaw || []) as Array<{ id: string; produto_id: string | null; quantidade: number }>;
+          .select('id, produto_id, quantidade, orcamentos!inner(status, ferro_baixado)')
+          .eq('orcamentos.status', 'orcamento')
+          .eq('orcamentos.ferro_baixado', false)),
+        lerTudo(() => supabaseAdmin
+          .from('ferragem_consumo')
+          .select('id, tipo_ferro, metros, orcamento_itens!inner(orcamentos!inner(status, ferro_baixado))')
+          .eq('orcamento_itens.orcamentos.status', 'orcamento')
+          .eq('orcamento_itens.orcamentos.ferro_baixado', false)),
+      ]);
+      const itens = (itensRaw || []) as Array<{ id: string; produto_id: string | null; quantidade: number }>;
+      const ferragemRows = (fcRaw || []) as Array<{ tipo_ferro: string; metros: number }>;
 
-        // 3) ferragem_consumo dos itens.
-        const itemIds = itens.map(i => i.id);
-        let ferragemRows: Array<{ tipo_ferro: string; metros: number }> = [];
-        if (itemIds.length > 0) {
-          const fcRaw = await lerTudoEmLotes(itemIds, lote => supabaseAdmin
-            .from('ferragem_consumo')
-            .select('tipo_ferro, metros')
-            .in('orcamento_item_id', lote));
-          ferragemRows = (fcRaw || []) as Array<{ tipo_ferro: string; metros: number }>;
-        }
-
+      {
         // 4) map tipo_ferro -> produto_id (usando produtosMap ja carregado).
         const ferroMap = new Map<string, string>();
         for (const p of (produtos || []) as Array<{ id: string; tipo_ferro: string | null }>) {
@@ -153,7 +144,9 @@ export async function GET() {
       }
     } catch (e) {
       console.error('Erro ao agregar metros_reservados (fica 0 pra todos):', e);
-    }
+    } })();
+
+    await Promise.all([tarefaVendas, tarefaCustos, tarefaReservado]);
 
     const produtosFormatados = (produtos || []).map((p: Record<string, unknown>) => {
       const fatorConversao = Number(p.fator_conversao) || 1;
