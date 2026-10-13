@@ -273,6 +273,17 @@ export async function PATCH(
       if (status) updateData.status = status;
           if (observacoes !== undefined) updateData.observacoes = observacoes;
           if (tipo_entrega !== undefined) updateData.tipo_entrega = tipo_entrega;
+          // Venda confirmada que troca de retirada pra entrega (ou o contrario)
+          // leva o status junto. Sem seletor de status, um pedido salvo como
+          // retirada por engano e depois mudado pra entrega ficava preso em
+          // Retirada Pendente — fora da aba Entregas (ORD-B563HXO, 13/10).
+          // As duas sao status com estoque ja baixado: nada muda no estoque.
+          if (tipo_entrega === 'entrega' || tipo_entrega === 'retirada') {
+                  const statusFinal = status || (await supabaseAdmin
+                    .from('orcamentos').select('status').eq('id', params.id).single()).data?.status;
+                  if (tipo_entrega === 'entrega' && statusFinal === 'retirada_pendente') updateData.status = 'entrega_pendente';
+                  if (tipo_entrega === 'retirada' && statusFinal === 'entrega_pendente') updateData.status = 'retirada_pendente';
+          }
           if (valor_frete !== undefined) updateData.valor_frete = valor_frete;
           if (subtotal !== undefined) updateData.subtotal = subtotal;
           if (total !== undefined) updateData.total = total;
