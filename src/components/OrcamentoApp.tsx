@@ -1537,7 +1537,12 @@ export default function OrcamentoApp() {  // Auth state
   // fechou, entao salva direto como Entrega/Retirada Pendente sem passar
   // pelo orcamento.
   const salvarEGerarOrcamento = async (statusForcado?: string) => {
-    const statusFinal = statusForcado || statusPedidoForm || 'orcamento';
+    const statusBase = statusForcado || statusPedidoForm || 'orcamento';
+    // Pedido confirmado que mudou de retirada pra entrega (ou o contrario):
+    // o status pendente acompanha — mesma regra do servidor.
+    const statusFinal = tipoEntrega === 'entrega' && statusBase === 'retirada_pendente' ? 'entrega_pendente'
+      : tipoEntrega === 'retirada' && statusBase === 'entrega_pendente' ? 'retirada_pendente'
+      : statusBase;
     // Venda confirmada de entrega sem data: a atendente esquecia. Pergunta
     // antes, como no "Confirmar venda" do detalhe. OK segue sem data (cliente
     // vai confirmar com o pedreiro).
