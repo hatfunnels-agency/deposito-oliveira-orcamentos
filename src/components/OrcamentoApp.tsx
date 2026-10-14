@@ -2146,6 +2146,26 @@ export default function OrcamentoApp() {  // Auth state
     }
   };
 
+  // Cancelado/perdido por engano -> volta a Orcamento (limpa o "perdido").
+  // Antes nao tinha volta: o seletor de status saiu e o cancelado so podia
+  // ser descartado (14/10).
+  const reabrirPedido = async (d: OrcamentoDetalhe) => {
+    if (!window.confirm(`Reabrir o pedido ${d.codigo}?\n\nEle volta pra Orçamento. Se o cliente já fechou, use "Confirmar venda" em seguida.`)) return;
+    try {
+      const res = await fetch(`/api/orcamentos/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'orcamento', _previous_status: d.status, motivo_perda: '' }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setOrcamentoDetalhe({ ...d, status: 'orcamento', perdido_em: null, motivo_perda: null });
+      carregarHistorico();
+    } catch (e) {
+      console.error('Erro ao reabrir pedido', e);
+      alert('Não foi possível reabrir o pedido. Tente de novo.');
+    }
+  };
+
   const atualizarStatusOrcamento = async (id: string, novoStatus: string, statusAnterior?: string) => {
     try {
       const res = await fetch(`/api/orcamentos/${id}`, {
@@ -6103,6 +6123,15 @@ export default function OrcamentoApp() {  // Auth state
                       className="w-full border border-red-300 text-red-700 py-2 rounded-xl font-bold hover:bg-red-50 transition text-sm"
                     >✕ Cancelar venda</button>
                   )}
+                  {/* Desfazer cancelamento/perda por engano: volta a Orcamento e a
+                      atendente confirma a venda de novo (o estoque, se tinha
+                      voltado no cancelamento, baixa outra vez no Confirmar venda). */}
+                  {orcamentoDetalhe.status === 'cancelado' && (
+                    <button
+                      onClick={() => reabrirPedido(orcamentoDetalhe)}
+                      className="w-full border border-gray-300 text-gray-700 py-2 rounded-xl font-bold hover:bg-gray-50 transition text-sm"
+                    >↩ Reabrir (voltar pra orçamento)</button>
+                  )}
                   {['orcamento', 'cancelado'].includes(orcamentoDetalhe.status) && (
                     <button
                       onClick={() => excluirOrcamento(orcamentoDetalhe.id)}
@@ -6178,13 +6207,22 @@ export default function OrcamentoApp() {  // Auth state
                                       const json = await res.json();
                                       if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); return; }
                                       setPgtoValor('');
-                                      setOrcamentoDetalhe({
+                                      const atualizado = {
                                         ...orcamentoDetalhe,
                                         valor_pago: Number(json.orcamento?.valor_pago) || 0,
                                         status_pagamento: json.orcamento?.status_pagamento ?? orcamentoDetalhe.status_pagamento,
-                                      });
+                                      };
+                                      setOrcamentoDetalhe(atualizado);
                                       carregarPagamentosDetalhe(orcamentoDetalhe.id);
                                       carregarHistorico();
+                                      // Pagou mas continuava "Orcamento": 11 pedidos pagos ficaram
+                                      // assim por meses e cairam na limpeza de orcamentos antigos
+                                      // (14/10). Quem paga fechou — oferece confirmar na hora.
+                                      if (atualizado.status === 'orcamento' && window.confirm(
+                                        'Pagamento registrado.\n\nEste pedido ainda está como Orçamento. O cliente fechou? Confirmar a venda agora?',
+                                      )) {
+                                        await confirmarVenda(atualizado);
+                                      }
                                     }}
                                     className="text-sm bg-[#F7941D] text-white px-3 py-1.5 rounded-lg hover:bg-[#E8850A] transition whitespace-nowrap"
                                   >
