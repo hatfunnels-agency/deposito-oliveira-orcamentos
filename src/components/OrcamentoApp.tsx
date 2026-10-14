@@ -6215,14 +6215,6 @@ export default function OrcamentoApp() {  // Auth state
                                       setOrcamentoDetalhe(atualizado);
                                       carregarPagamentosDetalhe(orcamentoDetalhe.id);
                                       carregarHistorico();
-                                      // Pagou mas continuava "Orcamento": 11 pedidos pagos ficaram
-                                      // assim por meses e cairam na limpeza de orcamentos antigos
-                                      // (14/10). Quem paga fechou — oferece confirmar na hora.
-                                      if (atualizado.status === 'orcamento' && window.confirm(
-                                        'Pagamento registrado.\n\nEste pedido ainda está como Orçamento. O cliente fechou? Confirmar a venda agora?',
-                                      )) {
-                                        await confirmarVenda(atualizado);
-                                      }
                                     }}
                                     className="text-sm bg-[#F7941D] text-white px-3 py-1.5 rounded-lg hover:bg-[#E8850A] transition whitespace-nowrap"
                                   >
