@@ -516,13 +516,21 @@ function imprimirOrdensFerragem(pedidos: Array<Record<string, unknown>>): void {
   const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
     <title>Ordem de Produção — Ferragem</title>
     <style>
-      * { box-sizing: border-box; }
+      /* A4 de verdade. Sem isto o navegador usava o padrao dele (Carta). */
+      @page { size: A4 portrait; margin: 12mm; }
+      * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       body { font-family: Arial, Helvetica, sans-serif; color:#000; margin:0; padding:16px; }
       .top { display:flex; justify-content:space-between; align-items:baseline; border-bottom:3px solid #000; padding-bottom:8px; margin-bottom:16px; }
       .top h1 { font-size:20px; margin:0; }
       .top .data { font-size:12px; }
-      .ordem { border:2px solid #000; border-radius:8px; padding:12px 14px; margin-bottom:14px; page-break-inside:avoid; }
-      .cab { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:10px; }
+      /* O pedido PODE quebrar entre paginas: com page-break-inside:avoid, um
+         pedido maior que o resto da folha ia inteiro pra proxima e deixava a
+         primeira pagina em branco (14/10). O que nao quebra e cada linha, e o
+         cabecalho fica grudado na tabela. */
+      .ordem { border:2px solid #000; border-radius:8px; padding:12px 14px; margin-bottom:14px; }
+      .cab { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; margin-bottom:10px; break-after:avoid; page-break-after:avoid; }
+      tr { break-inside:avoid; page-break-inside:avoid; }
+      thead { display:table-header-group; }
       .codigo { font-family:monospace; font-size:13px; font-weight:bold; }
       .cliente { font-size:19px; font-weight:bold; line-height:1.1; }
       .tel { font-size:12px; }
@@ -543,7 +551,7 @@ function imprimirOrdensFerragem(pedidos: Array<Record<string, unknown>>): void {
       .rodape { margin-top:8px; font-size:12px; text-align:right; color:#333; }
       @media print { body { padding:0; } }
     </style></head><body>
-    <div class="top"><h1>🔨 Ordem de Produção — Ferragem</h1><div class="data">Gerado em ${geradoEm}<br>${pedidos.length} pedido(s)</div></div>
+    <div class="top"><h1>Ordem de Produção — Ferragem</h1><div class="data">Gerado em ${geradoEm}<br>${pedidos.length} pedido(s)</div></div>
     ${ordens}
     <script>window.onload=function(){window.focus();window.print();};</script>
   </body></html>`;
