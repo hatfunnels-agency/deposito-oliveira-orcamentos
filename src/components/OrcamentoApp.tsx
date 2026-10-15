@@ -2150,7 +2150,10 @@ export default function OrcamentoApp() {  // Auth state
   // Antes nao tinha volta: o seletor de status saiu e o cancelado so podia
   // ser descartado (14/10).
   const reabrirPedido = async (d: OrcamentoDetalhe) => {
-    if (!window.confirm(`Reabrir o pedido ${d.codigo}?\n\nEle volta pra Orçamento. Se o cliente já fechou, use "Confirmar venda" em seguida.`)) return;
+    const eraVenda = d.status !== 'cancelado';
+    if (!window.confirm(eraVenda
+      ? `Voltar o pedido ${d.codigo} para orçamento?\n\nA venda deixa de estar confirmada e o material volta pro estoque.`
+      : `Reabrir o pedido ${d.codigo}?\n\nEle volta pra Orçamento. Se o cliente já fechou, use "Confirmar venda" em seguida.`)) return;
     try {
       const res = await fetch(`/api/orcamentos/${d.id}`, {
         method: 'PATCH',
@@ -2160,6 +2163,7 @@ export default function OrcamentoApp() {  // Auth state
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setOrcamentoDetalhe({ ...d, status: 'orcamento', perdido_em: null, motivo_perda: null });
       carregarHistorico();
+      if (eraVenda) carregarProdutos();
     } catch (e) {
       console.error('Erro ao reabrir pedido', e);
       alert('Não foi possível reabrir o pedido. Tente de novo.');
@@ -6126,6 +6130,15 @@ export default function OrcamentoApp() {  // Auth state
                   {/* Desfazer cancelamento/perda por engano: volta a Orcamento e a
                       atendente confirma a venda de novo (o estoque, se tinha
                       voltado no cancelamento, baixa outra vez no Confirmar venda). */}
+                  {/* Venda confirmada por engano: volta pra Orcamento e o estoque
+                      volta junto. So antes de sair material (nao em parcial/rota). */}
+                  {['entrega_pendente', 'retirada_pendente'].includes(orcamentoDetalhe.status)
+                    && !entregasParciais.some(ep => ep.status !== 'programada') && (
+                    <button
+                      onClick={() => reabrirPedido(orcamentoDetalhe)}
+                      className="w-full border border-gray-300 text-gray-700 py-2 rounded-xl font-bold hover:bg-gray-50 transition text-sm"
+                    >↩ Voltar para orçamento</button>
+                  )}
                   {orcamentoDetalhe.status === 'cancelado' && (
                     <button
                       onClick={() => reabrirPedido(orcamentoDetalhe)}
