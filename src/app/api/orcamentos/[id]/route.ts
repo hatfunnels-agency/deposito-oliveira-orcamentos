@@ -408,12 +408,18 @@ export async function PATCH(
             // (sob_demanda decrementa total_vendido; estocavel
             // restaura estoque_atual + insere movimentacao
             // tipo='cancelamento'). Awaited; falha por item so loga.
+            // Voltar pra 'orcamento' (venda confirmada por engano) tambem devolve
+            // — mas so a partir de entrega/retirada pendente: com entrega
+            // parcial ou caminhao na rua, parte do material ja saiu.
+            const voltaOrcamento = status === 'orcamento' && !!previousStatus
+              && ['entrega_pendente', 'retirada_pendente'].includes(previousStatus);
             if (
+                      (voltaOrcamento || (
                       status === 'cancelado' &&
-                      previousStatus &&
+                      !!previousStatus &&
                       // 'ocorrencia' tambem: ja baixou estoque (COMMITTED_STATUSES) e
                       // cancelar a partir dela perdia o material.
-                      ['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota', 'ocorrencia'].includes(previousStatus) &&
+                      ['entrega_pendente', 'entrega_parcial', 'retirada_pendente', 'em_rota', 'ocorrencia'].includes(previousStatus))) &&
                       orderItems &&
                       orderItems.length > 0
                     ) {
@@ -456,7 +462,7 @@ export async function PATCH(
                       } catch (e) {
                               console.error('[PATCH orcamentos] excecao em aplicarBaixaFerro', e);
                       }
-            } else if (status === 'cancelado' && ferroBaixadoAtual) {
+            } else if ((status === 'cancelado' || voltaOrcamento) && ferroBaixadoAtual) {
                       try {
                               const r = await reverterBaixaFerro(params.id);
                               if (r.ok) {
