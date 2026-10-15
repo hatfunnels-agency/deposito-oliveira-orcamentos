@@ -72,28 +72,11 @@ export async function DELETE(
       return NextResponse.json({ error: 'Erro ao cancelar entrega parcial' }, { status: 500 });
     }
 
-    // 4) Recalcula o status do orcamento com base no que sobrou entregue
-    const { data: todosItens } = await supabaseAdmin
-      .from('orcamento_itens')
-      .select('quantidade, quantidade_entregue')
-      .eq('orcamento_id', orcamentoId);
-
-    let tudoEntregue = (todosItens?.length || 0) > 0;
-    let algumEntregue = false;
-    for (const it of todosItens || []) {
-      const q = Number(it.quantidade) || 0;
-      const e = Number(it.quantidade_entregue) || 0;
-      if (e + 1e-9 < q) tudoEntregue = false;
-      if (e > 1e-9) algumEntregue = true;
-    }
-    const novoStatus = tudoEntregue ? 'completo' : algumEntregue ? 'entrega_parcial' : 'entrega_pendente';
-    const { error: statusErr } = await supabaseAdmin
-      .from('orcamentos')
-      .update({ status: novoStatus, atualizado_em: new Date().toISOString() })
-      .eq('id', orcamentoId);
-    if (statusErr) {
-      console.error('[entregas-parciais DELETE] falha ao atualizar status do orcamento', novoStatus, statusErr);
-    }
+    // 4) Status e data pelo que sobrou entregue — mesma regra das entregas
+    //    programadas, que so mexe em pedido de entrega (antes recalculava sem
+    //    olhar o status atual e podia "descancelar" um pedido).
+    const sinc = await sincronizarPedidoEntregas(orcamentoId);
+    const novoStatus = sinc.status;
 
     return NextResponse.json({ success: true, novo_status: novoStatus });
   } catch (e) {

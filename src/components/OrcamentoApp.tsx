@@ -608,6 +608,12 @@ export default function OrcamentoApp() {  // Auth state
   const [busca, setBusca] = useState('');
   const [categoriaSelecionada, setCategoriaSelecionada] = useState('Todas');
   const [abaAtiva, setAbaAtiva] = useState<AbaKey>('produtos');
+  // Aba fora do papel (ex.: motorista so ve Entregas, mas o app abre em
+  // Catalogo) -> vai pra primeira aba permitida.
+  useEffect(() => {
+    if (userProfile && !abasVisiveis.includes(abaAtiva)) setAbaAtiva(abasVisiveis[0]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userProfile, abaAtiva]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
   const [inputIA, setInputIA] = useState('');
@@ -743,8 +749,6 @@ export default function OrcamentoApp() {  // Auth state
   const [novaDataEntrega, setNovaDataEntrega] = useState('');
   const [reagendandoId, setReagendandoId] = useState<string | null>(null);
   // Entregas state
-  const [entregasRota, setEntregasRota] = useState<RotaResponse | null>(null);
-  const [loadingEntregas, setLoadingEntregas] = useState(false);
   const [entregasDia, setEntregasDia] = useState<EntregaRota[]>([]);
   const [selecionadas, setSelecionadas] = useState<string[]>([]);
   // Set memoizado para o MapaEntregas (state nativo continua array — refatorar
@@ -757,7 +761,6 @@ export default function OrcamentoApp() {  // Auth state
   const [dataEntregas, setDataEntregas] = useState('');
   // Visualizacao da aba Entregas: lista (padrao) ou mapa. Persistida em localStorage.
   const [vistaEntregas, setVistaEntregas] = useState<'lista' | 'mapa'>('lista');
-  const [marcandoRota, setMarcandoRota] = useState(false);
   const [entregasEmRota, setEntregasEmRota] = useState<EntregaRota[]>([]);
   const [entregasCompletas, setEntregasCompletas] = useState<EntregaRota[]>([]);
   // Uniao das 3 listas do dia (pendentes inclui parcial) — fonte do mapa,
@@ -806,7 +809,6 @@ export default function OrcamentoApp() {  // Auth state
   const printRef = useRef<HTMLDivElement>(null);
   // Motoristas state
   const [motoristas, setMotoristas] = useState<Motorista[]>([]);
-  const [filtroMotorista, setFiltroMotorista] = useState<string>('todos');
   const [mostrarGestaoMotoristas, setMostrarGestaoMotoristas] = useState(false);
   const [novoMotoristaNome, setNovoMotoristaNome] = useState('');
   const [novoMotoristaVeiculo, setNovoMotoristaVeiculo] = useState('');
@@ -1586,7 +1588,11 @@ export default function OrcamentoApp() {  // Auth state
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
-        status: statusFinal,
+        // Na EDICAO so manda status quando e "Salvar e confirmar venda": sem o
+        // seletor, o status do form e o de quando a edicao abriu, e reenvia-lo
+        // desfazia o que mudou no meio (pedido entregue voltava a pendente).
+        // A troca retirada<->entrega e tratada no servidor pelo tipo_entrega.
+        ...(editandoId && !statusForcado ? {} : { status: statusFinal }),
         condicao_pagamento: condicaoPagamentoForm || 'a_vista',
         vencimento: condicaoPagamentoForm === 'prazo' && vencimentoForm ? vencimentoForm : null,
         forma_pagamento: formaPagamentoForm || null,
@@ -1731,7 +1737,7 @@ export default function OrcamentoApp() {  // Auth state
           setOrcamentoDetalhe({ ...orcamentoDetalhe, data_entrega: novaData, reagendamentos: (orcamentoDetalhe.reagendamentos || 0) + 1 });
         }
         carregarHistorico();
-        if (abaAtiva === 'entregas') carregarEntregas();
+        if (abaAtiva === 'entregas') carregarEntregasDia();
         alert('Entrega reagendada com sucesso!');
       }
     } catch (e) { console.error('Erro ao reagendar', e); alert('Erro ao reagendar entrega.'); }
@@ -2144,6 +2150,29 @@ export default function OrcamentoApp() {  // Auth state
       console.error('Erro ao marcar como perdido', e);
       alert('Nao foi possivel marcar como perdido. Tente de novo.');
     }
+  };
+
+  // Retirada concluida pelo detalhe do pedido. Com saldo em aberto, confirma.
+  const marcarRetiradoDetalhe = async (d: OrcamentoDetalhe) => {
+    const saldo = (Number(d.total) || 0) - (Number(d.valor_pago) || 0);
+    if (saldo > 0.01 && !window.confirm(`Ainda falta receber R$ ${formatBRL(saldo)} deste pedido.\n\nMarcar como retirado mesmo assim?`)) return;
+    setMarcandoRetirado(d.id);
+    try {
+      const res = await fetch(`/api/orcamentos/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'completo', _previous_status: d.status }),
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setOrcamentoDetalhe({ ...d, status: 'completo' });
+      carregarHistorico();
+      carregarRetiradas();
+    } catch (e) {
+      console.error('Erro ao marcar retirado', e);
+      alert('Não foi possível marcar como retirado. Tente de novo.');
+    }
+    setMarcandoRetirado(null);
   };
 
   // Cancelado/perdido por engano -> volta a Orcamento (limpa o "perdido").
@@ -2713,7 +2742,7 @@ export default function OrcamentoApp() {  // Auth state
         setMostrarDetalhe(false);
         setOrcamentoDetalhe(null);
         carregarHistorico();
-        if (abaAtiva === 'entregas') carregarEntregas();
+        if (abaAtiva === 'entregas') carregarEntregasDia();
       }
     } catch (e) {
       console.error('Erro ao excluir orçamento', e);
@@ -2757,7 +2786,6 @@ export default function OrcamentoApp() {  // Auth state
       // atualiza a entrega na tela. O que precisa voltar do servidor sao as
       // entregas, que agora trazem motorista_id.
       await carregarEntregasDia();
-      await carregarEntregas();
     } catch (e) {
       console.error('Erro ao atribuir motorista', e);
       alert(e instanceof Error ? e.message : 'Erro ao atribuir motorista');
@@ -3186,100 +3214,10 @@ export default function OrcamentoApp() {  // Auth state
     setTimeout(() => printWindow.print(), 250);
   };
 
-  const carregarEntregas = async () => {
-    setLoadingEntregas(true);
-    try {
-      const qs = dataEntregas ? `?data=${encodeURIComponent(dataEntregas)}` : '';
-      const res = await fetch(`/api/entregas/rota${qs}`, { cache: 'no-store' });
-      const data = await res.json();
-      if (data && Array.isArray(data.rota_otimizada)) {
-        setEntregasRota(data);
-      } else {
-        // Resposta nao usavel; mantem estado previo, mas sem quebrar render
-        setEntregasRota(null);
-      }
-    } catch (e) { console.error('Erro ao carregar entregas', e); }
-    setLoadingEntregas(false);
-  };
 
-  const marcarEmRota = async () => {
-    if (!entregasRota || !Array.isArray(entregasRota.rota_otimizada) || entregasRota.rota_otimizada.length === 0) return;
-    setMarcandoRota(true);
-    try {
-      const ids = entregasRota.rota_otimizada.filter(e => e.status !== 'em_rota' && e.status !== 'completo').map(e => e.id);
-      if (ids.length > 0) {
-        await fetch('/api/entregas/rota', {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ids }),
-        });
-      }
-      await carregarEntregas();
-    } catch (e) { console.error('Erro ao marcar em rota', e); }
-    setMarcandoRota(false);
-  };
 
-  // Bug 1 fix - Mark individual delivery as complete
-  const marcarEntregaCompleta = async (id: string) => {
-    try {
-      await fetch(`/api/orcamentos/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'completo' }),
-      });
-      await carregarEntregas();
-    } catch (e) { console.error('Erro ao marcar entrega completa', e); }
-  };
 
-  const entregasFiltradas = entregasRota && Array.isArray(entregasRota.rota_otimizada) ? {
-    ...entregasRota,
-    rota_otimizada: entregasRota.rota_otimizada.filter((e: EntregaRota & { motorista_id?: string | null }) => {
-      if (filtroMotorista === 'todos') return true;
-      if (filtroMotorista === 'nenhum') return !e.motorista_id;
-      return e.motorista_id === filtroMotorista;
-    }),
-  } : null;
 
-  // Feature 5 - Print routes for driver
-  const imprimirRotas = () => {
-    const rotaParaImprimir = entregasFiltradas || entregasRota;
-    if (!rotaParaImprimir || rotaParaImprimir.rota_otimizada.length === 0) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    const dataStr = rotaParaImprimir.data ? new Date(rotaParaImprimir.data + 'T12:00:00').toLocaleDateString('pt-BR') : new Date().toLocaleDateString('pt-BR');
-    const motoristaAtual = motoristas.find(m => m.id === filtroMotorista);
-    let html = `<!DOCTYPE html><html><head><title>Rotas ${dataStr}</title><style>
-      body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:15px;color:#333;font-size:13px}
-      h1{font-size:18px;margin-bottom:2px}
-      .header{border-bottom:2px solid #333;padding-bottom:8px;margin-bottom:12px}
-      .stats{display:flex;gap:20px;margin:8px 0}
-      .stats div{font-weight:bold}
-      .entrega{border:1px solid #ccc;border-radius:4px;padding:10px;margin-bottom:10px;page-break-inside:avoid}
-      .parada-num{display:inline-block;background:#333;color:white;width:24px;height:24px;border-radius:50%;text-align:center;line-height:24px;font-weight:bold;font-size:12px;margin-right:8px}
-      .check-area{float:right;border:1px solid #999;width:100px;height:40px;border-radius:4px;text-align:center;line-height:40px;color:#999;font-size:11px}
-      .itens{margin:4px 0;padding:4px 0;border-top:1px dashed #ddd}
-      @media print{body{padding:5px}.entrega{margin-bottom:6px;padding:6px}}
-    </style></head><body>`;
-    html += `<div class="header"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px"><img src="` + (logoBase64 || '/logo.png') + `" alt="Logo" style="height:50px;width:auto;border-radius:4px" /><div><h1 style="margin:0;font-size:18px">🚚 Rotas de Entrega - Depósito Oliveira</h1><p style="margin:2px 0;font-size:11px;color:#555">Av. Inocêncio Seráfico, 4020 - Carapicuíba/SP | Tel: (11) 4187-1801</p></div></div><p style="margin:2px 0;color:#666">${dataStr}${motoristaAtual ? ' — ' + motoristaAtual.nome + (motoristaAtual.veiculo ? ' (' + motoristaAtual.veiculo + ')' : '') : ''}</p><div class="stats"><div>${rotaParaImprimir.total_entregas} paradas</div><div>${rotaParaImprimir.distancia_total_km} km</div><div>~${rotaParaImprimir.duracao_total_min} min</div></div></div>`;
-    rotaParaImprimir.rota_otimizada.forEach((e, idx) => {
-      const endCompleto = [e.endereco, e.numero ? `nº ${e.numero}` : '', e.complemento, e.bairro, e.cidade, e.cep].filter(Boolean).join(', ');
-      html += `<div class="entrega"><div class="check-area">☐ Entregue</div><span class="parada-num">${e.parada || idx + 1}</span><strong>${e.cliente_nome}</strong>`;
-      if (e.cliente_telefone) html += ` - ${e.cliente_telefone}`;
-      html += `<br/><span style="color:#555">${endCompleto}</span>`;
-      if (e.recebedor) html += `<br/><em>Recebedor: ${e.recebedor}</em>`;
-      html += `<div class="itens">${e.itens_resumo}</div>`;
-      html += `<div style="display:flex;justify-content:space-between"><span>Valor: <strong>R$ ${formatBRL(e.total)}</strong></span><span>${e.codigo}</span></div>`;
-      html += (e.a_cobrar ?? 0) > 0.01
-        ? `<div style="margin-top:4px;padding:4px 8px;border:2px solid #b91c1c;border-radius:4px;color:#b91c1c;font-weight:bold">💰 COBRAR R$ ${formatBRL(e.a_cobrar || 0)}${e.forma_pagamento ? ' — ' + e.forma_pagamento : ''}</div>`
-        : `<div style="margin-top:4px;color:#15803d;font-weight:bold;font-size:12px">✅ JÁ PAGO — só entregar</div>`;
-      if (e.observacoes) html += `<div style="color:#666;font-style:italic;margin-top:2px">Obs: ${e.observacoes}</div>`;
-      html += `</div>`;
-    });
-    html += `<div style="margin-top:20px;padding-top:12px;border-top:1px solid #ddd;color:#666;font-size:12px;text-align:center"><strong>Depósito Oliveira</strong> — Materiais de Construção<br>Av. Inocêncio Seráfico, 4020 - Centro, Carapicuíba - SP, 06380-021 — Tel: (11) 4187-1801</div></body></html>`;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setTimeout(() => printWindow.print(), 250);
-  };
 
 
   // ===== Estoque Management Functions =====
@@ -5019,14 +4957,16 @@ export default function OrcamentoApp() {  // Auth state
                         onClick={async () => {
                           setMarcandoRetirado(r.id);
                           try {
-                            await fetch(`/api/orcamentos/${r.id}`, {
+                            const res = await fetch(`/api/orcamentos/${r.id}`, {
                               method: 'PATCH',
                               headers: { 'Content-Type': 'application/json' },
-                              body: JSON.stringify({ status: 'completo', _previous_status: 'retirada_pendente' }),
+                              body: JSON.stringify({ status: 'completo', _previous_status: r.status || 'retirada_pendente' }),
                               cache: 'no-store',
                             });
+                            if (!res.ok) alert('Não foi possível marcar como retirado. Tente de novo.');
                             await carregarRetiradas();
-                          } catch (e) { console.error('Erro ao marcar retirado', e); }
+                            carregarHistorico();
+                          } catch (e) { console.error('Erro ao marcar retirado', e); alert('Não foi possível marcar como retirado. Tente de novo.'); }
                           setMarcandoRetirado(null);
                         }}
                         disabled={marcandoRetirado === r.id}
@@ -5116,6 +5056,13 @@ export default function OrcamentoApp() {  // Auth state
                               ainda nao saiu, e quem leva e definido no envio para
                               rota. Corrigir depois se faz em Em Rota. */}
                           <button onClick={() => abrirDetalhe(e.id)} className="shrink-0 text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 whitespace-nowrap">📋 Ver Pedido</button>
+                          {/* Concluir direto, sem passar por rota/leva (entrega feita
+                              fora do roteiro, ou registrada depois). */}
+                          <button
+                            onClick={ev => { ev.stopPropagation(); iniciarConclusaoEntrega(e); }}
+                            disabled={loadingCompleto === e.id}
+                            className="shrink-0 text-xs font-semibold text-green-700 border border-green-300 bg-white px-2 py-1 rounded hover:bg-green-50 whitespace-nowrap disabled:opacity-50"
+                          >{loadingCompleto === e.id ? '...' : '✔ Entregue'}</button>
                       </div>
                       {expandedDia.includes(e.id) && (
                         <div className="border-t border-gray-100 bg-orange-50 px-4 py-3 text-xs space-y-1">
@@ -6085,6 +6032,21 @@ export default function OrcamentoApp() {  // Auth state
                           no modal se precisar voltar. */}
                       <button onClick={marcarTudoEntregue} disabled={marcandoTudoEntregue} className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">{marcandoTudoEntregue ? 'Salvando...' : '✅ Marcar Tudo Entregue'}</button>
                     </>
+                  )}
+                  {/* Em rota / ocorrencia tambem precisam fechar pelo pedido: o
+                      cartao de Em Rota so aparece no dia da entrega, e havia
+                      pedidos em rota parados desde agosto (15/10). */}
+                  {['em_rota', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
+                    <button onClick={marcarTudoEntregue} disabled={marcandoTudoEntregue} className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">{marcandoTudoEntregue ? 'Salvando...' : '✅ Marcar Tudo Entregue'}</button>
+                  )}
+                  {/* Retirada: concluir no proprio pedido (antes so existia em
+                      Entregas > Lista > Retiradas Pendentes). Inclui pedido de
+                      retirada que ficou com status de entrega pendente. */}
+                  {orcamentoDetalhe.tipo_entrega === 'retirada' && ['retirada_pendente', 'entrega_pendente'].includes(orcamentoDetalhe.status) && (
+                    <button onClick={() => marcarRetiradoDetalhe(orcamentoDetalhe)} disabled={marcandoRetirado === orcamentoDetalhe.id}
+                      className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">
+                      {marcandoRetirado === orcamentoDetalhe.id ? 'Salvando...' : '✅ Marcar como retirado'}
+                    </button>
                   )}
                   {/* Feature 9 - Reschedule button */}
                   {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega'
