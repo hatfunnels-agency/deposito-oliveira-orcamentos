@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exigirPapel } from '@/lib/auth-admin';
 import type { VinculoManual } from '@/lib/financeiro/tipos';
-import { conciliar, desvincular, vincular } from '@/lib/financeiro/conciliacao';
+import { buscarPedidosParaVincular, conciliar, desvincular, vincular, vincularPedido } from '@/lib/financeiro/conciliacao';
 import { ehData, hojeSP, somarDias } from '@/lib/financeiro/datas';
 import { ErroFinanceiro } from '@/lib/financeiro/eventos';
 
@@ -34,6 +34,12 @@ export async function GET(request: NextRequest) {
   if (negado) return negado;
   try {
     const sp = request.nextUrl.searchParams;
+    // ?buscar_pedido=<codigo|cliente|valor>&valor=<valor da linha> -> { pedidos }
+    const busca = sp.get('buscar_pedido');
+    if (busca !== null) {
+      const v = Number(sp.get('valor'));
+      return NextResponse.json({ pedidos: await buscarPedidosParaVincular(busca, Number.isFinite(v) && v > 0 ? v : null) });
+    }
     const conta_id = sp.get('conta_id');
     if (!conta_id) return erro400('Escolha a conta.');
     const p = periodo(sp.get('de'), sp.get('ate'));
@@ -71,6 +77,12 @@ export async function POST(request: NextRequest) {
       if (informados.length !== 1) return erro400('Informe exatamente um alvo: pagamento, conta a pagar, pagamento de funcionário ou vale.');
       const v: VinculoManual = { lancamento_id: String(body.lancamento_id), [informados[0]]: String(body[informados[0]]) };
       return NextResponse.json(await vincular(v, usuarioId));
+    }
+
+    // { acao:'vincular_pedido', lancamento_id, orcamento_id } -> ResultadoVinculoPedido
+    if (acao === 'vincular_pedido') {
+      if (!body.lancamento_id || !body.orcamento_id) return erro400('Informe a linha do extrato e o pedido.');
+      return NextResponse.json(await vincularPedido(String(body.lancamento_id), String(body.orcamento_id), usuarioId));
     }
 
     if (acao === 'desvincular') {

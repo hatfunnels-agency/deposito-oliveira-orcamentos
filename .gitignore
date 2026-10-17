@@ -28,3 +28,6 @@ tsconfig.tsbuildinfo
 mcp-gmn/
 historico/
 brand-guidelines/
+
+# Copias de conflito do iCloud Drive ("arquivo 2.ts"): nunca versionar
+* 2.*

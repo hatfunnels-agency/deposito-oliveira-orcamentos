@@ -1191,3 +1191,28 @@ export interface IndicadoresMes {
   ticket_medio: number;
   qtd_pedidos: number;
 }
+
+// ------------------------------------------------------------
+// Conciliacao manual: linha do extrato -> pedido
+// ------------------------------------------------------------
+export interface PedidoParaVincular {
+  id: string;
+  codigo: string | null;
+  cliente: string;
+  criado_em: string;
+  status: string;
+  total: number;
+  valor_pago: number;
+  saldo: number;
+  // Pagamentos do pedido ainda sem linha de extrato (onde a linha pode encaixar).
+  pagamentos_livres: Array<{ id: string; valor: number; metodo: string; data: string }>;
+}
+
+export interface ResultadoVinculoPedido {
+  // vinculado: casou com um pagamento livre de mesmo valor.
+  // dividido: um pagamento livre maior foi dividido; a parte da linha foi vinculada.
+  // registrado: o pedido nao tinha pagamento livre; registrou um com o valor da linha.
+  acao: 'vinculado' | 'dividido' | 'registrado';
+  vinculo: VinculoAplicado;
+  pedido: { id: string; codigo: string | null; saldo: number };
+}
