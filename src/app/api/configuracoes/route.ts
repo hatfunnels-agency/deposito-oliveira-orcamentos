@@ -7,7 +7,8 @@ export const dynamic = 'force-dynamic';
 // (CNPJ, split da Vloz, capacidade da ferragem) continua so no servidor.
 const CHAVES: Record<string, { padrao: string; valida: (v: string) => boolean }> = {
   // Desconto que o orcamento aplica sozinho para pedreiro/empreiteiro (%).
-  desconto_profissional_pct: { padrao: '5', valida: v => /^\d{1,2}([.,]\d)?$/.test(v) && Number(v.replace(',', '.')) <= 30 },
+  // Comeca em 0: o Roger quer testar com empreiteiros amigos antes de ligar.
+  desconto_profissional_pct: { padrao: '0', valida: v => /^\d{1,2}([.,]\d)?$/.test(v) && Number(v.replace(',', '.')) <= 30 },
 };
 
 // GET /api/configuracoes?chave=desconto_profissional_pct -> { chave, valor }

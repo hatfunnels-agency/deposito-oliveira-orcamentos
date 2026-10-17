@@ -14,6 +14,7 @@ import Sidebar, { type AbaKey } from './Sidebar';
 import EditarClienteEndereco from './EditarClienteEndereco';
 import TipoProfissional from './TipoProfissional';
 import ContatosCliente from './ContatosCliente';
+import AssistenteTecnico from './AssistenteTecnico';
 import { Menu, LogOut } from 'lucide-react';
 import { TAGS_VALIDAS } from '@/lib/tags';
 
@@ -21,6 +22,8 @@ interface Produto {
   id: string;
   nome: string;
   vendavel?: boolean;          // false = so estoque (ferro em metro)
+  foto_url?: string | null;
+  medidas?: string | null;
   preco: number;
   preco_custo: number;
   estoque: number;
@@ -684,7 +687,7 @@ export default function OrcamentoApp() {  // Auth state
   // Pedreiro/empreiteiro: o orcamento aplica sozinho o desconto profissional
   // (configuracoes.desconto_profissional_pct). A atendente pode tirar.
   const [clienteProfissional, setClienteProfissional] = useState<'pedreiro' | 'empreiteiro' | null>(null);
-  const [descontoProfissionalPct, setDescontoProfissionalPct] = useState(0);
+  const [descontoProfissionalPct, setDescontoProfissionalPct] = useState(0); // 0 = desligado (padrao)
   const [descontoProfAplicado, setDescontoProfAplicado] = useState(false);
   const [profissionaisVista, setProfissionaisVista] = useState(false);
   const [copiouLista, setCopiouLista] = useState(false);
@@ -3818,8 +3821,16 @@ export default function OrcamentoApp() {  // Auth state
                 const stepVal = produto.unidade === 'm³' ? 0.5 : 1;
                 return (
                   <div key={produto.id} className="bg-white rounded-xl shadow-sm border border-gray-100 p-4 hover:shadow-md transition">
-                    <div className="mb-2"><span className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-0.5 rounded-full">{produto.categoria}</span></div>
+                    <div className="mb-2 flex items-center justify-between gap-2">
+                      <span className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-0.5 rounded-full">{produto.categoria}</span>
+                      {produto.foto_url && (
+                        <a href={produto.foto_url} target="_blank" rel="noopener noreferrer" title="Abrir a foto (para mandar no WhatsApp)" className="shrink-0">
+                          <img src={produto.foto_url} alt="" className="h-10 w-10 rounded-md object-cover border border-gray-200" />
+                        </a>
+                      )}
+                    </div>
                     <h3 className="font-semibold text-gray-800 text-sm mb-1 min-h-[40px]">{produto.nome}</h3>
+                    {produto.medidas && <p className="text-[11px] text-gray-500 -mt-1 mb-1">📏 {produto.medidas}</p>}
                     <p className="text-[#F7941D] font-bold text-lg mb-1">R$ {formatBRL(produto.preco)}<span className="text-xs text-gray-400 font-normal">/{produto.unidade}</span></p>
                     {produto.tipo_estoque === 'sob_demanda' ? (
                       <p className="text-xs mb-3 text-blue-600">📦 Sob demanda{(produto.total_vendido ?? 0) > 0 ? ` · ${produto.total_vendido} vendidos` : ''}</p>
@@ -6588,6 +6599,9 @@ export default function OrcamentoApp() {  // Auth state
       )}
 
       {/* Modal Perfil do Cliente */}
+      {/* Duvidas de produto/obra/sistema: atendente e admin (motorista nao). */}
+      {papelUsuario !== 'motorista' && <AssistenteTecnico />}
+
       {clienteProfileId && (
         <ClienteProfile
           clienteId={clienteProfileId}

@@ -26,6 +26,8 @@ export interface ProdutoApi {
   estoque_minimo: number;             // em unidade de venda
   tipo_estoque: 'estocavel' | 'sob_demanda';
   vendavel?: boolean;
+  foto_url?: string | null;
+  medidas?: string | null;
   estoque_compartilhado_com: string | null;
   baixa_estoque_em_produto_id: string | null;
   baixa_estoque_fator: number | null;
@@ -68,6 +70,9 @@ export function ModalProduto({ produto, categorias, onFechar, onSalvo }: {
   const [minimo, setMinimo] = useState<number | null>(produto ? produto.estoque_minimo : null);
   const [sobDemanda, setSobDemanda] = useState(produto?.tipo_estoque === 'sob_demanda');
   const [vendavel, setVendavel] = useState(produto?.vendavel !== false);
+  const [medidas, setMedidas] = useState(produto?.medidas ?? '');
+  const [fotoUrl, setFotoUrl] = useState<string | null>(produto?.foto_url ?? null);
+  const [subindo, setSubindo] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [excluindo, setExcluindo] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -94,13 +99,13 @@ export function ModalProduto({ produto, categorias, onFechar, onSalvo }: {
         });
         const data = await res.json().catch(() => null);
         if (!res.ok || data?.error) throw new Error(data?.error || 'Falha ao criar');
-        if (!vendavel && data?.id) await putProduto(String(data.id), { vendavel: false });
+        if (data?.id && (!vendavel || medidas.trim())) await putProduto(String(data.id), { vendavel, medidas: medidas.trim() });
         onSalvo(`${nome.trim()} criado.${sobDemanda ? '' : ' Faça a contagem em Estoque.'}`);
       } else {
         await putProduto(produto.id, {
           nome: nome.trim(), codigo: codigo.trim() || null, categoria: categoria.trim() || 'Geral',
           unidade_venda: unidadeVenda.trim() || 'unidade', preco_venda: preco, estoque_minimo: minimoEstoque, fator_conversao: fator,
-          vendavel,
+          vendavel, medidas: medidas.trim(),
           ...(Math.abs((custo ?? 0) - (produto.preco_custo || 0)) >= 0.005 ? { preco_custo: custo ?? 0 } : {}),
         });
         onSalvo(`${nome.trim()} salvo.`);
@@ -154,6 +159,41 @@ export function ModalProduto({ produto, categorias, onFechar, onSalvo }: {
         </Campo>
         <Campo rotulo="Fator" dica="1 de venda = X de estoque"><CampoNumero value={fator} onChange={setFator} min={0} /></Campo>
       </div>
+      <Campo rotulo="Medidas / tamanho" dica="Aparece no catálogo e o assistente usa. Ex.: 9 x 19 x 19 cm · barra de 12 m · 3 m de comprimento">
+        <input value={medidas} onChange={e => setMedidas(e.target.value)} className={INPUT} maxLength={200} />
+      </Campo>
+      {!novo && (
+        <Campo rotulo="Foto" dica="JPG, PNG ou WebP até 5 MB. Fica pública: a atendente abre e manda no WhatsApp.">
+          <div className="flex items-center gap-3">
+            {fotoUrl ? <img src={fotoUrl} alt="" className="h-16 w-16 rounded-lg object-cover border border-gray-200" /> : <div className="h-16 w-16 rounded-lg bg-gray-100 border border-dashed border-gray-300" />}
+            <div className="flex flex-col gap-1">
+              <label className="inline-flex items-center justify-center rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 cursor-pointer min-h-[40px]">
+                {subindo ? 'Enviando…' : fotoUrl ? 'Trocar foto' : 'Escolher foto'}
+                <input type="file" accept="image/*" className="hidden" disabled={subindo} onChange={async e => {
+                  const f = e.target.files?.[0];
+                  if (!f || !produto) return;
+                  setSubindo(true); setErro(null);
+                  try {
+                    const fd = new FormData(); fd.append('imagem', f);
+                    const r = await fetch(`/api/produtos/${produto.id}/foto`, { method: 'POST', body: fd });
+                    const d = await r.json().catch(() => null);
+                    if (!r.ok) throw new Error(d?.error || 'Erro ao subir a foto');
+                    setFotoUrl(d.foto_url);
+                  } catch (err) { setErro(err instanceof Error ? err.message : 'Erro ao subir a foto'); }
+                  finally { setSubindo(false); e.target.value = ''; }
+                }} />
+              </label>
+              {fotoUrl && (
+                <button type="button" className="text-xs text-red-700 underline" onClick={async () => {
+                  if (!produto) return;
+                  await fetch(`/api/produtos/${produto.id}/foto`, { method: 'DELETE' });
+                  setFotoUrl(null);
+                }}>Tirar foto</button>
+              )}
+            </div>
+          </div>
+        </Campo>
+      )}
       <Campo rotulo={`Estoque mínimo (${unidadeVenda || 'unidade'})`}><CampoNumero value={minimo} onChange={setMinimo} min={0} /></Campo>
       {novo && (
         <label className="flex items-center gap-2 text-sm text-gray-700 min-h-[44px]">

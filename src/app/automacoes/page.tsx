@@ -147,7 +147,7 @@ const MOMENTOS_PREVIA: Array<{ grupo: string; tipo: string; opcoes: Array<[strin
   {
     grupo: 'Reativação',
     tipo: 'reativacao',
-    opcoes: [['semanal', 'semanal (obra ativa)'], ['quinzenal', 'quinzenal'], ['mensal', 'mensal (sumiu)']],
+    opcoes: [['semanal', 'obra ativa (a cada 15 dias)'], ['quinzenal', 'quinzenal'], ['mensal', 'mensal (sumiu)']],
   },
 ];
 

@@ -39,7 +39,7 @@ const VOZ = [
 // Instrucao especifica por tipo/momento.
 function tarefaPara(tipo: string, momento: string): string {
   if (tipo === 'followup') {
-    if (momento === 'quente') return 'O cliente acabou de receber um orcamento (poucas horas atras). Manda uma mensagem leve perguntando se conseguiu ver e se ficou alguma duvida, pra ajudar a fechar enquanto ta fresco.';
+    if (momento === 'quente') return 'O cliente acabou de receber um orcamento (poucas horas atras). Manda uma mensagem leve perguntando se ficou alguma duvida sobre o orcamento e diz que, se ele encontrar o mesmo material mais barato em outro deposito, a gente cobre o preco — e so mandar o orcamento do concorrente. Sem pressao e sem inventar prazo.';
     if (momento === 'dia4') return 'Ja faz uns dias que mandamos o orcamento e o cliente nao respondeu. Puxa de leve, pergunta se ainda tem interesse e se oferece pra ajudar (ex: tirar duvida). Sem pressao.';
     if (momento === 'dia7') return 'Ultimo lembrete do orcamento em aberto. Pergunta se ainda quer o material, de forma simpatica, deixando claro que e so chamar quando quiser.';
     return 'Faz 1 dia do orcamento. Lembra o cliente de forma amigavel e pergunta se ele quer seguir com o pedido.';
@@ -59,7 +59,7 @@ function tarefaPara(tipo: string, momento: string): string {
       : 'Ha uma semana o cliente pediu um orcamento grande e acabou nao fechando (comprou em outro lugar ou adiou). Manda uma mensagem curta e sem pressao: pergunta como esta a obra, lembra que o orcamento continua valendo e que da pra rever preco ou condicao se ele quiser fechar com a gente.';
   }
   if (tipo === 'reativacao') {
-    if (momento === 'semanal') return 'Cliente com obra ativa (compra com frequencia). Manda um toque rapido perguntando se ele precisa de mais algum material essa semana.';
+    if (momento === 'semanal') return 'Cliente com obra ativa (compra com frequencia; ultimo toque ha 15 dias). Manda um toque rapido perguntando como esta a obra e se precisa de mais algum material.';
     if (momento === 'quinzenal') return 'Faz um tempinho que o cliente nao compra. Manda um oi leve perguntando se esta precisando de material, sem forcar.';
     if (momento === 'mensal') return 'Faz bastante tempo que o cliente nao compra. Manda um oi simpatico pra lembrar que a gente ta aqui quando precisar de material.';
     return 'Cliente que ja comprou antes. Manda um oi leve perguntando se esta precisando de material.';

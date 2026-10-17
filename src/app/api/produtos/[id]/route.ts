@@ -70,6 +70,8 @@ export async function PUT(
     if (body.tipo_estoque !== undefined) updateData.tipo_estoque = body.tipo_estoque;
     if (body.ativo !== undefined) updateData.ativo = body.ativo;
     if (body.vendavel !== undefined) updateData.vendavel = Boolean(body.vendavel);
+    if (body.medidas !== undefined) updateData.medidas = String(body.medidas ?? '').trim().slice(0, 200) || null;
+    if (body.foto_url !== undefined) updateData.foto_url = body.foto_url || null;
 
     // Pre-fetch do preco_custo atual quando o caller pede pra mudar.
     // Pulamos a leitura quando body.preco_custo nao veio — economiza

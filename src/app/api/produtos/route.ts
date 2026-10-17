@@ -204,6 +204,8 @@ export async function GET() {
         metros_reservados: metrosReservadosPorProduto.get(p.id as string) || 0,
         // false = so estoque (ferro em metro): fora do catalogo e da venda rapida.
         vendavel: p.vendavel !== false,
+        foto_url: (p.foto_url as string | null) || null,
+        medidas: (p.medidas as string | null) || null,
       };
     });
 
