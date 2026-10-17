@@ -1,6 +1,7 @@
 // Tarefas do dia da atendente: retornos combinados, orcamentos grandes em
 // aberto e reativacao. Server component — le o Supabase direto, como a
 // /atendimento; a pagina e protegida pelo proxy de auth como as demais.
+import { registrarContato } from '@/lib/contatos';
 import Link from 'next/link';
 import { revalidatePath } from 'next/cache';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -26,9 +27,20 @@ async function registrar(formData: FormData) {
   if (!chave || !['retorno', 'orcamento', 'reativacao'].includes(tipo)) return;
   if (!['feito', 'sem_resposta', 'perdido'].includes(resultado)) return;
 
-  await supabaseAdmin.from('tarefas_atendente').insert({
+  const { data: registro } = await supabaseAdmin.from('tarefas_atendente').insert({
     chave, tipo, resultado, cliente_id: clienteId, orcamento_id: orcamentoId,
-  });
+  }).select('id').maybeSingle();
+
+  // Historico de contatos do cliente (data do ultimo contato + do que foi).
+  if (clienteId) {
+    const assunto = tipo === 'retorno' ? 'retorno combinado' : tipo === 'orcamento' ? 'orçamento em aberto' : 'reativação';
+    const como = resultado === 'feito' ? 'Atendente falou com o cliente' : resultado === 'sem_resposta' ? 'Atendente tentou contato, sem resposta' : 'Cliente não quer / perdido';
+    const obs = String(formData.get('observacao') || '').trim();
+    await registrarContato({
+      clienteId, origem: 'atendente', canal: 'whatsapp',
+      resumo: `${como} (${assunto})${obs ? ` — ${obs}` : ''}`, chave: registro?.id ? `tarefa:${registro.id}` : null,
+    });
+  }
 
   // Orcamento perdido aqui = o mesmo "Marcar como perdido" do painel do
   // orcamento: status 'cancelado' + motivo. So mexe se ainda estiver aberto.
@@ -80,6 +92,15 @@ function Cartao({ t }: { t: Tarefa }) {
       <p className="text-xs text-gray-400 mt-0.5">{telefoneBonito(t.telefone)}</p>
       <p className="text-sm text-gray-700 mt-2 leading-snug">{t.motivo}</p>
       <p className="text-xs text-gray-500 mt-1 leading-snug">{t.detalhe}</p>
+      <div className="mt-2 rounded-lg bg-gray-50 px-2 py-1.5 text-xs text-gray-600 space-y-0.5">
+        <p>
+          <span className="font-semibold text-gray-700">Último contato:</span>{' '}
+          {t.ultimoContato
+            ? <>{new Date(t.ultimoContato.data).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' })} — {t.ultimoContato.resumo}</>
+            : <span className="text-gray-400">nenhum registrado</span>}
+        </p>
+        {t.contexto && <p className="line-clamp-3" title={t.contexto}><span className="font-semibold text-gray-700">Contexto:</span> {t.contexto}</p>}
+      </div>
 
       <div className="mt-3">
         <BotaoWhatsApp href={linkWhatsApp(t.telefone, t.mensagem)} />

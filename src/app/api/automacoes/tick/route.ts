@@ -1,3 +1,4 @@
+import { registrarContato, resumoEnvioRobo } from '@/lib/contatos';
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import {
@@ -319,6 +320,13 @@ export async function GET(request: NextRequest) {
         // mesmo depois de ter sido enviado de verdade.
         { onConflict: 'chave_dedup', ignoreDuplicates: false },
       );
+      // Historico de contatos do cliente: so o que saiu de verdade.
+      if (status === 'enviado' && c.clienteId) {
+        await registrarContato({
+          clienteId: c.clienteId, origem: 'robo', canal: 'whatsapp',
+          resumo: resumoEnvioRobo(c.tipo, c.momento, via), chave: `envio:${c.chaveDedup}`,
+        });
+      }
 
       resultados.push({
         chave: c.chaveDedup,

@@ -1,5 +1,7 @@
 'use client';
 
+import TipoProfissional from './TipoProfissional';
+import ContatosCliente from './ContatosCliente';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import type { ClienteCompleto, EnderecoCliente, TagCliente, CompraResumo } from '@/lib/types';
 import BuscaEndereco from '@/components/BuscaEndereco';
@@ -965,6 +967,7 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
                 >
                   {cliente?.nome || 'Cliente'}
                 </h1>
+                <div className="mt-1"><TipoProfissional clienteId={clienteId} /></div>
                 <div className="mt-1 flex flex-wrap items-center gap-2">
                   <p className="text-sm text-gray-500">{formatarTelefone(cliente?.telefone)}</p>
                   {cliente?.telefone && (() => {
@@ -1022,6 +1025,11 @@ export default function ClienteProfile({ clienteId, onClose, onAbrirPedido }: Cl
                 <CardMetrica label="Total comprado" valor={`R$ ${formatBRL(cliente.total_compras)}`} />
                 <CardMetrica label="Última compra" valor={formatarData(cliente.ultima_compra)} />
               </div>
+
+              {/* Ultimo contato + historico de conversas (cliente_contatos) */}
+              <Secao titulo="Contatos">
+                <ContatosCliente clienteId={clienteId} />
+              </Secao>
 
               {/* Dados de contato */}
               <Secao
