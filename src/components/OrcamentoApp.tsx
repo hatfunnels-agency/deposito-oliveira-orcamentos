@@ -594,7 +594,7 @@ export default function OrcamentoApp() {  // Auth state
       ? ['entregas']
       : papelUsuario === 'atendente'
       ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro']
-      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro'];
+      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -3455,6 +3455,7 @@ export default function OrcamentoApp() {  // Auth state
         quantidadeItens={quantidadeItens}
         sidebarOpen={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
+        admin={papelUsuario === 'admin'}
       />
 
       <div className="md:ml-60 min-h-screen flex flex-col">
@@ -5494,145 +5495,7 @@ export default function OrcamentoApp() {  // Auth state
           <FinanceiroTab simples onAbrirPedido={abrirDetalhe} />
         )}
 
-        {/* ===== CADASTRO DE PRODUTOS (aba 'estoque') ===== */}
-        {/* Saldo, contagem, perda e entrada vivem em /financeiro > Estoque desde
-            out/2026. Aqui fica so o cadastro: preco, custo, margem. */}
-      {abaAtiva === 'estoque' && (
-        <div className="pb-8">
-          <div className="flex flex-wrap gap-3 mb-6">
-            <button onClick={() => setMostrarNovoProduto(true)} className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">➕ Novo Produto</button>
-            <a href="/financeiro?secao=estoque" className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition">📦 Estoque e contagem (Gestão)</a>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="bg-gray-50 border-b">
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Produto</th>
-                  <th className="text-center px-2 py-3 font-medium text-gray-600">Tipo</th>
-                  <th className="text-right px-2 py-3 font-medium text-gray-600">Venda</th>
-                  <th className="text-right px-2 py-3 font-medium text-gray-600">Custo</th>
-                  <th className="text-right px-2 py-3 font-medium text-gray-600">Margem</th>
-                  <th className="text-center px-2 py-3 font-medium text-gray-600">Ações</th>
-                </tr></thead>
-                <tbody>
-                  {produtos.map(p => {
-                    const margem = p.preco > 0 && p.preco_custo > 0 ? ((p.preco - p.preco_custo) / p.preco * 100).toFixed(0) : '-';
-                    return (
-                      <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
-                        <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}{p.baixa_estoque_em_produto_id ? (() => {
-                          const proxy = produtos.find(x => x.id === p.baixa_estoque_em_produto_id);
-                          const fator = p.baixa_estoque_fator;
-                          return ` · ↓ Baixa estoque de ${proxy?.nome || p.baixa_estoque_em_produto_id}${fator && fator !== 1 ? ` (fator ${fator})` : ''}`;
-                        })() : ''}</p></td>
-                        <td className="px-2 py-3 text-center">{p.vendavel === false
-                          ? <span className="text-xs font-medium px-2 py-1 rounded-full text-amber-800 bg-amber-50" title="Fora do catálogo: só controla estoque (vende-se a barra, o estribo ou a calculadora)">Só estoque</span>
-                          : p.tipo_estoque === 'sob_demanda'
-                          ? <span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>
-                          : <span className="text-xs font-medium px-2 py-1 rounded-full text-gray-600 bg-gray-100">Estocado</span>}</td>
-                        <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
-                        <td className="px-2 py-3 text-right">
-                          {editandoCustoId === p.id ? (
-                            <div className="flex items-center justify-end gap-1">
-                              <span className="text-xs text-gray-400">R$</span>
-                              <input
-                                type="text"
-                                autoFocus
-                                inputMode="decimal"
-                                value={editandoCustoValor}
-                                onChange={ev => setEditandoCustoValor(ev.target.value)}
-                                onBlur={() => salvarCusto(p)}
-                                onKeyDown={ev => {
-                                  if (ev.key === 'Enter') { ev.preventDefault(); (ev.target as HTMLInputElement).blur(); }
-                                  else if (ev.key === 'Escape') { ev.preventDefault(); cancelarEdicaoCusto(); }
-                                }}
-                                disabled={salvandoCustoId === p.id}
-                                className="w-24 border border-[#F7941D] rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-[#F7941D] disabled:opacity-50"
-                              />
-                              {salvandoCustoId === p.id && <span className="text-xs text-gray-400">…</span>}
-                            </div>
-                          ) : (
-                            <button
-                              type="button"
-                              onClick={() => iniciarEdicaoCusto(p)}
-                              title="Clique pra editar"
-                              className="text-gray-500 hover:text-[#F7941D] hover:bg-orange-50 px-2 py-0.5 rounded"
-                            >R$ {formatBRL(p.preco_custo || 0)}</button>
-                          )}
-                          {p.ultima_atualizacao_custo && (
-                            <p className="text-[10px] text-gray-400 mt-0.5">
-                              atualizado em {new Date(p.ultima_atualizacao_custo).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-2 py-3 text-right"><span className={`text-xs font-bold ${Number(margem) >= 30 ? 'text-green-600' : Number(margem) >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{margem}%</span></td>
-                        <td className="px-2 py-3 text-center"><div className="flex gap-1 justify-center flex-wrap">
-                          <button onClick={() => abrirEditProduto(p)} title="Editar produto" className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">✏️</button>
-                          <button onClick={() => abrirHistoricoCustos(p)} title="Histórico de custos" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100">📜</button>
-                        </div></td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Batch B Fase 3: Modal Historico de Custos */}
-      {historicoCustosOpenId && (() => {
-        const produto = produtos.find(p => p.id === historicoCustosOpenId);
-        return (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setHistoricoCustosOpenId(null); setHistoricoCustosLista([]); }}>
-            <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
-                <div>
-                  <h3 className="font-bold text-gray-800">📜 Histórico de Custos</h3>
-                  {produto && <p className="text-xs text-gray-500">{produto.nome}</p>}
-                </div>
-                <button onClick={() => { setHistoricoCustosOpenId(null); setHistoricoCustosLista([]); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
-              </div>
-              <div className="p-4">
-                {historicoCustosLoading ? (
-                  <p className="text-center text-sm text-gray-400 py-8">Carregando…</p>
-                ) : historicoCustosLista.length === 0 ? (
-                  <p className="text-center text-sm text-gray-400 py-8">Nenhuma alteração de custo registrada ainda.</p>
-                ) : (
-                  <table className="w-full text-xs">
-                    <thead><tr className="border-b border-gray-100 text-gray-500">
-                      <th className="text-left py-2 pr-2 font-medium">Data</th>
-                      <th className="text-right py-2 pr-2 font-medium">De</th>
-                      <th className="text-right py-2 pr-2 font-medium">Pra</th>
-                      <th className="text-left py-2 font-medium">Por</th>
-                    </tr></thead>
-                    <tbody>
-                      {historicoCustosLista.map(h => {
-                        const delta = h.custo_novo - h.custo_anterior;
-                        const cor = delta > 0 ? 'text-red-600' : delta < 0 ? 'text-green-600' : 'text-gray-500';
-                        return (
-                          <tr key={h.id} className="border-b border-gray-50">
-                            <td className="py-2 pr-2 text-gray-700">{new Date(h.criado_em).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit' })}</td>
-                            <td className="py-2 pr-2 text-right text-gray-500">R$ {formatBRL(h.custo_anterior)}</td>
-                            <td className={`py-2 pr-2 text-right font-semibold ${cor}`}>R$ {formatBRL(h.custo_novo)}</td>
-                            <td className="py-2 text-gray-600">{h.usuario_nome || '—'}</td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </div>
-          </div>
-        );
-      })()}
-
-      {/* Toast da aba Estoque (edicao inline de custo) */}
-      {toastEstoque && (
-        <div className={`fixed bottom-5 left-1/2 z-[60] -translate-x-1/2 rounded-lg px-4 py-2 text-sm font-medium text-white shadow-lg ${toastEstoque.tipo === 'sucesso' ? 'bg-green-600' : 'bg-red-600'}`}>
-          {toastEstoque.msg}
-        </div>
-      )}
 
       {/* Modal Detalhe do Orcamento (Bug 6 fix - edit button restored) */}
       {mostrarDetalhe && (
@@ -6461,110 +6324,9 @@ export default function OrcamentoApp() {  // Auth state
         />
       )}
 
-      {/* Modal Registrar Entrada */}
-      {mostrarEntrada && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarEntrada(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">📥 Registrar Entrada</h2>
-            <div className="space-y-3">
-              <select value={produtoSelecionado?.id || ''} onChange={e => setProdutoSelecionado(produtos.find(p => p.id === e.target.value) || null)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                <option value="">Selecione o produto</option>
-                {produtos.map(p => <option key={p.id} value={p.id}>{p.nome} (atual: {p.estoque_armazenamento || p.estoque} {p.unidade_armazenamento || p.unidade})</option>)}
-              </select>
-              <input type="number" placeholder={`Quantidade (${produtoSelecionado?.unidade_armazenamento || 'unidades'})`} value={entradaQtd} onChange={e => setEntradaQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
-              <input type="text" placeholder="Observações (ex: Fornecedor Luan - NF 12345)" value={entradaObs} onChange={e => setEntradaObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setMostrarEntrada(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
-              <button onClick={registrarEntrada} disabled={!produtoSelecionado || !entradaQtd || salvandoEstoque} className="flex-1 bg-green-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Registrar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Modal Ajuste Inventário */}
-      {mostrarAjuste && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarAjuste(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">📋 Ajuste de Inventário</h2>
-            <div className="space-y-3">
-              <select value={produtoSelecionado?.id || ''} onChange={e => { const p = produtos.find(pp => pp.id === e.target.value); setProdutoSelecionado(p || null); if (p) setAjusteQtd(String(p.estoque_armazenamento || p.estoque)); }} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm">
-                <option value="">Selecione o produto</option>
-                {produtos.map(p => <option key={p.id} value={p.id}>{p.nome}</option>)}
-              </select>
-              {produtoSelecionado && <p className="text-xs text-gray-500">Estoque atual: {produtoSelecionado.estoque_armazenamento || produtoSelecionado.estoque} {produtoSelecionado.unidade_armazenamento || produtoSelecionado.unidade}</p>}
-              <input type="number" placeholder="Novo estoque (contagem física)" value={ajusteQtd} onChange={e => setAjusteQtd(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" min="0" step="0.5" />
-              <input type="text" placeholder="Observações (ex: Inventário mensal)" value={ajusteObs} onChange={e => setAjusteObs(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-            </div>
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setMostrarAjuste(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
-              <button onClick={registrarAjuste} disabled={!produtoSelecionado || !ajusteQtd || salvandoEstoque} className="flex-1 bg-orange-600 text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Ajustar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Modal Editar Produto */}
-      {mostrarEditProduto && produtoSelecionado && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarEditProduto(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">✏️ Editar Produto</h2>
-            <div className="space-y-3">
-              <input type="text" placeholder="Nome" value={editNome} onChange={e => setEditNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-              <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="Código" value={editCodigo} onChange={e => setEditCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                <input type="text" placeholder="Categoria" value={editCategoria} onChange={e => setEditCategoria(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">Preço Venda</label><input type="number" value={editPrecoVenda} onChange={e => setEditPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
-                <div><label className="text-xs text-gray-500">Preço Custo</label><input type="number" value={editPrecoCusto} onChange={e => setEditPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">Estoque Mínimo</label><input type="number" value={editEstoqueMinimo} onChange={e => setEditEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
-                <div><label className="text-xs text-gray-500">Unidade Venda</label><input type="text" value={editUnidadeVenda} onChange={e => setEditUnidadeVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
-              </div>
-            </div>
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setMostrarEditProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
-              <button onClick={() => produtoSelecionado && excluirProduto(produtoSelecionado.id)} disabled={!!excluindoProdutoId} className="px-4 bg-red-100 text-red-700 py-2 rounded-lg font-medium hover:bg-red-200 disabled:opacity-50">{excluindoProdutoId ? '...' : '🗑️'}</button>
-              <button onClick={salvarEdicaoProduto} disabled={salvandoEstoque} className="flex-1 bg-[#F7941D] text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Salvando...' : 'Salvar'}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {/* Modal Novo Produto */}
-      {mostrarNovoProduto && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarNovoProduto(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-4">➕ Novo Produto</h2>
-            <div className="space-y-3">
-              <input type="text" placeholder="Nome do produto *" value={novoNome} onChange={e => setNovoNome(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-              <div className="grid grid-cols-2 gap-2">
-                <input type="text" placeholder="Código" value={novoCodigo} onChange={e => setNovoCodigo(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-                <input type="text" placeholder="Categoria" value={novoCategoria} onChange={e => setNovoCategoria(e.target.value)} className="border border-gray-300 rounded-lg px-3 py-2 text-sm" />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">Preço Venda *</label><input type="number" value={novoPrecoVenda} onChange={e => setNovoPrecoVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
-                <div><label className="text-xs text-gray-500">Preço Custo</label><input type="number" value={novoPrecoCusto} onChange={e => setNovoPrecoCusto(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.01" /></div>
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <div><label className="text-xs text-gray-500">Unidade</label><input type="text" value={novoUnidade} onChange={e => setNovoUnidade(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
-                <div><label className="text-xs text-gray-500">Un. Venda</label><input type="text" value={novoUnidadeVenda} onChange={e => setNovoUnidadeVenda(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" /></div>
-                <div><label className="text-xs text-gray-500">Fator Conv.</label><input type="number" value={novoFatorConversao} onChange={e => setNovoFatorConversao(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.1" /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <div><label className="text-xs text-gray-500">Estoque Inicial</label><input type="number" value={novoEstoqueInicial} onChange={e => setNovoEstoqueInicial(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
-                <div><label className="text-xs text-gray-500">Estoque Mínimo</label><input type="number" value={novoEstoqueMinimo} onChange={e => setNovoEstoqueMinimo(e.target.value)} className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" step="0.5" /></div>
-              </div>
-            </div>
-            <div className="flex gap-3 mt-4">
-              <button onClick={() => setMostrarNovoProduto(false)} className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Cancelar</button>
-              <button onClick={criarNovoProduto} disabled={!novoNome || !novoPrecoVenda || salvandoEstoque} className="flex-1 bg-[#F7941D] text-white py-2 rounded-lg font-bold disabled:opacity-50">{salvandoEstoque ? 'Criando...' : 'Criar Produto'}</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       
       {/* Feature 2 - Floating Cart Button */}
@@ -6729,32 +6491,6 @@ export default function OrcamentoApp() {  // Auth state
         </div>
       )}
 
-      {/* Modal Histórico Movimentações */}
-      {mostrarHistoricoProduto && produtoSelecionado && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => setMostrarHistoricoProduto(false)}>
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full max-h-[90vh] overflow-y-auto p-6" onClick={e => e.stopPropagation()}>
-            <h2 className="text-lg font-bold text-gray-800 mb-2">📊 Histórico - {produtoSelecionado.nome}</h2>
-            <p className="text-sm text-gray-500 mb-4">Estoque atual: {produtoSelecionado.estoque} {produtoSelecionado.unidade}</p>
-            {movimentacoes.length === 0 ? (
-              <p className="text-center text-gray-400 py-8">Nenhuma movimentação registrada</p>
-            ) : (
-              <div className="space-y-2">
-                {movimentacoes.map(m => (
-                  <div key={m.id} className={`p-3 rounded-lg border text-sm ${m.tipo === 'entrada' ? 'bg-green-50 border-green-200' : m.tipo === 'saida' ? 'bg-red-50 border-red-200' : m.tipo === 'cancelamento' ? 'bg-[#FFF3E0] border-[#F7941D]' : 'bg-yellow-50 border-yellow-200'}`}>
-                    <div className="flex justify-between items-center">
-                      <span className="font-medium">{m.tipo === 'entrada' ? '📥 Entrada' : m.tipo === 'saida' ? '📤 Saída' : m.tipo === 'cancelamento' ? '↩️ Cancelamento' : '📋 Ajuste'}</span>
-                      <span className="text-xs text-gray-500">{new Date(m.criado_em).toLocaleDateString('pt-BR')} {new Date(m.criado_em).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
-                    </div>
-                    <p className="text-xs mt-1">{m.estoque_anterior} → {m.estoque_novo} ({m.tipo === 'saida' ? '-' : '+'}{m.quantidade})</p>
-                    {m.observacoes && <p className="text-xs text-gray-600 mt-1">{m.observacoes}</p>}
-                  </div>
-                ))}
-              </div>
-            )}
-            <button onClick={() => setMostrarHistoricoProduto(false)} className="w-full mt-4 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium">Fechar</button>
-          </div>
-        </div>
-      )}
 
 
       {/* === MODAL CALCULADORA DE FERRO === */}

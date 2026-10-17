@@ -7,7 +7,6 @@ import {
   Users,
   Wrench,
   Truck,
-  Warehouse,
   Wallet,
   BarChart3,
   ListChecks,
@@ -24,7 +23,6 @@ export type AbaKey =
   | 'clientes'
   | 'ferragens'
   | 'entregas'
-  | 'estoque'
   | 'financeiro';
 
 interface SidebarItem {
@@ -42,7 +40,6 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'clientes', label: 'Clientes', icon: Users },
   { key: 'ferragens', label: 'Ferragens', icon: Wrench },
   { key: 'entregas', label: 'Entregas', icon: Truck },
-  { key: 'estoque', label: 'Cadastro de produtos', icon: Warehouse },
   { key: 'financeiro', label: 'Financeiro', icon: Wallet },
 ];
 
@@ -61,9 +58,11 @@ interface SidebarProps {
   quantidadeItens: number;
   sidebarOpen: boolean;
   setSidebarOpen: (open: boolean) => void;
+  admin?: boolean;               // mostra o link da Gestao
 }
 
 export default function Sidebar({
+  admin = false,
   abaAtiva,
   setAbaAtiva,
   abasVisiveis,
@@ -115,8 +114,7 @@ export default function Sidebar({
             navegar na mesma aba apagaria o carrinho, que so vive em memoria. */}
         {abasVisiveis.includes('orcamento') && (
           <nav className="mb-3 flex flex-col gap-1 border-b border-slate-700 pb-3">
-            {/* Sidebar nao recebe o papel; 'estoque' so aparece pro admin. */}
-            {PAGINAS.filter(p => !p.soAdmin || abasVisiveis.includes('estoque')).map(p => {
+            {PAGINAS.filter(p => !p.soAdmin || admin).map(p => {
               const Icone = p.icon;
               const novaAba = quantidadeItens > 0;
               return (
