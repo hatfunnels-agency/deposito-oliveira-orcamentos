@@ -7,7 +7,7 @@ import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
 import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
-import ExtratosTab from './ExtratosTab';
+import { SeletorParcelas } from '@/components/financeiro/Comuns';
 import FuncionariosTab from './FuncionariosTab';
 import ClienteProfile from './ClienteProfile';
 import BuscaEndereco from './BuscaEndereco';
@@ -647,6 +647,8 @@ export default function OrcamentoApp() {  // Auth state
   // Registro de recebimento no detalhe do pedido.
   const [pgtoValor, setPgtoValor] = useState('');
   const [pgtoMetodo, setPgtoMetodo] = useState('pix');
+  // Credito exige o numero de parcelas: a taxa da maquininha depende dele.
+  const [pgtoParcelas, setPgtoParcelas] = useState<number | null>(null);
   const [formaPagamentoForm, setFormaPagamentoForm] = useState('');
   const [orcamentoDetalhe, setOrcamentoDetalhe] = useState<OrcamentoDetalhe | null>(null);
   const [mostrarDetalhe, setMostrarDetalhe] = useState(false);
@@ -738,7 +740,6 @@ export default function OrcamentoApp() {  // Auth state
   // A leva nao aparece na interface: ela e criada por baixo dos panos quando o
   // usuario manda as entregas selecionadas para a rota. O que ele ve e o
   // prompt de motorista; o que fica registrado e a leva com quem levou o que.
-  const [vistaFinanceiro, setVistaFinanceiro] = useState<'operacional' | 'extratos'>('operacional');
   const [mostrarModalRota, setMostrarModalRota] = useState(false);
   const [motoristaRota, setMotoristaRota] = useState('');
   const [revertendoStatus, setRevertendoStatus] = useState<string | null>(null);
@@ -775,6 +776,7 @@ export default function OrcamentoApp() {  // Auth state
   const [cobrancaEntrega, setCobrancaEntrega] = useState<EntregaRota | null>(null);
   const [cobrancaValor, setCobrancaValor] = useState('');
   const [cobrancaMetodo, setCobrancaMetodo] = useState('pix');
+  const [cobrancaParcelas, setCobrancaParcelas] = useState<number | null>(null);
   const [cobrancaSalvando, setCobrancaSalvando] = useState(false);
   // Pagamentos do pedido aberto no detalhe (pro admin poder estornar).
   const [pagamentosDetalhe, setPagamentosDetalhe] = useState<{ id: string; valor: number; metodo: string; data_pagamento: string; origem: string }[]>([]);
@@ -904,6 +906,7 @@ export default function OrcamentoApp() {  // Auth state
   const [pdvItens, setPdvItens] = useState<Array<{ produto: Produto; quantidade: number; preco_custom?: number }>>([]);
   const [pdvStatusPagamento, setPdvStatusPagamento] = useState<'pago' | 'pendente'>('pago');
   const [pdvFormaPagamento, setPdvFormaPagamento] = useState<'pix' | 'dinheiro' | 'debito' | 'credito'>('pix');
+  const [pdvParcelas, setPdvParcelas] = useState<number | null>(null);
   const [pdvBusca, setPdvBusca] = useState('');
   const [salvandoPDV, setSalvandoPDV] = useState(false);
 
@@ -2229,6 +2232,7 @@ export default function OrcamentoApp() {  // Auth state
   const abrirDetalhe = async (id: string) => {
     setLoadingDetalhe(true);
     setMostrarDetalhe(true);
+    setPgtoParcelas(null);
     setEntregasParciais([]);
     setMostrarTrocaEndereco(false);
     setEnderecosDetalhe([]);
@@ -2280,6 +2284,7 @@ export default function OrcamentoApp() {  // Auth state
   const finalizarVendaPDV = async () => {
     if (!pdvNome.trim()) { alert('Informe o nome do cliente'); return; }
     if (pdvItens.length === 0) { alert('Adicione pelo menos um produto'); return; }
+    if (pdvStatusPagamento === 'pago' && pdvFormaPagamento === 'credito' && !pdvParcelas) { alert('Informe o número de parcelas'); return; }
     setSalvandoPDV(true);
     try {
       const subtotal = pdvItens.reduce((s, i) => s + (i.preco_custom ?? i.produto.preco) * i.quantidade, 0);
@@ -2296,7 +2301,11 @@ export default function OrcamentoApp() {  // Auth state
         // pedido "nascer pago" sem pagamento registrado.
         pagamento_inicial:
           pdvStatusPagamento === 'pago'
-            ? { valor: subtotal, metodo: pdvFormaPagamento || 'outro' }
+            ? {
+                valor: subtotal,
+                metodo: pdvFormaPagamento || 'outro',
+                ...(pdvFormaPagamento === 'credito' ? { parcelas: pdvParcelas, parcelas_informadas: true } : {}),
+              }
             : undefined,
         forma_pagamento: pdvFormaPagamento,
         fonte: 'pdv',
@@ -3129,6 +3138,7 @@ export default function OrcamentoApp() {  // Auth state
     if ((e.a_cobrar ?? 0) > 0.01) {
       setCobrancaValor((e.a_cobrar ?? 0).toFixed(2));
       setCobrancaMetodo(e.forma_pagamento && e.forma_pagamento !== 'pagamento_na_entrega' ? e.forma_pagamento : 'pix');
+      setCobrancaParcelas(null);
       setCobrancaEntrega(e);
     } else {
       marcarEntregue(e.id);
@@ -3140,12 +3150,18 @@ export default function OrcamentoApp() {  // Auth state
     if (!cobrancaEntrega) return;
     const valorNum = Number((cobrancaValor || '0').replace(',', '.'));
     if (!Number.isFinite(valorNum) || valorNum <= 0) { alert('Informe um valor valido'); return; }
+    if (cobrancaMetodo === 'credito' && !cobrancaParcelas) { alert('Informe o número de parcelas'); return; }
     setCobrancaSalvando(true);
     try {
       const res = await fetch('/api/pagamentos', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ orcamento_id: cobrancaEntrega.id, valor: valorNum, metodo: cobrancaMetodo }),
+        body: JSON.stringify({
+          orcamento_id: cobrancaEntrega.id,
+          valor: valorNum,
+          metodo: cobrancaMetodo,
+          ...(cobrancaMetodo === 'credito' ? { parcelas: cobrancaParcelas, parcelas_informadas: true } : {}),
+        }),
       });
       const json = await res.json();
       if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); setCobrancaSalvando(false); return; }
@@ -3687,7 +3703,7 @@ export default function OrcamentoApp() {  // Auth state
                 <span>&#x1F9F1;</span> Laje
               </button>
               <button
-                onClick={() => { setPdvNome(''); setPdvTelefone(''); setPdvItens([]); setPdvStatusPagamento('pago'); setPdvFormaPagamento('pix'); setPdvBusca(''); setMostrarPDV(true); }}
+                onClick={() => { setPdvNome(''); setPdvTelefone(''); setPdvItens([]); setPdvStatusPagamento('pago'); setPdvFormaPagamento('pix'); setPdvParcelas(null); setPdvBusca(''); setMostrarPDV(true); }}
                 className="flex items-center gap-2 px-4 py-2 bg-[#F7941D] text-white rounded-lg hover:bg-[#E8850A] transition-colors font-medium text-sm"
               >
                 <span>&#x1F3EA;</span> Venda Rápida
@@ -5509,25 +5525,10 @@ export default function OrcamentoApp() {  // Auth state
         )}
 
         {/* ===== FINANCEIRO TAB ===== */}
+        {/* Extratos, DRE e o resto da gestao vivem em /financeiro (link na
+            sidebar e dentro da aba). Aqui fica so o operacional do balcao. */}
         {abaAtiva === 'financeiro' && (
-          <div className="space-y-4">
-            {/* Extrato e DRE sao dado gerencial: atendente nao ve. */}
-            {papelUsuario !== 'atendente' && (
-              <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-                <button
-                  onClick={() => setVistaFinanceiro('operacional')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaFinanceiro === 'operacional' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >💰 A receber</button>
-                <button
-                  onClick={() => setVistaFinanceiro('extratos')}
-                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vistaFinanceiro === 'extratos' ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-                >🏦 Extratos e DRE</button>
-              </div>
-            )}
-            {vistaFinanceiro === 'extratos' && papelUsuario !== 'atendente'
-              ? <ExtratosTab />
-              : <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />}
-          </div>
+          <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />
         )}
 
         {/* ===== FUNCIONARIOS TAB ===== */}
@@ -6149,7 +6150,7 @@ export default function OrcamentoApp() {  // Auth state
                                 )}
                               </div>
                               {!quitado && (
-                                <div className="flex gap-2 mt-2">
+                                <div className="flex flex-wrap gap-2 mt-2">
                                   <input
                                     type="text"
                                     inputMode="decimal"
@@ -6160,7 +6161,7 @@ export default function OrcamentoApp() {  // Auth state
                                   />
                                   <select
                                     value={pgtoMetodo}
-                                    onChange={e => setPgtoMetodo(e.target.value)}
+                                    onChange={e => { setPgtoMetodo(e.target.value); setPgtoParcelas(null); }}
                                     className="text-sm border border-orange-200 rounded-lg px-2 py-1.5 bg-white"
                                   >
                                     <option value="pix">Pix</option>
@@ -6170,18 +6171,32 @@ export default function OrcamentoApp() {  // Auth state
                                     <option value="transferencia">Transf.</option>
                                     <option value="boleto">Boleto</option>
                                   </select>
+                                  <SeletorParcelas
+                                    metodo={pgtoMetodo}
+                                    value={pgtoParcelas}
+                                    onChange={setPgtoParcelas}
+                                    obrigatorio
+                                    className="text-sm border border-orange-200 rounded-lg px-2 py-1.5 bg-white"
+                                  />
                                   <button
                                     onClick={async () => {
                                       const valorNum = Number((pgtoValor || String(saldo)).replace(',', '.'));
                                       if (!Number.isFinite(valorNum) || valorNum <= 0) { alert('Valor invalido'); return; }
+                                      if (pgtoMetodo === 'credito' && !pgtoParcelas) { alert('Informe o número de parcelas'); return; }
                                       const res = await fetch('/api/pagamentos', {
                                         method: 'POST',
                                         headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ orcamento_id: orcamentoDetalhe.id, valor: valorNum, metodo: pgtoMetodo }),
+                                        body: JSON.stringify({
+                                          orcamento_id: orcamentoDetalhe.id,
+                                          valor: valorNum,
+                                          metodo: pgtoMetodo,
+                                          ...(pgtoMetodo === 'credito' ? { parcelas: pgtoParcelas, parcelas_informadas: true } : {}),
+                                        }),
                                       });
                                       const json = await res.json();
                                       if (!res.ok) { alert(json.error || 'Erro ao registrar pagamento'); return; }
                                       setPgtoValor('');
+                                      setPgtoParcelas(null);
                                       const atualizado = {
                                         ...orcamentoDetalhe,
                                         valor_pago: Number(json.orcamento?.valor_pago) || 0,
@@ -6365,7 +6380,7 @@ export default function OrcamentoApp() {  // Auth state
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Forma de pagamento</label>
-                  <select value={pdvFormaPagamento} onChange={e => setPdvFormaPagamento(e.target.value as 'pix' | 'dinheiro' | 'debito' | 'credito')}
+                  <select value={pdvFormaPagamento} onChange={e => { setPdvFormaPagamento(e.target.value as 'pix' | 'dinheiro' | 'debito' | 'credito'); setPdvParcelas(null); }}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white">
                     <option value="pix">PIX</option>
                     <option value="dinheiro">Dinheiro</option>
@@ -6373,6 +6388,16 @@ export default function OrcamentoApp() {  // Auth state
                     <option value="credito">Crédito</option>
                   </select>
                 </div>
+                {/* Parcelas so importam quando o dinheiro entra agora (pago). */}
+                {pdvStatusPagamento === 'pago' && (
+                  <SeletorParcelas
+                    metodo={pdvFormaPagamento}
+                    value={pdvParcelas}
+                    onChange={setPdvParcelas}
+                    obrigatorio
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] bg-white"
+                  />
+                )}
               </div>
               <div className="flex justify-between items-center mb-3 px-1">
                 <span className="text-sm text-gray-600">Total:</span>
@@ -6899,7 +6924,7 @@ export default function OrcamentoApp() {  // Auth state
             <label className="block text-xs font-medium text-gray-600 mb-1">Forma</label>
             <select
               value={cobrancaMetodo}
-              onChange={e => setCobrancaMetodo(e.target.value)}
+              onChange={e => { setCobrancaMetodo(e.target.value); setCobrancaParcelas(null); }}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-4 text-sm bg-white"
             >
               <option value="pix">Pix</option>
@@ -6909,6 +6934,13 @@ export default function OrcamentoApp() {  // Auth state
               <option value="transferencia">Transferência</option>
               <option value="boleto">Boleto</option>
             </select>
+            <SeletorParcelas
+              metodo={cobrancaMetodo}
+              value={cobrancaParcelas}
+              onChange={setCobrancaParcelas}
+              obrigatorio
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-4 text-sm bg-white"
+            />
 
             <button
               onClick={confirmarCobrancaEntrega}

@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Upload, FileText, AlertTriangle, CheckCircle2, TrendingUp } from 'lucide-react';
-import FechamentoDia from './FechamentoDia';
+import { supabaseBrowser } from '@/lib/supabase-client';
+import { apiFinanceiro } from '@/lib/financeiro/cliente-api';
+import type { ResultadoImportacao } from '@/lib/financeiro/tipos';
 
 /**
  * Importacao de extrato + revisao + DRE.
@@ -11,7 +13,14 @@ import FechamentoDia from './FechamentoDia';
  *   1. Importar    — subir o arquivo do mes
  *   2. Revisar     — so o que a IA chutou ou ninguem classificou
  *   3. DRE         — o resultado, com aviso quando ainda ha fila de revisao
+ *
+ * Quem embute escolhe as vistas pela prop `vistas` (/financeiro usa
+ * ['importar','revisar']; o Fechamento reaproveita so ['dre']). O fechamento
+ * do dia saiu daqui: virou Dia.tsx em /financeiro.
  */
+
+export type VistaExtratos = 'dia' | 'importar' | 'revisar' | 'dre';
+type VistaAtiva = Exclude<VistaExtratos, 'dia'>;
 
 interface Conta { id: string; nome: string; tipo: string; layout: string; instituicao: string | null }
 interface Categoria { id: string; nome: string; grupo: string; entra_no_dre: boolean }
@@ -51,16 +60,34 @@ const rotuloMes = (m: string) => {
   const nomes = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
   return `${nomes[Number(mm) - 1]}/${a}`;
 };
+const dataBR = (d: string) => d.split('-').reverse().join('/');
 
-export default function ExtratosTab() {
-  const [vista, setVista] = useState<'dia' | 'importar' | 'revisar' | 'dre'>('dia');
-  const [mes, setMes] = useState(mesAtual());
+const ROTULO_VISTA: Record<VistaAtiva, string> = {
+  importar: '📥 Importar',
+  revisar: '🔍 Revisar',
+  dre: '📊 DRE',
+};
+const VISTAS_PADRAO: VistaExtratos[] = ['importar', 'revisar', 'dre'];
+
+export default function ExtratosTab({
+  vistas = VISTAS_PADRAO,
+  mes: mesProp,
+}: {
+  vistas?: ReadonlyArray<VistaExtratos>;
+  mes?: string;
+}) {
+  // 'dia' segue no tipo por compatibilidade, mas nao renderiza mais aqui.
+  const vistasAtivas = vistas.filter((v): v is VistaAtiva => v !== 'dia');
+  const temImportar = vistasAtivas.includes('importar');
+  const temRevisar = vistasAtivas.includes('revisar');
+  const [vista, setVista] = useState<VistaAtiva>(vistasAtivas[0] ?? 'importar');
+  const [mes, setMes] = useState(mesProp ?? mesAtual());
 
   const [contas, setContas] = useState<Conta[]>([]);
   const [importacoes, setImportacoes] = useState<Importacao[]>([]);
   const [contaSel, setContaSel] = useState('');
   const [enviando, setEnviando] = useState(false);
-  const [resultado, setResultado] = useState<Record<string, unknown> | null>(null);
+  const [resultado, setResultado] = useState<ResultadoImportacao | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const inputArquivo = useRef<HTMLInputElement>(null);
 
@@ -75,9 +102,9 @@ export default function ExtratosTab() {
 
   const carregarContas = useCallback(async () => {
     try {
-      const r = await fetch('/api/financeiro/extratos', { cache: 'no-store' });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Erro ao carregar contas');
+      const d = await apiFinanceiro<{ contas?: Conta[]; importacoes?: Importacao[] }>(
+        '/api/financeiro/extratos', { cache: 'no-store' },
+      );
       setContas(d.contas || []);
       setImportacoes(d.importacoes || []);
       if (!contaSel && d.contas?.[0]) setContaSel(d.contas[0].id);
@@ -89,9 +116,9 @@ export default function ExtratosTab() {
   const carregarLancamentos = useCallback(async () => {
     setCarregandoLanc(true);
     try {
-      const r = await fetch(`/api/financeiro/lancamentos?mes=${mes}&filtro=revisar`, { cache: 'no-store' });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Erro ao carregar lancamentos');
+      const d = await apiFinanceiro<{ lancamentos?: Lancamento[]; categorias?: Categoria[]; a_revisar?: number }>(
+        `/api/financeiro/lancamentos?mes=${mes}&filtro=revisar`, { cache: 'no-store' },
+      );
       setLancamentos(d.lancamentos || []);
       setCategorias(d.categorias || []);
       setARevisar(d.a_revisar || 0);
@@ -104,9 +131,7 @@ export default function ExtratosTab() {
   const carregarDre = useCallback(async () => {
     setCarregandoDre(true);
     try {
-      const r = await fetch(`/api/financeiro/dre?mes=${mes}`, { cache: 'no-store' });
-      const d = await r.json();
-      if (!r.ok) throw new Error(d.error || 'Erro ao gerar DRE');
+      const d = await apiFinanceiro<Dre>(`/api/financeiro/dre?mes=${mes}`, { cache: 'no-store' });
       setDre(d);
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao gerar DRE');
@@ -114,7 +139,9 @@ export default function ExtratosTab() {
     setCarregandoDre(false);
   }, [mes]);
 
-  useEffect(() => { carregarContas(); }, [carregarContas]);
+  // Quando o pai controla o mes (Fechamento), a troca dele vale aqui tambem.
+  useEffect(() => { if (mesProp) setMes(mesProp); }, [mesProp]);
+  useEffect(() => { if (temImportar) carregarContas(); }, [temImportar, carregarContas]);
   useEffect(() => {
     if (vista === 'revisar') carregarLancamentos();
     if (vista === 'dre') carregarDre();
@@ -127,10 +154,17 @@ export default function ExtratosTab() {
       const fd = new FormData();
       fd.append('arquivo', arquivo);
       fd.append('conta_id', contaSel);
-      const r = await fetch('/api/financeiro/extratos', { method: 'POST', body: fd });
-      const d = await r.json();
+      // Multipart vai por fetch direto: o navegador precisa definir o
+      // Content-Type com o boundary, entao so o Authorization entra aqui.
+      const { data: { session } } = await supabaseBrowser.auth.getSession();
+      const r = await fetch('/api/financeiro/extratos', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: fd,
+      });
+      const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Erro ao importar');
-      setResultado(d);
+      setResultado(d as ResultadoImportacao);
       await carregarContas();
     } catch (e) {
       setErro(e instanceof Error ? e.message : 'Erro ao importar');
@@ -142,12 +176,11 @@ export default function ExtratosTab() {
   const categorizar = async (id: string, categoriaId: string) => {
     setSalvando(id);
     try {
-      const r = await fetch('/api/financeiro/lancamentos', {
+      await apiFinanceiro('/api/financeiro/lancamentos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, categoria_id: categoriaId }),
       });
-      if (!r.ok) throw new Error((await r.json()).error || 'Erro ao salvar');
       setLancamentos(prev => prev.filter(l => l.id !== id));
       setARevisar(n => Math.max(0, n - 1));
     } catch (e) {
@@ -159,7 +192,7 @@ export default function ExtratosTab() {
   const confirmar = async (id: string) => {
     setSalvando(id);
     try {
-      await fetch('/api/financeiro/lancamentos', {
+      await apiFinanceiro('/api/financeiro/lancamentos', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, revisado: true }),
@@ -179,27 +212,38 @@ export default function ExtratosTab() {
     return out;
   })();
 
+  // Com uma vista so nao ha o que alternar; com o mes vindo do pai, o seletor
+  // local so confundiria.
+  const mostrarAbas = vistasAtivas.length > 1;
+  const mostrarMes = vista !== 'importar' && !mesProp;
+  const conciliacao = resultado?.conciliacao ?? null;
+  const duplicadosConteudo = resultado?.duplicados_por_conteudo ?? 0;
+
   return (
     <div className="pb-8 space-y-4">
-      <div className="flex items-center gap-3 flex-wrap">
-        <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
-          {([['dia', '📅 Dia'], ['importar', '📥 Importar'], ['revisar', '🔍 Revisar'], ['dre', '📊 DRE']] as const).map(([v, rot]) => (
-            <button
-              key={v}
-              onClick={() => setVista(v)}
-              className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vista === v ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
-            >
-              {rot}{v === 'revisar' && aRevisar > 0 ? ` (${aRevisar})` : ''}
-            </button>
-          ))}
+      {(mostrarAbas || mostrarMes) && (
+        <div className="flex items-center gap-3 flex-wrap">
+          {mostrarAbas && (
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              {vistasAtivas.map(v => (
+                <button
+                  key={v}
+                  onClick={() => setVista(v)}
+                  className={`px-3 py-1.5 rounded-md text-sm font-medium transition ${vista === v ? 'bg-white text-[#F7941D] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                >
+                  {ROTULO_VISTA[v]}{v === 'revisar' && aRevisar > 0 ? ` (${aRevisar})` : ''}
+                </button>
+              ))}
+            </div>
+          )}
+          {mostrarMes && (
+            <select value={mes} onChange={e => setMes(e.target.value)}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D]">
+              {meses.map(m => <option key={m} value={m}>{rotuloMes(m)}</option>)}
+            </select>
+          )}
         </div>
-        {vista !== 'importar' && vista !== 'dia' && (
-          <select value={mes} onChange={e => setMes(e.target.value)}
-            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D]">
-            {meses.map(m => <option key={m} value={m}>{rotuloMes(m)}</option>)}
-          </select>
-        )}
-      </div>
+      )}
 
       {erro && (
         <div className="flex items-start gap-2 text-sm text-red-800 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
@@ -209,8 +253,6 @@ export default function ExtratosTab() {
         </div>
       )}
 
-      {vista === 'dia' && <FechamentoDia />}
-
       {/* ---------------- IMPORTAR ---------------- */}
       {vista === 'importar' && (
         <div className="space-y-4">
@@ -218,7 +260,7 @@ export default function ExtratosTab() {
             <h2 className="font-bold text-gray-700 mb-1">Importar extrato</h2>
             <p className="text-xs text-gray-500 mb-4">
               Reimportar um período que já subiu não duplica nada — cada lançamento tem
-              impressão digital própria.
+              impressão digital própria. Depois de importar, a conciliação roda sozinha.
             </p>
 
             <div className="flex flex-col sm:flex-row gap-2 mb-3">
@@ -231,7 +273,7 @@ export default function ExtratosTab() {
                   </option>
                 ))}
               </select>
-              <input ref={inputArquivo} type="file" accept=".xlsx,.csv,.txt"
+              <input ref={inputArquivo} type="file" accept=".xlsx,.csv,.txt,.ofx"
                 onChange={e => { const f = e.target.files?.[0]; if (f) enviarArquivo(f); }}
                 className="hidden" id="arquivo-extrato" />
               <label htmlFor="arquivo-extrato"
@@ -240,7 +282,10 @@ export default function ExtratosTab() {
                 {enviando ? 'Importando...' : 'Escolher arquivo'}
               </label>
             </div>
-            <p className="text-xs text-gray-400">Itaú: .xlsx · Stone: .csv</p>
+            <p className="text-xs text-gray-400">
+              Itaú Empresas: Extrato › Salvar em outros formatos › OFX (até 90 dias). Conta Stone: Extrato › Baixar › OFX.
+              Também aceita o .xlsx do Itaú e o .csv da Stone.
+            </p>
           </div>
 
           {resultado && (
@@ -262,29 +307,49 @@ export default function ExtratosTab() {
                   </div>
                 ))}
               </div>
-              {Number(resultado.classificados_por_regra ?? 0) > 0 && (
+              {(resultado.classificados_por_regra ?? 0) > 0 && (
                 <p className="text-xs text-gray-600 mt-3">
-                  {String(resultado.classificados_por_regra)} classificados por regra ·{' '}
-                  {String(resultado.classificados_por_ia ?? 0)} pela IA ·{' '}
-                  {String(resultado.sem_categoria ?? 0)} sem categoria
+                  {resultado.classificados_por_regra} classificados por regra ·{' '}
+                  {resultado.classificados_por_ia ?? 0} pela IA ·{' '}
+                  {resultado.sem_categoria ?? 0} sem categoria
                 </p>
               )}
-              {Array.isArray(resultado.ignoradas) && (resultado.ignoradas as unknown[]).length > 0 && (
+              {duplicadosConteudo > 0 && (
+                <p className="text-xs text-gray-500 mt-1">
+                  {duplicadosConteudo} com a mesma data e valor de linhas já importadas (outro formato do mesmo extrato) — não entraram.
+                </p>
+              )}
+              {conciliacao && (
+                <div className="mt-3 text-xs text-blue-900 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                  <span className="font-semibold">Conciliação automática:</span>{' '}
+                  {conciliacao.conciliados} conciliado(s) · {conciliacao.sugestoes} sugestão(ões) para confirmar
+                  {conciliacao.cartao_agregado_dias > 0 && ` · cartão agregado em ${conciliacao.cartao_agregado_dias} dia(s)`}
+                </div>
+              )}
+              {resultado.saldo_registrado && (
+                <p className="text-xs text-gray-600 mt-2">
+                  Saldo da conta registrado: <strong>{brl(resultado.saldo_registrado.saldo)}</strong> em {dataBR(resultado.saldo_registrado.data)}
+                </p>
+              )}
+              {resultado.mensagem && (
+                <p className="text-xs text-gray-500 mt-2">{resultado.mensagem}</p>
+              )}
+              {Array.isArray(resultado.ignoradas) && resultado.ignoradas.length > 0 && (
                 <details className="mt-3">
                   <summary className="text-xs text-gray-500 cursor-pointer hover:text-gray-700">
-                    {(resultado.ignoradas as unknown[]).length} linhas ignoradas (saldo, subtotal, cabeçalho)
+                    {resultado.ignoradas.length} linhas ignoradas (saldo, subtotal, cabeçalho)
                   </summary>
                   <div className="mt-2 space-y-0.5 max-h-40 overflow-y-auto">
-                    {(resultado.ignoradas as Array<{ linha: number; motivo: string; conteudo: string }>).map((x, i) => (
+                    {resultado.ignoradas.map((x, i) => (
                       <p key={i} className="text-xs text-gray-500 font-mono">L{x.linha}: {x.motivo} — {x.conteudo.slice(0, 60)}</p>
                     ))}
                   </div>
                 </details>
               )}
-              {Number(resultado.a_revisar ?? 0) > 0 && (
+              {temRevisar && (resultado.a_revisar ?? 0) > 0 && (
                 <button onClick={() => setVista('revisar')}
                   className="mt-3 w-full bg-blue-600 text-white py-2 rounded-lg text-sm font-bold hover:bg-blue-700">
-                  Revisar {String(resultado.a_revisar)} lançamentos
+                  Revisar {resultado.a_revisar} lançamentos
                 </button>
               )}
             </div>

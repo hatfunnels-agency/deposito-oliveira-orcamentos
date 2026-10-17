@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createHash } from 'crypto';
 import { supabaseAdmin } from '@/lib/supabase';
+import { exigirPapel } from '@/lib/auth-admin';
+import { registrarEvento } from '@/lib/financeiro/eventos';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +35,9 @@ const hashManual = (contaId: string, chave: string) =>
  * Extrato do caixa no periodo + saldo acumulado desde sempre.
  */
 export async function GET(request: NextRequest) {
+  // O caixa recebe folha e contas pagas em dinheiro: dado gerencial, so admin.
+  const { negado } = await exigirPapel(request, ['admin'], 'o caixa');
+  if (negado) return negado;
   try {
     const contaId = await contaCaixa();
     if (!contaId) {
@@ -61,6 +66,15 @@ export async function GET(request: NextRequest) {
     const entrou = movimentos.filter(l => Number(l.valor) > 0).reduce((a, l) => a + Number(l.valor), 0);
     const saiu = movimentos.filter(l => Number(l.valor) < 0).reduce((a, l) => a + Number(l.valor), 0);
     const saldo = (tudo || []).reduce((a, l) => a + Number(l.valor), 0);
+    // Esperado sem o ajuste do proprio dia: e o que o 'fechar' usa de base,
+    // entao o modal de refechar mostra a mesma referencia do servidor.
+    const { data: ajusteDia } = await supabaseAdmin
+      .from('lancamentos_bancarios')
+      .select('valor')
+      .eq('conta_id', contaId)
+      .eq('hash_linha', hashManual(contaId, `ajuste:${ate}`))
+      .maybeSingle();
+    const saldoSemAjuste = saldo - Number(ajusteDia?.valor ?? 0);
 
     const { data: categorias } = await supabaseAdmin
       .from('categorias_financeiras')
@@ -74,6 +88,7 @@ export async function GET(request: NextRequest) {
       entrou: Number(entrou.toFixed(2)),
       saiu: Number(saiu.toFixed(2)),
       saldo_acumulado: Number(saldo.toFixed(2)),
+      saldo_sem_ajuste_do_dia: Number(saldoSemAjuste.toFixed(2)),
       categorias: categorias || [],
     });
   } catch (e) {
@@ -86,9 +101,13 @@ export async function GET(request: NextRequest) {
  * POST /api/financeiro/caixa
  *   { acao: 'sincronizar', de, ate }  -> puxa as vendas em dinheiro do periodo
  *   { acao: 'lancar', data, descricao, valor, categoria_id }  -> saida (ou entrada) manual
- *   { acao: 'fechar', data, saldo_contado, observacoes }      -> contagem do dia
+ *   { acao: 'fechar', data, saldo_contado, observacoes, ajustar? } -> contagem do dia
+ *       ajustar=true: diferenca != 0 vira lancamento 'Caixa - diferenca de conta'
+ *       pro ledger bater com o que foi contado
  */
 export async function POST(request: NextRequest) {
+  const { negado, usuario } = await exigirPapel(request, ['admin'], 'o caixa');
+  if (negado) return negado;
   try {
     const contaId = await contaCaixa();
     if (!contaId) {
@@ -197,6 +216,7 @@ export async function POST(request: NextRequest) {
         .select('id, data, descricao, valor')
         .single();
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+      await registrarEvento({ entidade: 'lancamento', entidade_id: String(criado.id), acao: 'lancar_caixa', depois: criado, usuario_id: usuario?.id ?? null });
       return NextResponse.json(criado, { status: 201 });
     }
 
@@ -207,11 +227,16 @@ export async function POST(request: NextRequest) {
       if (!/^\d{4}-\d{2}-\d{2}$/.test(data)) return NextResponse.json({ error: 'Data invalida' }, { status: 400 });
       if (!Number.isFinite(contado)) return NextResponse.json({ error: 'Informe o valor contado' }, { status: 400 });
 
+      // O ajuste do proprio dia fica fora do "esperado": refechar o dia com
+      // outra contagem recalcula a diferenca inteira em vez de somar em cima
+      // do ajuste anterior. Ajustes de dias passados sao historico e contam.
+      const hashAjuste = hashManual(contaId, `ajuste:${data}`);
       const { data: ate } = await supabaseAdmin
         .from('lancamentos_bancarios')
         .select('valor')
         .eq('conta_id', contaId)
-        .lte('data', data);
+        .lte('data', data)
+        .neq('hash_linha', hashAjuste);
       const esperado = (ate || []).reduce((a, l) => a + Number(l.valor), 0);
 
       const { data: fech, error } = await supabaseAdmin
@@ -223,7 +248,48 @@ export async function POST(request: NextRequest) {
         .select('data, saldo_esperado, saldo_contado, diferenca')
         .single();
       if (error) return NextResponse.json({ error: error.message }, { status: 400 });
-      return NextResponse.json(fech);
+
+      let ajuste: { id: string; valor: number } | null = null;
+      if (body.ajustar === true) {
+        const diferenca = Number((contado - esperado).toFixed(2));
+        if (Math.abs(diferenca) >= 0.01) {
+          const { data: cat } = await supabaseAdmin
+            .from('categorias_financeiras')
+            .select('id')
+            .eq('nome', 'Caixa - diferenca de conta')
+            .maybeSingle();
+          // Hash determinístico por data: fechar de novo substitui o ajuste, nao duplica.
+          const { data: linha, error: errAj } = await supabaseAdmin
+            .from('lancamentos_bancarios')
+            .upsert({
+              conta_id: contaId,
+              data,
+              descricao: 'Caixa - diferenca de conta',
+              contraparte: null,
+              valor: diferenca,
+              hash_linha: hashAjuste,
+              categoria_id: cat?.id ?? null,
+              categoria_origem: cat?.id ? 'manual' : null,
+              categoria_confianca: cat?.id ? 1 : null,
+              revisado: true,
+              origem_lancamento: 'manual',
+            }, { onConflict: 'hash_linha' })
+            .select('id, valor')
+            .single();
+          if (errAj) return NextResponse.json({ error: errAj.message }, { status: 400 });
+          ajuste = { id: String(linha.id), valor: Number(linha.valor) };
+        } else {
+          // Contagem bateu: um ajuste antigo desse dia nao faz mais sentido.
+          await supabaseAdmin.from('lancamentos_bancarios').delete().eq('hash_linha', hashAjuste);
+        }
+      }
+      // Fechar mexe no ledger sem passar pela lib: a trilha fica aqui.
+      await registrarEvento({
+        entidade: 'lancamento', entidade_id: ajuste?.id ?? null, acao: 'ajuste_caixa',
+        depois: { data, saldo_esperado: Number(esperado.toFixed(2)), saldo_contado: contado, ajustar: body.ajustar === true, ajuste: ajuste?.valor ?? null },
+        usuario_id: usuario?.id ?? null,
+      });
+      return NextResponse.json({ ...fech, ajuste });
     }
 
     return NextResponse.json({ error: 'Acao desconhecida' }, { status: 400 });
@@ -235,6 +301,8 @@ export async function POST(request: NextRequest) {
 
 /** DELETE /api/financeiro/caixa?id=uuid — so lancamento manual. */
 export async function DELETE(request: NextRequest) {
+  const { negado, usuario } = await exigirPapel(request, ['admin'], 'o caixa');
+  if (negado) return negado;
   try {
     const id = request.nextUrl.searchParams.get('id');
     if (!id) return NextResponse.json({ error: 'Informe o id' }, { status: 400 });
@@ -243,7 +311,7 @@ export async function DELETE(request: NextRequest) {
     // pagamento. Apagar criaria divergencia silenciosa com a venda.
     const { data: alvo } = await supabaseAdmin
       .from('lancamentos_bancarios')
-      .select('origem_lancamento')
+      .select('origem_lancamento, data, descricao, valor')
       .eq('id', id)
       .single();
     if (alvo?.origem_lancamento !== 'manual') {
@@ -255,6 +323,7 @@ export async function DELETE(request: NextRequest) {
 
     const { error } = await supabaseAdmin.from('lancamentos_bancarios').delete().eq('id', id);
     if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    await registrarEvento({ entidade: 'lancamento', entidade_id: id, acao: 'excluir', antes: { data: alvo.data, descricao: alvo.descricao, valor: alvo.valor }, usuario_id: usuario?.id ?? null });
     return NextResponse.json({ success: true });
   } catch (e) {
     console.error('Erro em DELETE /api/financeiro/caixa:', e);

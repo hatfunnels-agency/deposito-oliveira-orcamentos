@@ -58,6 +58,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
 const PAGINAS: Array<{ href: string; label: string; icon: LucideIcon }> = [
   { href: '/tarefas', label: 'Tarefas do dia', icon: ListChecks },
   { href: '/atendimento', label: 'Atendimento', icon: Headset },
+  { href: '/financeiro', label: 'Gestão financeira', icon: Wallet },
 ];
 
 interface SidebarProps {

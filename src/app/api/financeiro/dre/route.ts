@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { lerTudo } from '@/lib/ler-tudo';
 import { supabaseAdmin } from '@/lib/supabase';
+import { exigirPapel } from '@/lib/auth-admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -31,6 +32,9 @@ interface LinhaAgrupada {
 }
 
 export async function GET(request: NextRequest) {
+  // Folha, pro-labore e lucro por categoria: so admin.
+  const { negado } = await exigirPapel(request, ['admin'], 'o DRE');
+  if (negado) return negado;
   try {
     const sp = request.nextUrl.searchParams;
     const mes = /^\d{4}-\d{2}$/.test(sp.get('mes') || '')

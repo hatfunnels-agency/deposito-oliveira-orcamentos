@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-Next.js 14 (App Router) + React 18 + TypeScript (strict) + Tailwind. Backend = Supabase (Postgres) accessed exclusively from API routes via service role key. Path alias `@/*` → `./src/*`. Language across UI, comments, and DB columns is **Portuguese (pt-BR)** — preserve it when editing.
+Next.js 16 (App Router; `params` de rota dinâmica é `Promise`, use `await params`) + React 19 + TypeScript (strict) + Tailwind. Backend = Supabase (Postgres) accessed exclusively from API routes via service role key. Path alias `@/*` → `./src/*`. Language across UI, comments, and DB columns is **Portuguese (pt-BR)** — preserve it when editing.
 
 ## Commands
 
@@ -22,8 +22,11 @@ Next.js 14 (App Router) + React 18 + TypeScript (strict) + Tailwind. Backend = S
 Never import `supabaseAdmin` from a `'use client'` component.
 
 ### Auth flow
-- `src/middleware.ts` redirects unauthenticated requests to `/login` by parsing the Supabase auth cookie (`sb-vfdoaocrafbcktnkhyvo-auth-token`) directly. The cookie name is **hard-coded to the project ref** — if Supabase project changes, update the middleware.
+- `src/proxy.ts` (o middleware do Next 16) redirects unauthenticated requests to `/login` by parsing the Supabase auth cookie (`sb-vfdoaocrafbcktnkhyvo-auth-token`) directly. The cookie name is **hard-coded to the project ref** — if Supabase project changes, update the middleware.
 - All `/api/*` routes are **explicitly skipped by middleware** (they authorize via service role key, not user session). Don't add user-auth checks to API routes unless intentionally introducing per-user authorization.
+
+### Módulo financeiro (`/financeiro`)
+Área própria em `src/app/financeiro` + `src/components/financeiro/*` + `src/lib/financeiro/*` (contratos em `tipos.ts`). Rotas `src/app/api/financeiro/*` exigem Bearer admin via `exigirPapel` (`receber`: admin/atendente); `caixa`, `dia`, `lancamentos`, `dre` e `extratos` também exigem admin. Regras que não podem ser quebradas e o modelo estão em `docs/financeiro.md` (folha só de `funcionario_pagamentos`; fatura de cartão nunca é despesa; `lancamentos_bancarios.conta_pagar_id` é a única verdade do vínculo; taxas versionadas por vigência). Valores reais (despesas, dívidas, taxas Stone, CNPJs) ficam no seed privado `Financeiro/seed-financeiro-privado.sql`, nunca no repo.
 
 ### The monolith component
 `src/components/OrcamentoApp.tsx` is ~3500 lines and holds the entire app: 8 tabs (`produtos`, `orcamento`, `historico`, `ferragens`, `entregas`, `estoque`, `ia`, `dashboard`), all forms, modals, and ~100 `useState` hooks. New features are typically added inside it rather than extracted. Only `DashboardTab` and `CalculadoraFerroModal` have been split out. When working here, locate state by searching the variable name; don't try to read top-to-bottom.

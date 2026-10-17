@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { exigirPapel } from '@/lib/auth-admin';
 import {
   aprenderComCorrecao,
   carregarContexto,
@@ -21,6 +22,9 @@ export const maxDuration = 300;
  * regra, sempre.
  */
 export async function POST(request: NextRequest) {
+  // Extrato com CPF/CNPJ e folha: so admin le ou recategoriza.
+  const { negado } = await exigirPapel(request, ['admin'], 'os lançamentos');
+  if (negado) return negado;
   try {
     const body = await request.json();
     if (body.acao !== 'recategorizar') {
@@ -77,6 +81,15 @@ export async function POST(request: NextRequest) {
   }
 }
 
+// Linha ja casada com algo do sistema (venda, conta a pagar, folha ou vale)
+// saiu da fila: a conciliacao respondeu o que ela e, mesmo que a categoria
+// tenha vindo da IA. Os quatro ponteiros sao a fonte da verdade do vinculo.
+const semVinculo = <T extends { is: (c: string, v: null) => T }>(q: T): T =>
+  q.is('pagamento_id', null)
+    .is('conta_pagar_id', null)
+    .is('funcionario_pagamento_id', null)
+    .is('funcionario_vale_id', null);
+
 /**
  * GET /api/financeiro/lancamentos
  *   ?mes=2026-07        periodo (default: mes corrente)
@@ -88,6 +101,9 @@ export async function POST(request: NextRequest) {
  * do Roger.
  */
 export async function GET(request: NextRequest) {
+  // Extrato com CPF/CNPJ e folha: so admin le ou recategoriza.
+  const { negado } = await exigirPapel(request, ['admin'], 'os lançamentos');
+  if (negado) return negado;
   try {
     const sp = request.nextUrl.searchParams;
     const mes = /^\d{4}-\d{2}$/.test(sp.get('mes') || '') ? sp.get('mes')! : new Date().toISOString().slice(0, 7);
@@ -113,7 +129,7 @@ export async function GET(request: NextRequest) {
       .limit(1500);
 
     if (contaId) q = q.eq('conta_id', contaId);
-    if (filtro === 'revisar') q = q.eq('revisado', false).or('categoria_id.is.null,categoria_origem.eq.ia');
+    if (filtro === 'revisar') q = semVinculo(q.eq('revisado', false).or('categoria_id.is.null,categoria_origem.eq.ia'));
     else if (filtro === 'sem_categoria') q = q.is('categoria_id', null);
 
     const { data, error } = await q;
@@ -132,12 +148,12 @@ export async function GET(request: NextRequest) {
       .from('lancamentos_bancarios')
       .select('id', { count: 'exact', head: true })
       .gte('data', inicio).lte('data', fim);
-    const { count: aRevisar } = await supabaseAdmin
+    const { count: aRevisar } = await semVinculo(supabaseAdmin
       .from('lancamentos_bancarios')
       .select('id', { count: 'exact', head: true })
       .gte('data', inicio).lte('data', fim)
       .eq('revisado', false)
-      .or('categoria_id.is.null,categoria_origem.eq.ia');
+      .or('categoria_id.is.null,categoria_origem.eq.ia'));
 
     return NextResponse.json({
       lancamentos: data || [],
@@ -160,6 +176,9 @@ export async function GET(request: NextRequest) {
  * regra: o mesmo fornecedor nunca mais precisa ser classificado a mao.
  */
 export async function PATCH(request: NextRequest) {
+  // Extrato com CPF/CNPJ e folha: so admin le ou recategoriza.
+  const { negado } = await exigirPapel(request, ['admin'], 'os lançamentos');
+  if (negado) return negado;
   try {
     const body = await request.json();
     const ids: string[] = Array.isArray(body.ids) ? body.ids : body.id ? [body.id] : [];

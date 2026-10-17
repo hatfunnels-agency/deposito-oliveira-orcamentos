@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { registrarVendasDinheiroNoCaixa } from '@/lib/financeiro/receber';
 
 export const dynamic = 'force-dynamic';
 
@@ -33,6 +34,8 @@ export async function GET(request: NextRequest) {
 
 // POST /api/pagamentos — registra dinheiro recebido.
 // O trigger no Postgres recalcula orcamentos.valor_pago e status_pagamento.
+// Aceita parcelas_informadas (bool) e grupo_recebimento (uuid, recebimento
+// de varios pedidos de uma vez); metodo 'dinheiro' ja lanca no caixa.
 //
 // Este endpoint tambem e o destino dos webhooks da Stone/Pagar.me: basta
 // mandar origem='stone' e gateway_id=<id da transacao>. O UNIQUE em
@@ -50,6 +53,8 @@ export async function POST(request: NextRequest) {
       gateway_id,
       observacoes,
       permitir_excedente,
+      parcelas_informadas,
+      grupo_recebimento,
     } = body;
 
     if (!orcamento_id) {
@@ -104,7 +109,7 @@ export async function POST(request: NextRequest) {
 
     const { data: orcamento, error: orcError } = await supabaseAdmin
       .from('orcamentos')
-      .select('id, codigo, total, valor_pago')
+      .select('id, codigo, total, valor_pago, clientes ( nome )')
       .eq('id', orcamento_id)
       .single();
 
@@ -139,11 +144,34 @@ export async function POST(request: NextRequest) {
         origem: origemFinal,
         gateway_id: gateway_id || null,
         observacoes: observacoes || null,
+        // So true quando a tela pediu as parcelas (SeletorParcelas); o
+        // historico e 1x "chutado" e a Maquininha mostra isso como incerteza.
+        parcelas_informadas: parcelas_informadas === true,
+        grupo_recebimento: grupo_recebimento || null,
       })
       .select()
       .single();
 
     if (error) throw error;
+
+    // Venda em dinheiro vira linha de caixa na hora (hash pag:<id>,
+    // idempotente). Falha aqui nao derruba o pagamento: o 'sincronizar' de
+    // /api/financeiro/caixa cobre depois.
+    if (metodo === 'dinheiro' && Number(pagamento.valor) > 0) {
+      try {
+        const cli = Array.isArray(orcamento.clientes) ? orcamento.clientes[0] : orcamento.clientes;
+        await registrarVendasDinheiroNoCaixa([{
+          id: String(pagamento.id),
+          valor: Number(pagamento.valor),
+          data: String(pagamento.data_pagamento).slice(0, 10),
+          orcamento_id: String(orcamento_id),
+          codigo: orcamento.codigo ?? null,
+          cliente_nome: (cli as { nome?: string } | null)?.nome ?? null,
+        }]);
+      } catch (e) {
+        console.error('[pagamentos] falha ao lancar dinheiro no caixa:', e);
+      }
+    }
 
     // Releitura pos-trigger: valor_pago e status_pagamento ja recalculados.
     const { data: atualizado } = await supabaseAdmin
@@ -192,6 +220,29 @@ export async function DELETE(request: NextRequest) {
 
     if (!pagamento) {
       return NextResponse.json({ error: 'Pagamento nao encontrado' }, { status: 404 });
+    }
+
+    // Linha de extrato casada com este pagamento e prova de que o dinheiro
+    // entrou: apagar sumiria com a venda e deixaria o banco sem par.
+    const { data: vinculos } = await supabaseAdmin
+      .from('lancamentos_bancarios')
+      .select('id, origem_lancamento')
+      .eq('pagamento_id', id);
+    const temExtrato = (vinculos || []).some(l => l.origem_lancamento !== 'pagamento');
+    if (temExtrato) {
+      return NextResponse.json(
+        { error: 'Pagamento conciliado com o extrato: registre um estorno (valor negativo) em vez de apagar' },
+        { status: 409 },
+      );
+    }
+    // A linha de caixa e reflexo do pagamento: vai junto.
+    if ((vinculos || []).length > 0) {
+      const { error: errLanc } = await supabaseAdmin
+        .from('lancamentos_bancarios')
+        .delete()
+        .eq('pagamento_id', id)
+        .eq('origem_lancamento', 'pagamento');
+      if (errLanc) throw errLanc;
     }
 
     const { error } = await supabaseAdmin.from('pagamentos').delete().eq('id', id);

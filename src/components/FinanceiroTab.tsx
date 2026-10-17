@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { AlertTriangle, Wallet, Clock, TrendingUp, X } from 'lucide-react';
+import { SeletorParcelas } from '@/components/financeiro/Comuns';
+import ClientesAReceber from '@/components/financeiro/ClientesAReceber';
 
 interface ContaAberta {
   id: string;
@@ -64,8 +66,8 @@ const brl = (v: number) =>
 
 type Filtro = 'todos' | 'vencidos' | 'entregues';
 
-// `simples` = visao da atendente: sem os cartoes gerenciais (recebido no
-// periodo, quebra por metodo), so a gestao dos pedidos a receber.
+// `simples` = visao da atendente: so os clientes a receber (ClientesAReceber,
+// o mesmo componente de /financeiro), sem os cartoes gerenciais.
 // `onAbrirPedido` abre o modal de detalhe do pedido (com itens) — vive no
 // OrcamentoApp e e passado por prop pra as linhas ficarem clicaveis.
 export default function FinanceiroTab({
@@ -80,7 +82,7 @@ export default function FinanceiroTab({
   const [dias, setDias] = useState(30);
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [cobrando, setCobrando] = useState<ContaAberta | null>(null);
-  // Conciliacao do dia e uma visao gerencial (oculta no modo simples).
+  // Recebimentos do dia e uma visao gerencial (so admin chega aqui).
   const [modo, setModo] = useState<'receber' | 'conciliacao'>('receber');
 
   const carregar = useCallback(async () => {
@@ -96,8 +98,18 @@ export default function FinanceiroTab({
   }, [dias]);
 
   useEffect(() => {
-    carregar();
-  }, [carregar]);
+    if (!simples) carregar();
+  }, [carregar, simples]);
+
+  // Atendente: so a lista por cliente (receber e cobrar). O resto e gerencial
+  // e vive em /financeiro.
+  if (simples) {
+    return (
+      <div className="px-4 pt-4 pb-8">
+        <ClientesAReceber papel="atendente" onAbrirPedido={onAbrirPedido} />
+      </div>
+    );
+  }
 
   if (loading && !data) {
     return <div className="p-8 text-center text-gray-400">Carregando…</div>;
@@ -116,26 +128,24 @@ export default function FinanceiroTab({
     <div className="px-4 pt-4 pb-8 space-y-4">
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-bold text-gray-800">
-          {simples ? 'Pedidos a receber' : modo === 'conciliacao' ? 'Conciliação do dia' : 'Financeiro'}
+          {modo === 'conciliacao' ? 'Recebimentos do dia' : 'Financeiro'}
         </h2>
-        <div className="flex items-center gap-2">
-          {!simples && (
-            <div className="flex bg-gray-100 rounded-lg p-0.5 text-sm">
-              <button
-                onClick={() => setModo('receber')}
-                className={`px-3 py-1 rounded-md transition ${modo === 'receber' ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                A receber
-              </button>
-              <button
-                onClick={() => setModo('conciliacao')}
-                className={`px-3 py-1 rounded-md transition ${modo === 'conciliacao' ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
-              >
-                Conciliação do dia
-              </button>
-            </div>
-          )}
-          {!simples && modo === 'receber' && (
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex bg-gray-100 rounded-lg p-0.5 text-sm">
+            <button
+              onClick={() => setModo('receber')}
+              className={`px-3 py-1 rounded-md transition ${modo === 'receber' ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              A receber
+            </button>
+            <button
+              onClick={() => setModo('conciliacao')}
+              className={`px-3 py-1 rounded-md transition ${modo === 'conciliacao' ? 'bg-white shadow-sm text-gray-800 font-medium' : 'text-gray-500 hover:text-gray-700'}`}
+            >
+              Recebimentos do dia
+            </button>
+          </div>
+          {modo === 'receber' && (
             <select
               value={dias}
               onChange={e => setDias(Number(e.target.value))}
@@ -146,26 +156,31 @@ export default function FinanceiroTab({
               <option value={90}>Últimos 90 dias</option>
             </select>
           )}
+          {/* Contas a pagar, conciliacao bancaria e fechamento vivem na pagina
+              propria; aqui fica so o operacional do balcao. */}
+          <a
+            href="/financeiro"
+            className="text-sm px-3 py-1.5 rounded-lg transition bg-gray-100 text-gray-600 hover:bg-gray-200 whitespace-nowrap"
+          >
+            Gestão financeira completa →
+          </a>
         </div>
       </div>
 
-      {!simples && modo === 'conciliacao' ? (
+      {modo === 'conciliacao' ? (
         <Conciliacao onAbrirPedido={onAbrirPedido} />
       ) : (
       <>
       {/* ===== visao "A receber" (padrao) ===== */}
 
-      {/* Cards de resumo. Na visao simples, sem o "Recebido no periodo"
-          (metrica gerencial) — so o que a atendente precisa perseguir. */}
-      <div className={`grid gap-3 ${simples ? 'grid-cols-3' : 'grid-cols-2 lg:grid-cols-4'}`}>
-        {!simples && (
-          <Card
-            icon={<TrendingUp className="w-4 h-4" />}
-            titulo={`Recebido (${dias}d)`}
-            valor={brl(resumo.recebido_periodo)}
-            cor="text-green-700 bg-green-50 border-green-200"
-          />
-        )}
+      {/* Cards de resumo */}
+      <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+        <Card
+          icon={<TrendingUp className="w-4 h-4" />}
+          titulo={`Recebido (${dias}d)`}
+          valor={brl(resumo.recebido_periodo)}
+          cor="text-green-700 bg-green-50 border-green-200"
+        />
         <Card
           icon={<Wallet className="w-4 h-4" />}
           titulo="A receber"
@@ -189,8 +204,8 @@ export default function FinanceiroTab({
         />
       </div>
 
-      {/* Recebido por metodo — detalhe gerencial, oculto na visao simples */}
-      {!simples && Object.keys(resumo.recebido_por_metodo).length > 0 && (
+      {/* Recebido por metodo */}
+      {Object.keys(resumo.recebido_por_metodo).length > 0 && (
         <div className="flex flex-wrap gap-2">
           {Object.entries(resumo.recebido_por_metodo)
             .sort((a, b) => b[1] - a[1])
@@ -338,7 +353,7 @@ export default function FinanceiroTab({
   );
 }
 
-// ===== Conciliacao bancaria das vendas do dia =====
+// ===== Recebimentos do dia (pagamentos registrados no sistema) =====
 interface PagamentoDia {
   id: string;
   valor: number;
@@ -443,7 +458,7 @@ function Conciliacao({ onAbrirPedido }: { onAbrirPedido?: (id: string) => void }
       {loading && !dados ? (
         <div className="p-8 text-center text-gray-400">Carregando…</div>
       ) : !dados ? (
-        <div className="p-8 text-center text-red-500">Erro ao carregar a conciliação.</div>
+        <div className="p-8 text-center text-red-500">Erro ao carregar os recebimentos do dia.</div>
       ) : (
         <>
           {/* Total recebido (dinheiro que entrou) + por metodo + card separado
@@ -594,10 +609,16 @@ function ModalPagamento({
 }) {
   const [valor, setValor] = useState(String(conta.saldo.toFixed(2)));
   const [metodo, setMetodo] = useState('pix');
+  // Credito exige parcelas: a taxa da maquininha depende do numero.
+  const [parcelas, setParcelas] = useState<number | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
 
   const salvar = async () => {
+    if (metodo === 'credito' && !parcelas) {
+      setErro('Informe o número de parcelas');
+      return;
+    }
     setSalvando(true);
     setErro(null);
     try {
@@ -608,6 +629,7 @@ function ModalPagamento({
           orcamento_id: conta.id,
           valor: Number(valor.replace(',', '.')),
           metodo,
+          ...(metodo === 'credito' ? { parcelas, parcelas_informadas: true } : {}),
         }),
       });
       const json = await res.json();
@@ -653,7 +675,7 @@ function ModalPagamento({
         <label className="block text-xs font-medium text-gray-600 mb-1">Forma</label>
         <select
           value={metodo}
-          onChange={e => setMetodo(e.target.value)}
+          onChange={e => { setMetodo(e.target.value); setParcelas(null); }}
           className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-4 text-sm"
         >
           {METODOS.map(m => (
@@ -662,6 +684,13 @@ function ModalPagamento({
             </option>
           ))}
         </select>
+        <SeletorParcelas
+          metodo={metodo}
+          value={parcelas}
+          onChange={setParcelas}
+          obrigatorio
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 mb-4 text-sm bg-white"
+        />
 
         {erro && <p className="text-xs text-red-600 mb-3">{erro}</p>}
 
