@@ -10,6 +10,7 @@
 // descartada (possiveis_duplicidades); fatura de cartao (transferencia) fica
 // fora; juros da divida vao pra 'taxas' e a parcela liquida pra 'divida'.
 
+import { ehPixMaquininha, pctPixTabela, tarifaPixDaLinha } from './stone-extrato';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo } from '@/lib/ler-tudo';
 import { normalizar } from '@/lib/categorizacao';
@@ -84,13 +85,13 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     totalRecebido += p.valor;
   }
   const linhasTransacao = linhas
-    .filter(l => tipoConta.get(String(l.conta_id)) === 'adquirente' && Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && normalizar(l.descricao).startsWith('TRANSACAO'));
+    .filter(l => tipoConta.get(String(l.conta_id)) === 'adquirente' && Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && ehPixMaquininha(l.descricao));
   // custo_bruto da tabela ja traz o Pix via Stone ESTIMADO; com extrato da
   // Stone no mes a tarifa real substitui a estimativa (nunca as duas).
   const pixEstimado = custos.filter(x => x.pagamento.metodo === 'pix' && x.pagamento.via_stone).reduce((a, x) => a + x.custo.custo_bruto, 0);
   const custoCartao = resumo.custo_bruto - pixEstimado;
   const tarifaPix = linhasTransacao.length
-    ? arred2(linhasTransacao.reduce((a, l) => a + (Number(l.tarifa) || 0), 0))
+    ? arred2(linhasTransacao.reduce((a, l) => a + tarifaPixDaLinha(l, pctPixTabela(taxas)), 0))
     : arred2(pixEstimado);
   const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + (Number(r.valor) || 0), 0));
   // A tarifa Pix da Stone e custo de receber tanto quanto a taxa do cartao.
@@ -177,8 +178,11 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     const doExtrato = (tipo === 'banco' || tipo === 'adquirente') && ehExtrato(l.origem_lancamento);
     const doCaixa = tipo === 'caixa' && l.origem_lancamento === 'manual';
     if (!doExtrato && !doCaixa) continue;
-    if (ehFolha(cat?.nome)) { folhaJaContada++; continue; }
     const abs = arred2(-valor);
+    // Salario pago por PIX so e descartado quando o mesmo pagamento esta
+    // registrado em Funcionarios (ai ele ja entrou pela folha). Sem registro,
+    // a linha do extrato E a folha realizada.
+    if (ehFolha(cat?.nome) && doExtrato && coincide(refsFolha, String(l.data), abs)) { folhaJaContada++; continue; }
     if (doExtrato && (coincide(refsContas, String(l.data), abs) || coincide(refsFolha, String(l.data), abs))) { duplicidades++; continue; }
     if (doExtrato) saidasExtrato.push({ valor: abs, conta_id: String(l.conta_id) }); else saidasCaixa.push(abs);
     // Categoria com grupo_gestao NULL (nao operacional) fica fora; sem categoria cai em 'outro'.
@@ -268,9 +272,10 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
   };
 }
 
-export async function fechamentoMensal(mes: string): Promise<FechamentoMensal> {
+export async function fechamentoMensal(mes: string, opcoes: { comparativo?: boolean } = {}): Promise<FechamentoMensal> {
   if (!ehMes(mes)) throw new ErroFinanceiro(400, 'Mês inválido (AAAA-MM).');
-  return calcular(mes, true);
+  // O Panorama nao mostra o mes anterior: pular o comparativo corta metade das leituras.
+  return calcular(mes, opcoes.comparativo !== false);
 }
 
 // ------------------------------------------------------------
@@ -314,7 +319,7 @@ export async function resumoMaquininhaMes(mes: string): Promise<ResumoMaquininha
   const resumo = resumirCustos(custos, taxas);
   const reembolsos = reembolsosRaw.map(mapearReembolso);
   const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + r.valor, 0));
-  const transacoesPix = linhasPix.filter(l => Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && normalizar(l.descricao).startsWith('TRANSACAO'));
+  const transacoesPix = linhasPix.filter(l => Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && ehPixMaquininha(l.descricao));
   const tarifasPix = arred2(transacoesPix.reduce((a, l) => a + (Number(l.tarifa) || 0), 0));
   // Mesma regra do fechamento: Pix via Stone ou pela tabela ou pelo extrato, nunca os dois.
   const pixEstimado = custos.filter(x => x.pagamento.metodo === 'pix' && x.pagamento.via_stone).reduce((a, x) => a + x.custo.custo_bruto, 0);

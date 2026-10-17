@@ -49,9 +49,12 @@ export async function contaPorTipo(tipo: TipoConta, contas?: ContaFinanceira[]):
 }
 
 interface SaldoBase { conta_id: string; data: string; saldo: number; origem: 'extrato' | 'manual' | 'conector'; criado_em: string }
-const PRIORIDADE_ORIGEM: Record<string, number> = { conector: 3, extrato: 2, manual: 1 };
+// Mesma data: o digitado ganha. O extrato exportado no meio do dia traz um
+// saldo parcial (o do Itau de 16/10 saiu as 14h43), e quem digita sabe o
+// saldo daquele momento.
+const PRIORIDADE_ORIGEM: Record<string, number> = { manual: 3, conector: 2, extrato: 1 };
 
-/** Saldo informado mais recente por conta (maior data; empate: conector > extrato > manual). */
+/** Saldo informado mais recente por conta (maior data; empate: manual > conector > extrato). */
 export async function saldosBasePorConta(ateData?: string): Promise<Map<string, SaldoBase>> {
   const rows = await lerTudo<Row>(() => {
     let q = supabaseAdmin.from('saldos_conta').select('conta_id, data, saldo, origem, criado_em');

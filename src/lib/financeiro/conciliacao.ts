@@ -22,6 +22,7 @@ import type {
 import { arred2, dataBRT, diasEntre, ehData, limitesDiaUtc, somarDias } from './datas';
 import { ErroFinanceiro, ehConflitoUnico, registrarEvento } from './eventos';
 import { FILTRO_ORIGEM_EXTRATO, carregarContasFinanceiras } from './saldos';
+import { ehLinhaCartaoStone, ehPixMaquininha } from './stone-extrato';
 import { SELECT_PAGAMENTO, calcularCusto, carregarPagamentos, carregarTaxas, paraPagamentoRow, type PagamentoRow } from './taxas';
 import {
   CATEGORIA_FOLHA, carregarCategorias, carregarFornecedores, categoriaPorNome, estornarPagamento, pagarConta,
@@ -30,10 +31,10 @@ import {
 type Row = Record<string, any>;
 const um = <T,>(v: unknown): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null)) as T | null;
 const CENTAVO = 0.01;
+// Faixa da tarifa do Pix na maquininha para casar a linha liquida do OFX.
+const TARIFA_PIX_MIN = 0.003;
+const TARIFA_PIX_MAX = 0.015;
 const RE_ESTORNO = /CANCEL|ESTORNO|CHARGEBACK|DEVOLU/i;
-// Como o extrato Stone descreve a venda no cartao (ja liquida) e o PIX na maquininha.
-const PREFIXOS_CARTAO = ['TRANSFERENCIA ENTRE CONTAS STONE', 'RECEBIVEL DE CARTAO'];
-const PREFIXO_PIX_STONE = 'TRANSACAO';
 // Razao social do deposito, ja normalizada (& -> E); a Stone escreve dos dois jeitos.
 const NOME_PROPRIO = 'L E J DEPOSITO OLIVEIRA';
 // Palavras que aparecem em qualquer razao social: nao identificam ninguem.
@@ -68,9 +69,28 @@ function paraLinha(r: Row): Linha {
   };
 }
 
+/**
+ * 1 - liquidado/bruto, so quando cabe numa taxa de cartao real (0 a 12%).
+ * Fora disso a diferenca nao e taxa: e venda que liquida em outro dia,
+ * venda registrada com o metodo errado ou retencao da Stone. Melhor nao
+ * mostrar um numero do que mostrar 15% (o que apareceu em out/2026).
+ */
+function taxaPlausivel(bruto: number, liquidado: number): number | null {
+  if (bruto <= 0 || liquidado <= 0) return null;
+  const pct = (1 - liquidado / bruto) * 100;
+  return pct >= 0 && pct <= 12 ? arred2(pct) : null;
+}
+
+// Primeiro nome e sobrenomes com 4+ letras (normalizados), sem os genericos.
+function tokensNome(nome: string | null | undefined): Set<string> {
+  return new Set(normalizar(nome).split(/[^A-Z]+/).filter(t => t.length >= 4 && !TOKENS_GENERICOS.has(t) && !NOMES_COMUNS.has(t)));
+}
+// Sobrenomes tao comuns que casariam pagador e cliente errados.
+const NOMES_COMUNS = new Set(['SILVA', 'SANTOS', 'SOUZA', 'SOUSA', 'OLIVEIRA', 'PEREIRA', 'LIMA', 'FERREIRA', 'COSTA', 'RODRIGUES', 'ALVES', 'NASCIMENTO', 'ARAUJO', 'RIBEIRO', 'CARVALHO', 'GOMES', 'MARTINS', 'BARBOSA', 'ROCHA', 'DIAS', 'MOREIRA', 'MARQUES', 'CRUZ', 'JESUS', 'MARIA', 'JOSE']);
+
 const vinculada = (l: Linha) => Boolean(l.pagamento_id || l.conta_pagar_id || l.funcionario_pagamento_id || l.funcionario_vale_id);
-const ehLinhaCartao = (descricao: string) => { const d = normalizar(descricao); return PREFIXOS_CARTAO.some(p => d.startsWith(p)); };
-const ehTransacaoStone = (descricao: string) => normalizar(descricao).startsWith(PREFIXO_PIX_STONE);
+const ehLinhaCartao = ehLinhaCartaoStone;
+const ehTransacaoStone = ehPixMaquininha;
 
 function paraResumo(l: Linha, categorias: Map<string, Categoria>): LancamentoResumo {
   return {
@@ -163,12 +183,12 @@ export async function cartaoAgregado(
       ...x,
       liquidado: arred2(x.liquidado), bruto_estimado: arred2(x.bruto_estimado), liquido_estimado: arred2(x.liquido_estimado),
       diferenca: arred2(x.liquidado - x.liquido_estimado),
-      taxa_efetiva_pct: x.bruto_estimado > 0 && x.liquidado > 0 ? arred2((1 - x.liquidado / x.bruto_estimado) * 100) : null,
+      taxa_efetiva_pct: taxaPlausivel(x.bruto_estimado, x.liquidado),
     };
   });
   return {
     dias,
-    taxa_efetiva_pct: bruto > 0 && liquidado > 0 ? arred2((1 - liquidado / bruto) * 100) : null,
+    taxa_efetiva_pct: taxaPlausivel(bruto, liquidado),
     liquidado: arred2(liquidado), bruto_estimado: arred2(bruto), liquido_estimado: arred2(liquido),
   };
 }
@@ -201,8 +221,15 @@ function candidatosEntrada(linha: Linha, pagamentos: PagamentoRow[], metodos: Me
   const janela = (p: PagamentoRow) => { const d = diasEntre(dataBRT(p.data_pagamento), linha.data); return d >= -1 && d <= 1; };
   const elegiveis = pagamentos.filter(p => p.valor > 0 && metodos.includes(p.metodo) && janela(p));
   const saida: CandidatoConciliacao[] = [];
+  // OFX da Stone: o Pix da maquininha vem LIQUIDO (sem coluna de tarifa).
+  // Aceita o pagamento cujo desconto implicito fica na faixa de tarifa Pix.
+  const liquidoPix = ehTransacaoStone(linha.descricao) && linha.tarifa === 0;
   for (const p of elegiveis) {
     if (Math.abs(p.valor - alvo) <= CENTAVO) saida.push(candidatoPagamento(p, linha, 'alta', 'valor exato'));
+    else if (liquidoPix && p.metodo === 'pix' && p.valor > alvo) {
+      const r = 1 - alvo / p.valor;
+      if (r >= TARIFA_PIX_MIN && r <= TARIFA_PIX_MAX) saida.push(candidatoPagamento(p, linha, 'alta', 'valor menos a tarifa do Pix na maquininha'));
+    }
   }
   // Grupos: por grupo_recebimento e por (cliente, dia, metodo), com >= 2 pagamentos.
   const grupos = new Map<string, PagamentoRow[]>();
@@ -228,8 +255,19 @@ function candidatosEntrada(linha: Linha, pagamentos: PagamentoRow[], metodos: Me
     });
   }
   saida.sort((a, b) => Math.abs(a.diferenca_dias) - Math.abs(b.diferenca_dias));
-  // Um so candidato = alta; varios = sugestao (o humano escolhe).
-  if (saida.length > 1) for (const c of saida) c.confianca = 'media';
+  // Um so candidato = alta. Varios com o mesmo valor (comum: R$ 420, R$ 215):
+  // se exatamente um for de cliente com nome parecido com quem pagou
+  // (RENILDO SANTOS DE SOUZA x pedido do "Renildo"), ele vence; senao,
+  // todos viram sugestao e o humano escolhe.
+  if (saida.length > 1) {
+    const pagador = tokensNome(linha.contraparte);
+    const porNome = pagador.size ? saida.filter(c => {
+      const ids = c.ids ?? [c.id];
+      return ids.some(id => { const p = elegiveis.find(x => x.id === id); return p ? [...tokensNome(p.cliente_nome)].some(t => pagador.has(t)) : false; });
+    }) : [];
+    for (const c of saida) c.confianca = 'media';
+    if (porNome.length === 1) { porNome[0].confianca = 'alta'; porNome[0].motivo = `${porNome[0].motivo} + nome do cliente`; }
+  }
   return saida;
 }
 
@@ -331,6 +369,16 @@ async function gravarVinculo(
     // PIX na maquininha: a tarifa da propria linha e a taxa efetiva real.
     if (ctx.conta.tipo === 'adquirente' && linha.valor > 0 && linha.tarifa > 0) {
       update.taxa_efetiva_pct = Math.round((linha.tarifa / linha.valor) * 100 * 1000) / 1000;
+    }
+    // Linha liquida do OFX casada com o pagamento bruto: passa a ter o mesmo
+    // formato do CSV (valor bruto + tarifa), que e o que Dia, Fechamento e
+    // saldo (valor - tarifa) esperam.
+    if (ctx.conta.tipo === 'adquirente' && cand.tipo === 'pagamento' && linha.valor > 0 && linha.tarifa === 0
+        && ehTransacaoStone(linha.descricao) && p.valor > linha.valor + CENTAVO) {
+      const tarifa = arred2(p.valor - linha.valor);
+      update.valor = arred2(p.valor);
+      update.tarifa = tarifa;
+      update.taxa_efetiva_pct = Math.round((tarifa / p.valor) * 100 * 1000) / 1000;
     }
     if (cand.tipo === 'grupo') {
       // A linha guarda UM pagamento_id; o grupo_recebimento liga os demais a ela.

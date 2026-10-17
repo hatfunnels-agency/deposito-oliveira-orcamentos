@@ -5,7 +5,8 @@ import { ehMes, mesSP } from '@/lib/financeiro/datas';
 import { ErroFinanceiro } from '@/lib/financeiro/eventos';
 
 export const dynamic = 'force-dynamic';
-export const maxDuration = 60;
+// Le muitas tabelas (banco em us-west-2, funcao em gru1): folga acima de 60s.
+export const maxDuration = 300;
 
 // GET /api/financeiro/fechamento?mes=AAAA-MM -> FechamentoMensal
 export async function GET(request: NextRequest) {

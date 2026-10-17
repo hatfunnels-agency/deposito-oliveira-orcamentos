@@ -386,16 +386,15 @@ export function ehOfx(buffer: Buffer): boolean {
   return /OFXHEADER/i.test(cabeca) || /<OFX>/i.test(cabeca);
 }
 
-/** UTF-8 por padrao; latin1 quando o header diz 1252 ou os bytes nao sao UTF-8. */
+/** UTF-8 quando os bytes sao UTF-8 valido; senao windows-1252/latin1. */
 function decodificarOfx(buffer: Buffer): string {
-  const cabeca = buffer.subarray(0, 1024).toString('latin1');
-  const declara1252 = /CHARSET\s*[:=]\s*"?(1252|ISO-8859-1|LATIN1)/i.test(cabeca)
-    || /ENCODING\s*=\s*"?(ISO-8859-1|WINDOWS-1252)/i.test(cabeca);
   const latin1 = () => {
     try { return new TextDecoder('windows-1252').decode(buffer); }
     catch { return buffer.toString('latin1'); }
   };
-  if (declara1252) return latin1();
+  // UTF-8 valido ganha do cabecalho: a Stone declara CHARSET:1252 mas manda
+  // UTF-8 ("Crédito" viraria "CrÃ©dito"). Texto latin1 com acento quase
+  // nunca e UTF-8 valido, entao o teste e seguro.
   try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); }
   catch { return latin1(); }
 }
@@ -469,7 +468,10 @@ function parseOfx(buffer: Buffer, contaId: string): ResultadoParse {
     // NAME e MEMO costumam repetir o mesmo texto; junta so o que e diferente.
     const partes = [nome, memo].filter((p, idx, arr) => p && arr.indexOf(p) === idx);
     const descricao = partes.join(' — ') || '(sem descricao)';
-    const contraparte = nome || null;
+    // Sem NAME (caso da Stone), o nome vem no MEMO antes do " - ":
+    // "FULANO DE TAL - Pix | Maquininha", "L & J DEPOSITO OLIVEIRA LTDA - Transferência | Pix".
+    const doMemo = !nome && memo.includes(' - ') ? limpar(memo.split(' - ')[0]) : '';
+    const contraparte = nome || (doMemo && !/^RECEBIMENTO|^MENSALIDADE/i.test(doMemo) ? doMemo : '') || null;
     const fitid = limpar(c.FITID);
 
     let hash: string;

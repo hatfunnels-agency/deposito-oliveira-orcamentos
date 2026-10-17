@@ -37,6 +37,7 @@
 // nunca em centavos. Datas sem fuso: hora local do estabelecimento (BRT, -03:00).
 // Antecipacao por parcela = (GrossAmount - NetAmount) - MdrAmount.
 
+import { ehLinhaCartaoStone } from './stone-extrato';
 import { gunzipSync } from 'zlib';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo, lerTudoEmLotes } from '@/lib/ler-tudo';
@@ -56,7 +57,6 @@ const BASE_URL = 'https://conciliation.stone.com.br';
 const TIMEOUT_MS = 120_000;
 const USER_AGENT = 'deposito-oliveira-orcamentos/financeiro (conciliacao)';
 // Mesmos prefixos que conciliacao.ts usa pra reconhecer a liquidacao do cartao no extrato Stone.
-const PREFIXOS_CARTAO = ['TRANSFERENCIA ENTRE CONTAS STONE', 'RECEBIVEL DE CARTAO'];
 const TOLERANCIA = 0.011;
 
 // ------------------------------------------------------------
@@ -630,7 +630,7 @@ export async function ligarLiquidacoesAoExtrato(de: string, ate: string): Promis
 
   const linhasUsadas = new Set<string>(usadasRows.map(r => String(r.lancamento_id)));
   const linhas = linhasRows
-    .filter(l => { const d = normalizar(String(l.descricao ?? '')); return PREFIXOS_CARTAO.some(p => d.startsWith(p)); })
+    .filter(l => ehLinhaCartaoStone(String(l.descricao ?? '')))
     .map(l => ({ id: String(l.id), data: String(l.data), valor: Number(l.valor) || 0 }));
 
   const diaMs = 24 * 60 * 60 * 1000;
