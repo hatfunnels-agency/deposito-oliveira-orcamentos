@@ -917,6 +917,7 @@ export interface ItemPainelEstoque {
   estoque_atual: number;
   estoque_minimo: number;
   preco_custo: number;              // por unidade de venda (como no cadastro)
+  preco_venda: number;              // por unidade de venda
   custo_unitario: number;           // por unidade de estoque
   valor_estoque: number;            // estoque_atual x custo_unitario (negativo conta 0)
   vendido_30d: number;              // unidade de estoque, inclui os secundarios
@@ -933,6 +934,7 @@ export interface ItemPainelEstoque {
   zerado: boolean;
   sem_venda_90d: boolean;
   secundarios: string[];            // nomes que compartilham este estoque (ou que baixam dele)
+  vinculados: Array<{ produto_id: string; nome: string }>; // os mesmos, com id (para editar)
   prazo_entrega_dias: number | null; // dias corridos do pedido a chegada; null = entrega rapida
   // Previsao de reposicao pelo ritmo de venda dos ultimos 30 dias. null =
   // sem base (nunca contado ou sem venda).
