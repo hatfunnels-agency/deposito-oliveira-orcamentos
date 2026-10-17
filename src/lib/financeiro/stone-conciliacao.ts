@@ -22,7 +22,7 @@
 //   │       ├── Events { CancellationCharges, Cancellations, Captures, ChargebackRefunds, Chargebacks, Payments }
 //   │       ├── AcquirerTransactionKey (NSU), InitiatorTransactionKey
 //   │       ├── AuthorizationDateTime, CaptureLocalDateTime (aaaammddHHmmss, hora local)
-//   │       ├── AccountType* (credit|debit), InstallmentType*, NumberOfInstallments*
+//   │       ├── AccountType* (2 = credito, 3 = debito no arquivo real), InstallmentType*, NumberOfInstallments*
 //   │       ├── AuthorizedAmount*, CapturedAmount*, CanceledAmount*
 //   │       ├── BrandId*, CardNumber* (truncado), Poi/PoiType, EntryMode
 //   │       ├── FeeType (1 = MDR e antecipacao separados -> MdrAmount;
@@ -220,9 +220,10 @@ export function dataHoraStone(s: string | null | undefined): string | null {
 
 function modalidadeDe(accountType: string | null): 'credito' | 'debito' {
   const t = (accountType ?? '').trim().toLowerCase();
-  if (/^(debit|d[eé]bito|2)$/.test(t)) return 'debito';
-  // 'credit' e o esperado; valor desconhecido cai em credito (o mais comum;
-  // o custo real vem do arquivo de qualquer jeito). Validar com arquivo real.
+  // No arquivo real (15/10/2026) AccountType vem numerico: 2 = credito
+  // (parcelado, previsao D+30) e 3 = debito (previsao D+1, MDR ~1,09%).
+  // Texto ('credit'/'debit') fica aceito por garantia.
+  if (/^(3|debit|d[eé]bito)$/.test(t)) return 'debito';
   return 'credito';
 }
 
