@@ -1,14 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link2, Unlink, Upload, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Link2, Unlink, Upload, RefreshCw, ChevronDown, ChevronUp, Search } from 'lucide-react';
 import type {
-  CandidatoConciliacao, LancamentoResumo, ResultadoConciliacao, SugestaoConciliacao, VinculoAplicado,
+  CandidatoConciliacao, Categoria, LancamentoResumo, PedidoParaVincular, ResultadoConciliacao, ResultadoVinculoPedido,
+  SugestaoConciliacao, VinculoAplicado,
 } from '@/lib/financeiro/tipos';
 import { apiFinanceiro } from '@/lib/financeiro/cliente-api';
 import { brl, dataBR, dataCurta, hojeBRT, pct, rotuloMetodo, somarDiasISO } from '@/lib/financeiro/formato';
 import {
-  Aviso, BotaoPrimario, BotaoSecundario, Campo, Carregando, Cartao, Erro, Estatistica, INPUT, LinkSecao, Selo, Vazio,
+  Aviso, BotaoPrimario, BotaoSecundario, Campo, Carregando, Cartao, Erro, Estatistica, INPUT, LinkSecao, Modal, Selo, Vazio,
   useContextoFinanceiro,
 } from './Comuns';
 
@@ -38,6 +39,26 @@ export default function Conciliacao() {
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [verSemPar, setVerSemPar] = useState(false);
   const [verSistema, setVerSistema] = useState(false);
+  const [vinculandoPedido, setVinculandoPedido] = useState<LancamentoResumo | null>(null);
+  const categorias = useMemo(() => [...(contexto?.categorias ?? [])].sort((a, b) => a.grupo.localeCompare(b.grupo) || a.nome.localeCompare(b.nome, 'pt-BR')), [contexto]);
+
+  // Linha sem par: so a categoria (entra no Fechamento por ela). Entrada de
+  // cliente nao vira regra (nome de cliente varia); saida aprende.
+  const categorizar = async (l: LancamentoResumo, categoriaId: string) => {
+    setOcupado(l.id);
+    setErro(null);
+    try {
+      await apiFinanceiro('/api/financeiro/lancamentos', {
+        method: 'PATCH', body: JSON.stringify({ id: l.id, categoria_id: categoriaId || null, aprender: l.valor < 0 }),
+      });
+      setAviso(`Categoria salva: ${categorias.find(c => c.id === categoriaId)?.nome ?? 'sem categoria'}.`);
+      await carregar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao salvar a categoria');
+    } finally {
+      setOcupado(null);
+    }
+  };
 
   const carregar = useCallback(async () => {
     if (!contaId) return;
@@ -242,8 +263,10 @@ export default function Conciliacao() {
             )}>
             {(res.sem_par.entradas.length + res.sem_par.saidas.length) === 0 ? <Vazio>Tudo casou.</Vazio> : verSemPar && (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <ListaLanc titulo={`Entradas (${res.sem_par.entradas.length})`} itens={res.sem_par.entradas} />
-                <ListaLanc titulo={`Saídas (${res.sem_par.saidas.length})`} itens={res.sem_par.saidas} />
+                <ListaLanc titulo={`Entradas (${res.sem_par.entradas.length})`} itens={res.sem_par.entradas} categorias={categorias}
+                  ocupado={ocupado} onCategoria={categorizar} onPedido={setVinculandoPedido} />
+                <ListaLanc titulo={`Saídas (${res.sem_par.saidas.length})`} itens={res.sem_par.saidas} categorias={categorias}
+                  ocupado={ocupado} onCategoria={categorizar} />
               </div>
             )}
           </Cartao>
@@ -301,6 +324,16 @@ export default function Conciliacao() {
           <p className="text-[11px] text-gray-400">Período {dataBR(res.de)} a {dataBR(res.ate)}.</p>
         </>
       )}
+
+      {vinculandoPedido && (
+        <ModalVincularPedido linha={vinculandoPedido} onFechar={() => setVinculandoPedido(null)}
+          onFeito={r => {
+            setVinculandoPedido(null);
+            const oque = r.acao === 'vinculado' ? 'vinculada ao pagamento' : r.acao === 'dividido' ? 'vinculada (pagamento dividido)' : 'vinculada (pagamento registrado)';
+            setAviso(`Linha ${oque} do pedido ${r.pedido.codigo ?? ''}. Saldo do pedido: ${brl(r.pedido.saldo)}.`);
+            carregar();
+          }} />
+      )}
     </div>
   );
 }
@@ -317,15 +350,122 @@ function Lanc({ l }: { l: LancamentoResumo }) {
   );
 }
 
-function ListaLanc({ titulo, itens }: { titulo: string; itens: LancamentoResumo[] }) {
+function ListaLanc({ titulo, itens, categorias, ocupado, onCategoria, onPedido }: {
+  titulo: string; itens: LancamentoResumo[]; categorias: Categoria[]; ocupado: string | null;
+  onCategoria: (l: LancamentoResumo, categoriaId: string) => void; onPedido?: (l: LancamentoResumo) => void;
+}) {
   return (
     <div>
       <p className="text-xs font-semibold text-gray-600 mb-1">{titulo}</p>
       {itens.length === 0 ? <p className="text-xs text-gray-400">nenhuma</p> : (
         <div className="divide-y divide-gray-100">
-          {itens.map(l => <div key={l.id} className="py-1.5"><Lanc l={l} /></div>)}
+          {itens.map(l => (
+            <div key={l.id} className="py-2 space-y-1.5">
+              <Lanc l={l} />
+              <div className="flex flex-wrap items-center gap-2">
+                {onPedido && l.valor > 0 && (
+                  <BotaoSecundario onClick={() => onPedido(l)} disabled={ocupado === l.id}><Link2 className="w-4 h-4" /> Vincular a pedido</BotaoSecundario>
+                )}
+                <select value={l.categoria_id ?? ''} onChange={e => onCategoria(l, e.target.value)} disabled={ocupado === l.id}
+                  aria-label={`Categoria de ${l.contraparte || l.descricao}`} className={`${INPUT} flex-1 min-w-[180px] min-h-[40px] text-xs`}>
+                  <option value="">{l.categoria_id ? '— tirar categoria —' : 'Categorizar…'}</option>
+                  {categorias.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                </select>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------- vincular a pedido
+
+function ModalVincularPedido({ linha, onFechar, onFeito }: {
+  linha: LancamentoResumo; onFechar: () => void; onFeito: (r: ResultadoVinculoPedido) => void;
+}) {
+  const [termo, setTermo] = useState(linha.contraparte?.split(' ').slice(0, 2).join(' ') ?? '');
+  const [pedidos, setPedidos] = useState<PedidoParaVincular[] | null>(null);
+  const [buscando, setBuscando] = useState(false);
+  const [salvando, setSalvando] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const valor = linha.valor;
+
+  const buscar = useCallback(async (t: string) => {
+    if (t.trim().length < 2) { setPedidos(null); return; }
+    setBuscando(true);
+    setErro(null);
+    try {
+      const r = await apiFinanceiro<{ pedidos: PedidoParaVincular[] }>(`/api/financeiro/conciliar?buscar_pedido=${encodeURIComponent(t.trim())}&valor=${valor}`);
+      setPedidos(r.pedidos);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro na busca');
+    } finally {
+      setBuscando(false);
+    }
+  }, [valor]);
+
+  useEffect(() => {
+    const h = setTimeout(() => buscar(termo), 350);
+    return () => clearTimeout(h);
+  }, [termo, buscar]);
+
+  const plano = (p: PedidoParaVincular): { texto: string; ok: boolean } => {
+    const exato = p.pagamentos_livres.find(x => Math.abs(x.valor - valor) <= 0.01);
+    if (exato) return { texto: `Vincula ao pagamento de ${brl(exato.valor)} (${rotuloMetodo(exato.metodo)} ${dataCurta(exato.data)})`, ok: true };
+    const maior = p.pagamentos_livres.filter(x => x.valor > valor + 0.01 && x.metodo !== 'dinheiro').sort((a, b) => a.valor - b.valor)[0];
+    if (maior) return { texto: `Divide o pagamento de ${brl(maior.valor)}: ${brl(valor)} fica com esta linha e ${brl(maior.valor - valor)} continua aguardando`, ok: true };
+    if (p.saldo >= valor - 0.01) return { texto: `Registra um pagamento de ${brl(valor)} no pedido (saldo ${brl(p.saldo)})`, ok: true };
+    return { texto: `Saldo ${brl(p.saldo)} não comporta ${brl(valor)}`, ok: false };
+  };
+
+  const vincular = async (p: PedidoParaVincular) => {
+    setSalvando(p.id);
+    setErro(null);
+    try {
+      const r = await apiFinanceiro<ResultadoVinculoPedido>('/api/financeiro/conciliar', {
+        method: 'POST', body: JSON.stringify({ acao: 'vincular_pedido', lancamento_id: linha.id, orcamento_id: p.id }),
+      });
+      onFeito(r);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao vincular');
+    } finally {
+      setSalvando(null);
+    }
+  };
+
+  return (
+    <Modal titulo="Vincular a pedido" onFechar={onFechar} largura="md" rodape={<BotaoSecundario onClick={onFechar}>Fechar</BotaoSecundario>}>
+      <div className="bg-gray-50 rounded-lg px-3 py-2"><Lanc l={linha} /></div>
+      <div className="relative">
+        <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <input value={termo} onChange={e => setTermo(e.target.value)} autoFocus placeholder="Cliente, código do pedido ou valor"
+          aria-label="Buscar pedido" className={`${INPUT} pl-9 min-h-[44px]`} />
+      </div>
+      <p className="text-[11px] text-gray-500">Vários Pix do mesmo pedido: vincule um por um. Se o pedido tem um pagamento único maior, ele é dividido; o total recebido não muda.</p>
+      {erro && <Aviso tom="erro">{erro}</Aviso>}
+      {buscando && <p className="text-xs text-gray-400">Buscando…</p>}
+      {pedidos && !buscando && (pedidos.length === 0 ? <Vazio>Nenhum pedido encontrado.</Vazio> : (
+        <ul className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
+          {pedidos.map(p => {
+            const pl = plano(p);
+            return (
+              <li key={p.id} className="p-3 space-y-1.5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-800 break-words">{p.cliente}</p>
+                    <p className="text-[11px] text-gray-500">{p.codigo ?? '—'} · {dataCurta(p.criado_em)} · total {brl(p.total)} · pago {brl(p.valor_pago)}</p>
+                  </div>
+                  <p className={`text-sm font-semibold tabular-nums shrink-0 ${p.saldo > 0.009 ? 'text-amber-700' : 'text-emerald-700'}`}>{p.saldo > 0.009 ? `falta ${brl(p.saldo)}` : 'pago'}</p>
+                </div>
+                <p className={`text-[11px] ${pl.ok ? 'text-gray-600' : 'text-red-700'}`}>{pl.texto}</p>
+                <BotaoPrimario onClick={() => vincular(p)} disabled={!pl.ok || !!salvando} carregando={salvando === p.id}><Link2 className="w-4 h-4" /> Vincular</BotaoPrimario>
+              </li>
+            );
+          })}
+        </ul>
+      ))}
+    </Modal>
   );
 }

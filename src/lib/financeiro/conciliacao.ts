@@ -17,7 +17,7 @@ import { lerTudo } from '@/lib/ler-tudo';
 import { aprenderComCorrecao, normalizar } from '@/lib/categorizacao';
 import type {
   CandidatoConciliacao, CartaoAgregadoDia, Categoria, Confianca, ContaFinanceira, LancamentoResumo, Metodo,
-  ResultadoConciliacao, SugestaoConciliacao, TaxaMaquininha, VinculoAplicado, VinculoManual,
+  ResultadoConciliacao, SugestaoConciliacao, TaxaMaquininha, VinculoAplicado, VinculoManual, PedidoParaVincular, ResultadoVinculoPedido,
 } from './tipos';
 import { arred2, dataBRT, diasEntre, ehData, limitesDiaUtc, somarDias } from './datas';
 import { ErroFinanceiro, ehConflitoUnico, registrarEvento } from './eventos';
@@ -735,4 +735,186 @@ export async function desvincular(lancamento_id: string, usuarioId: string | nul
     antes: { pagamento_id: linha.pagamento_id, conta_pagar_id: linha.conta_pagar_id, funcionario_pagamento_id: linha.funcionario_pagamento_id, funcionario_vale_id: linha.funcionario_vale_id, conciliacao_origem: linha.conciliacao_origem },
     usuario_id: usuarioId,
   });
+}
+
+
+// ------------------------------------------------------------ vincular a pedido
+
+const NAO_VENDA_BUSCA = ['cancelado'];
+
+/** Metodo do pagamento criado a partir da linha (entrada em banco/adquirente). */
+function metodoDaLinha(descricao: string): 'pix' | 'transferencia' | 'boleto' {
+  const d = normalizar(descricao);
+  if (/\bBOLETO\b/.test(d)) return 'boleto';
+  if (/\b(TED|DOC|TRANSF|TEF)\b/.test(d) && !/PIX/.test(d)) return 'transferencia';
+  return 'pix';
+}
+
+async function pagamentosLivres(orcamentoIds: string[]): Promise<Map<string, Array<{ id: string; valor: number; metodo: string; data: string; gateway_id: string | null; origem: string | null; observacoes: string | null; parcelas: number }>>> {
+  const mapa = new Map<string, Array<{ id: string; valor: number; metodo: string; data: string; gateway_id: string | null; origem: string | null; observacoes: string | null; parcelas: number }>>();
+  if (!orcamentoIds.length) return mapa;
+  const { data: pags, error } = await supabaseAdmin.from('pagamentos')
+    .select('id, orcamento_id, valor, metodo, data_pagamento, gateway_id, origem, observacoes, parcelas')
+    .in('orcamento_id', orcamentoIds);
+  if (error) throw new Error(error.message);
+  const ids = (pags ?? []).map(p => String(p.id));
+  const usados = new Set<string>();
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data: l } = await supabaseAdmin.from('lancamentos_bancarios').select('pagamento_id').in('pagamento_id', ids.slice(i, i + 200));
+    for (const r of l ?? []) usados.add(String(r.pagamento_id));
+  }
+  for (const p of pags ?? []) {
+    if (usados.has(String(p.id)) || Number(p.valor) <= 0) continue;
+    const k = String(p.orcamento_id);
+    mapa.set(k, [...(mapa.get(k) ?? []), {
+      id: String(p.id), valor: arred2(Number(p.valor)), metodo: String(p.metodo), data: String(p.data_pagamento).slice(0, 10),
+      gateway_id: p.gateway_id ? String(p.gateway_id) : null, origem: p.origem ? String(p.origem) : null,
+      observacoes: p.observacoes ? String(p.observacoes) : null, parcelas: Number(p.parcelas) || 1,
+    }]);
+  }
+  return mapa;
+}
+
+/**
+ * Busca de pedido para vincular uma entrada do extrato: por codigo, nome do
+ * cliente ou valor (total, saldo ou pagamento livre). Ultimos 180 dias.
+ */
+export async function buscarPedidosParaVincular(termo: string, valorLinha: number | null): Promise<PedidoParaVincular[]> {
+  const t = termo.trim();
+  if (t.length < 2) return [];
+  const desde = new Date(Date.now() - 180 * 86400000).toISOString();
+  const numeroBusca = Number(t.replace(/\./g, '').replace(',', '.').replace(/[^0-9.]/g, ''));
+  const ehValor = /^[R$\s]*[0-9.,]+$/.test(t) && Number.isFinite(numeroBusca) && numeroBusca > 0;
+
+  const sel = 'id, codigo, total, valor_pago, status, criado_em, clientes ( nome )';
+  let linhas: Row[] = [];
+  if (ehValor) {
+    const { data } = await supabaseAdmin.from('orcamentos').select(sel)
+      .not('status', 'in', `(${NAO_VENDA_BUSCA.join(',')})`).gte('criado_em', desde)
+      .gte('total', numeroBusca - 0.01).order('criado_em', { ascending: false }).limit(400);
+    linhas = (data ?? []) as Row[];
+  } else {
+    const { data: clientes } = await supabaseAdmin.from('clientes').select('id').ilike('nome', `%${t}%`).limit(50);
+    const ids = (clientes ?? []).map(c => String(c.id));
+    const [porCodigo, porCliente] = await Promise.all([
+      supabaseAdmin.from('orcamentos').select(sel).ilike('codigo', `%${t}%`).not('status', 'in', `(${NAO_VENDA_BUSCA.join(',')})`).limit(20),
+      ids.length
+        ? supabaseAdmin.from('orcamentos').select(sel).in('cliente_id', ids).not('status', 'in', `(${NAO_VENDA_BUSCA.join(',')})`)
+          .gte('criado_em', desde).order('criado_em', { ascending: false }).limit(40)
+        : Promise.resolve({ data: [] as Row[] }),
+    ]);
+    const vistos = new Set<string>();
+    for (const r of [...(porCodigo.data ?? []), ...(porCliente.data ?? [])] as Row[]) {
+      if (vistos.has(String(r.id))) continue;
+      vistos.add(String(r.id));
+      linhas.push(r);
+    }
+  }
+
+  const livres = await pagamentosLivres(linhas.map(r => String(r.id)));
+  let lista: PedidoParaVincular[] = linhas.map(r => {
+    const total = arred2(Number(r.total) || 0);
+    const pago = arred2(Number(r.valor_pago) || 0);
+    return {
+      id: String(r.id), codigo: r.codigo ? String(r.codigo) : null, cliente: um<Row>(r.clientes)?.nome ?? 'Sem cliente',
+      criado_em: String(r.criado_em), status: String(r.status), total, valor_pago: pago, saldo: arred2(Math.max(0, total - pago)),
+      pagamentos_livres: (livres.get(String(r.id)) ?? []).map(p => ({ id: p.id, valor: p.valor, metodo: p.metodo, data: p.data })),
+    };
+  });
+  if (ehValor) {
+    const casa = (p: PedidoParaVincular) => Math.abs(p.total - numeroBusca) <= 0.01 || Math.abs(p.saldo - numeroBusca) <= 0.01
+      || p.pagamentos_livres.some(x => Math.abs(x.valor - numeroBusca) <= 0.01 || x.valor > numeroBusca);
+    lista = lista.filter(casa);
+  }
+  // Primeiro os que comportam a linha (pagamento livre ou saldo), depois os mais recentes.
+  const cabe = (p: PedidoParaVincular) => valorLinha === null ? 0
+    : p.pagamentos_livres.some(x => x.valor >= valorLinha - 0.01) || p.saldo >= valorLinha - 0.01 ? 1 : 0;
+  lista.sort((a, b) => cabe(b) - cabe(a) || b.criado_em.localeCompare(a.criado_em));
+  return lista.slice(0, 20);
+}
+
+/**
+ * Liga uma ENTRADA do extrato a um pedido. Ordem:
+ *   1. pagamento do pedido sem linha e com o mesmo valor -> vincula;
+ *   2. pagamento sem linha maior que a linha (ex.: R$ 900 registrado de uma
+ *      vez, cliente pagou 3 Pix de R$ 300) -> divide o pagamento (o total
+ *      recebido nao muda) e vincula a parte da linha;
+ *   3. nenhum -> registra um pagamento com o valor da linha (respeitando o
+ *      saldo do pedido) e vincula.
+ * Dinheiro e pagamento de gateway (Stone) nao se dividem.
+ */
+export async function vincularPedido(lancamento_id: string, orcamento_id: string, usuarioId: string | null): Promise<ResultadoVinculoPedido> {
+  const linha = await lerLinha(lancamento_id);
+  if (vinculada(linha)) throw new ErroFinanceiro(409, 'Essa linha já está vinculada. Desvincule antes.');
+  if (linha.valor <= 0) throw new ErroFinanceiro(400, 'Só entradas podem ser vinculadas a um pedido. Para saídas, use a categoria.');
+  const { data: orc } = await supabaseAdmin.from('orcamentos').select('id, codigo, total, valor_pago, status').eq('id', orcamento_id).maybeSingle();
+  if (!orc) throw new ErroFinanceiro(404, 'Pedido não encontrado.');
+  if (orc.status === 'cancelado') throw new ErroFinanceiro(409, 'Pedido cancelado.');
+
+  const valor = arred2(linha.valor);
+  const livres = (await pagamentosLivres([orc.id])).get(String(orc.id)) ?? [];
+  let acao: ResultadoVinculoPedido['acao'];
+  let pagamentoId: string;
+
+  const exato = livres.find(p => Math.abs(p.valor - valor) <= CENTAVO);
+  const maior = livres
+    .filter(p => p.valor > valor + CENTAVO && p.metodo !== 'dinheiro' && !p.gateway_id)
+    .sort((a, b) => (a.metodo === 'pix' ? 0 : 1) - (b.metodo === 'pix' ? 0 : 1) || a.valor - b.valor)[0];
+
+  if (exato) {
+    acao = 'vinculado';
+    pagamentoId = exato.id;
+  } else if (maior) {
+    acao = 'dividido';
+    const resto = arred2(maior.valor - valor);
+    const { error: e1 } = await supabaseAdmin.from('pagamentos').update({ valor: resto }).eq('id', maior.id);
+    if (e1) throw new Error(e1.message);
+    const { data: novo, error: e2 } = await supabaseAdmin.from('pagamentos').insert({
+      orcamento_id: orc.id, valor, metodo: maior.metodo, parcelas: maior.parcelas, data_pagamento: `${linha.data}T12:00:00-03:00`,
+      origem: maior.origem && ['manual', 'stone', 'pagarme', 'legado'].includes(maior.origem) ? maior.origem : 'manual',
+      observacoes: `Parte de um pagamento de ${maior.valor.toFixed(2).replace('.', ',')} dividido na conciliação`,
+    }).select('id').single();
+    if (e2 || !novo) {
+      // Desfaz a reducao para nao sumir dinheiro do pedido.
+      await supabaseAdmin.from('pagamentos').update({ valor: maior.valor }).eq('id', maior.id);
+      throw new Error(e2?.message ?? 'Falha ao dividir o pagamento.');
+    }
+    pagamentoId = String(novo.id);
+  } else {
+    acao = 'registrado';
+    const saldo = arred2(Number(orc.total) - Number(orc.valor_pago));
+    if (valor > saldo + CENTAVO) {
+      throw new ErroFinanceiro(409, `O pedido ${orc.codigo ?? ''} tem saldo de R$ ${saldo.toFixed(2).replace('.', ',')} e nenhum pagamento livre que comporte R$ ${valor.toFixed(2).replace('.', ',')}. Confira o pedido ou use a categoria.`);
+    }
+    const { data: novo, error } = await supabaseAdmin.from('pagamentos').insert({
+      orcamento_id: orc.id, valor, metodo: metodoDaLinha(linha.descricao), parcelas: 1,
+      data_pagamento: `${linha.data}T12:00:00-03:00`, origem: 'manual',
+      observacoes: `Registrado pela conciliação (extrato ${linha.data.split('-').reverse().join('/')})`,
+    }).select('id').single();
+    if (error || !novo) throw new Error(error?.message ?? 'Falha ao registrar o pagamento.');
+    pagamentoId = String(novo.id);
+  }
+
+  let vinculo: VinculoAplicado;
+  try {
+    vinculo = await vincular({ lancamento_id, pagamento_id: pagamentoId }, usuarioId);
+  } catch (e) {
+    // Pagamento criado agora e o vinculo falhou: desfaz para nao contar em dobro.
+    if (acao === 'registrado') await supabaseAdmin.from('pagamentos').delete().eq('id', pagamentoId);
+    if (acao === 'dividido' && maior) {
+      await supabaseAdmin.from('pagamentos').delete().eq('id', pagamentoId);
+      await supabaseAdmin.from('pagamentos').update({ valor: maior.valor }).eq('id', maior.id);
+    }
+    throw e;
+  }
+  await registrarEvento({
+    entidade: 'lancamento', entidade_id: lancamento_id, acao: `vincular_pedido_${acao}`,
+    antes: null, depois: { orcamento_id: orc.id, pagamento_id: pagamentoId, valor, ...(maior && acao === 'dividido' ? { dividido_de: maior.id, valor_original: maior.valor } : {}) },
+    usuario_id: usuarioId,
+  });
+  const { data: depois } = await supabaseAdmin.from('orcamentos').select('total, valor_pago').eq('id', orc.id).maybeSingle();
+  return {
+    acao, vinculo,
+    pedido: { id: String(orc.id), codigo: orc.codigo ?? null, saldo: arred2(Math.max(0, Number(depois?.total ?? 0) - Number(depois?.valor_pago ?? 0))) },
+  };
 }
