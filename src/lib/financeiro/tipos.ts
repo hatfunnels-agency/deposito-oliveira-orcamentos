@@ -344,6 +344,7 @@ export interface ResumoMaquininhaMes extends ResumoMaquininha {
   liquidado_extrato: number;
   reembolso_recebido: number;
   custo_liquido_realizado: number;    // custo_bruto - reembolso_recebido
+  taxas_reais?: number;               // taxa total no mes pelo arquivo da Vloz (0 = sem arquivo)
   reembolsos: Reembolso[];
   por_dia: Array<{ data: string; volume: number; custo_bruto: number; custo_liquido_previsto: number }>;
   taxas_padrao_nao_conferidas: boolean;

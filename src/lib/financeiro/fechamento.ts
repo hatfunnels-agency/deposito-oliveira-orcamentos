@@ -96,7 +96,10 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
   const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + (Number(r.valor) || 0), 0) + await cashbackCarteira(contas, inicio, fim));
   // A tarifa Pix da Stone e custo de receber tanto quanto a taxa do cartao.
   const taxasPrevistas = arred2(custoCartao - resumo.reembolso_previsto + tarifaPix);
-  const taxasRealizadas = arred2(custoCartao - reembolsoRecebido + tarifaPix);
+  // Com o arquivo da Vloz, a taxa REAL da maquininha (MDR + antecipacao +
+  // Pix) vem dele; a tabela fica so como estimativa quando nao houver arquivo.
+  const taxasReais = await taxasCarteira(inicio, fim);
+  const taxasRealizadas = arred2((taxasReais > 0 ? taxasReais : custoCartao + tarifaPix) - reembolsoRecebido);
 
   // ----- despesas: orcado x realizado por grupo -----
   const grupos = new Map<GrupoGestao, GrupoFechamento & { _provisoes: number; _boletos: number }>();
@@ -312,6 +315,16 @@ async function somaCarteira(inicio: string, fim: string, re: RegExp, contasCache
     .reduce((a, l) => a + (Number(l.valor) || 0), 0));
 }
 
+/** Taxa total das vendas no mes segundo o arquivo da Vloz (coluna tarifa das linhas da carteira). */
+async function taxasCarteira(inicio: string, fim: string, contasCache?: ContaFinanceira[]): Promise<number> {
+  const contas = contasCache ?? await carregarContasFinanceiras();
+  const carteiras = contas.filter(c => c.tipo === 'carteira').map(c => c.id);
+  if (!carteiras.length) return 0;
+  const linhas = await lerTudo<Row>(() => supabaseAdmin
+    .from('lancamentos_bancarios').select('tarifa').in('conta_id', carteiras).gte('data', inicio).lte('data', fim).gt('tarifa', 0));
+  return arred2(linhas.reduce((a, l) => a + (Number(l.tarifa) || 0), 0));
+}
+
 export async function fechamentoMensal(mes: string, opcoes: { comparativo?: boolean } = {}): Promise<FechamentoMensal> {
   if (!ehMes(mes)) throw new ErroFinanceiro(400, 'Mês inválido (AAAA-MM).');
   // O Panorama nao mostra o mes anterior: pular o comparativo corta metade das leituras.
@@ -364,6 +377,7 @@ export async function resumoMaquininhaMes(mes: string): Promise<ResumoMaquininha
   // Mesma regra do fechamento: Pix via Stone ou pela tabela ou pelo extrato, nunca os dois.
   const pixEstimado = custos.filter(x => x.pagamento.metodo === 'pix' && x.pagamento.via_stone).reduce((a, x) => a + x.custo.custo_bruto, 0);
   const tarifaPixEfetiva = transacoesPix.length ? tarifasPix : pixEstimado;
+  const taxasReaisMes = await taxasCarteira(inicio, fim, contas);
 
   const porDia = new Map<string, { data: string; volume: number; custo_bruto: number; custo_liquido_previsto: number }>();
   for (const { pagamento: p, custo: c } of custos) {
@@ -381,7 +395,8 @@ export async function resumoMaquininhaMes(mes: string): Promise<ResumoMaquininha
     taxa_efetiva_extrato_pct: agregado.taxa_efetiva_pct,
     liquidado_extrato: agregado.liquidado,
     reembolso_recebido: reembolsoRecebido,
-    custo_liquido_realizado: arred2(resumo.custo_bruto - pixEstimado + tarifaPixEfetiva - reembolsoRecebido),
+    taxas_reais: taxasReaisMes,
+    custo_liquido_realizado: arred2((taxasReaisMes > 0 ? taxasReaisMes : resumo.custo_bruto - pixEstimado + tarifaPixEfetiva) - reembolsoRecebido),
     reembolsos,
     por_dia: [...porDia.values()].sort((a, b) => a.data.localeCompare(b.data))
       .map(x => ({ data: x.data, volume: arred2(x.volume), custo_bruto: arred2(x.custo_bruto), custo_liquido_previsto: arred2(x.custo_liquido_previsto) })),
