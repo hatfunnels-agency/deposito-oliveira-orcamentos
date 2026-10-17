@@ -5145,7 +5145,7 @@ export default function OrcamentoApp() {  // Auth state
                       }`}
                     >
                       <div
-                        className={`p-3 flex items-start gap-3 cursor-pointer ${
+                        className={`p-3 flex flex-wrap items-start gap-3 cursor-pointer ${
                           selecionadas.includes(e.id) ? 'hover:bg-orange-100' : 'hover:bg-gray-50'
                         }`}
                         onClick={() => toggleSelecionada(e.id)}
@@ -5168,19 +5168,23 @@ export default function OrcamentoApp() {  // Auth state
                             </p>
                           )}
                         </div>
-                        <button
-                          onClick={ev => { ev.stopPropagation(); setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]); }}
-                          className="shrink-0 text-xs text-orange-500 hover:text-orange-700 px-2 py-1 rounded hover:bg-orange-50 whitespace-nowrap"
-                        >
-                          {expandedDia.includes(e.id) ? '▲ Recolher' : '▼ Expandir'}
-                        </button>
+                        {/* No celular os botoes descem pra linha de baixo: lado a lado
+                            eles espremiam nome e endereco numa coluna de 3 letras. */}
+                        <div className="flex w-full justify-end gap-1 pl-10 sm:w-auto sm:pl-0" onClick={ev => ev.stopPropagation()}>
+                          <button
+                            onClick={() => setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
+                            className="text-xs text-orange-600 hover:text-orange-700 px-3 py-2 rounded-lg border border-orange-200 hover:bg-orange-50 whitespace-nowrap min-h-[40px]"
+                          >
+                            {expandedDia.includes(e.id) ? '▲ Recolher' : '▼ Expandir'}
+                          </button>
                           {/* Sem atalho de motorista aqui: em Pendentes o pedido
                               ainda nao saiu, e quem leva e definido no envio para
                               rota. Corrigir depois se faz em Em Rota. */}
-                          <button onClick={() => abrirDetalhe(e.id)} className="shrink-0 text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 whitespace-nowrap">📋 Ver Pedido</button>
+                          <button onClick={() => abrirDetalhe(e.id)} className="text-xs text-blue-600 hover:text-blue-700 px-3 py-2 rounded-lg border border-blue-200 hover:bg-blue-50 whitespace-nowrap min-h-[40px]">📋 Ver Pedido</button>
                           {/* Sem "Entregue" aqui de proposito: a entrega passa por Em Rota
                               (com motorista) antes de ser concluida. Entrega feita fora
                               do roteiro se conclui abrindo o pedido (Ver Pedido). */}
+                        </div>
                       </div>
                       {expandedDia.includes(e.id) && (
                         <div className="border-t border-gray-100 bg-orange-50 px-4 py-3 text-xs space-y-1">
@@ -5284,7 +5288,7 @@ export default function OrcamentoApp() {  // Auth state
                 <div className="space-y-2">
                   {entregasEmRota.map((e, idx) => (
                     <div key={e.id} className="border border-purple-200 rounded-lg text-sm overflow-hidden">
-                      <div className="p-3 flex items-start gap-3">
+                      <div className="p-3 flex flex-wrap items-start gap-3">
                         <span className="text-purple-400 text-xs mt-0.5 w-5 text-center shrink-0">{idx + 1}</span>
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold">{e.cliente_nome}</p>
@@ -5319,10 +5323,10 @@ export default function OrcamentoApp() {  // Auth state
                             })()}
                           </button>
                         </div>
-                        <div className="flex gap-2 shrink-0">
+                        <div className="flex w-full justify-end gap-2 sm:w-auto sm:shrink-0" onClick={ev => ev.stopPropagation()}>
                           <button
                             onClick={() => setExpandedEmRota(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
-                            className="text-xs text-purple-500 hover:text-purple-700 px-2 py-1 rounded hover:bg-purple-50 whitespace-nowrap"
+                            className="text-xs text-purple-600 hover:text-purple-700 px-3 py-2 rounded-lg border border-purple-200 hover:bg-purple-50 whitespace-nowrap min-h-[40px]"
                           >
                             {expandedEmRota.includes(e.id) ? '▲ Fechar' : '📦 Ver'}
                           </button>
@@ -5330,7 +5334,7 @@ export default function OrcamentoApp() {  // Auth state
                           <button
                             onClick={() => avisarCaminhaoACaminho(e)}
                             disabled={!telefoneWhatsApp(e.cliente_telefone) || avisando.has(e.id)}
-                            className={`text-xs px-2 py-1 rounded whitespace-nowrap font-medium disabled:opacity-40 disabled:cursor-not-allowed ${avisados.has(e.id) || e.aviso_rota_em ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-[#25D366] text-white hover:bg-[#1EBE57]'}`}
+                            className={`text-xs px-3 py-2 rounded-lg whitespace-nowrap font-medium min-h-[40px] disabled:opacity-40 disabled:cursor-not-allowed ${avisados.has(e.id) || e.aviso_rota_em ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-[#25D366] text-white hover:bg-[#1EBE57]'}`}
                             title={telefoneWhatsApp(e.cliente_telefone) ? 'Avisa pelo sistema que o caminhão está a caminho (sem abrir o WhatsApp)' : 'Cliente sem telefone válido'}
                           >
                             {avisando.has(e.id) ? '…' : avisados.has(e.id) || e.aviso_rota_em ? '✓ Avisado' : '📲 Avisar'}
@@ -5339,7 +5343,7 @@ export default function OrcamentoApp() {  // Auth state
                           <button
                             onClick={() => voltarStatusEntrega(e, 'entrega_pendente')}
                             disabled={revertendoStatus === e.id}
-                            className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
+                            className="text-xs text-gray-600 hover:text-gray-800 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap min-h-[40px]"
                             title="Voltar para Pendentes"
                           >
                             {revertendoStatus === e.id ? '...' : '↩ Pendente'}
@@ -5347,7 +5351,7 @@ export default function OrcamentoApp() {  // Auth state
                           <button
                             onClick={() => iniciarConclusaoEntrega(e)}
                             disabled={loadingCompleto === e.id}
-                            className="text-xs bg-green-500 text-white px-3 py-1 rounded hover:bg-green-600 disabled:opacity-50 whitespace-nowrap font-medium"
+                            className="text-xs bg-green-500 text-white px-3 py-2 rounded-lg hover:bg-green-600 disabled:opacity-50 whitespace-nowrap font-medium min-h-[40px]"
                           >
                             {loadingCompleto === e.id ? '...' : '✔ Entregue'}
                           </button>
