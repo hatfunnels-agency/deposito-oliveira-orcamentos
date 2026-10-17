@@ -48,14 +48,14 @@ async function contextoEstatico(): Promise<string> {
   if (cacheEstatico && Date.now() - cacheEstatico.quando < TTL_MS) return cacheEstatico.texto;
   const [{ data: base }, { data: produtos }] = await Promise.all([
     supabaseAdmin.from('base_conhecimento').select('pergunta, resposta, tags').eq('ativo', true).order('criado_em'),
-    supabaseAdmin.from('produtos').select('nome, categoria, unidade_venda, preco_venda, tipo_estoque')
+    supabaseAdmin.from('produtos').select('nome, categoria, unidade_venda, preco_venda, tipo_estoque, medidas')
       .eq('ativo', true).neq('vendavel', false).order('categoria').order('nome').limit(1000),
   ]);
   const blocoBase = (base ?? []).map(b => `P: ${b.pergunta}\nR: ${b.resposta}`).join('\n\n');
   const porCat = new Map<string, string[]>();
   for (const p of produtos ?? []) {
     const cat = (p.categoria as string) || 'Outros';
-    const linha = `- ${p.nome}: R$ ${Number(p.preco_venda).toFixed(2).replace('.', ',')} / ${p.unidade_venda || 'un'}${p.tipo_estoque === 'sob_demanda' ? ' (sob demanda: vem do fornecedor quando vende)' : ''}`;
+    const linha = `- ${p.nome}: R$ ${Number(p.preco_venda).toFixed(2).replace('.', ',')} / ${p.unidade_venda || 'un'}${p.medidas ? ` — medidas: ${p.medidas}` : ''}${p.tipo_estoque === 'sob_demanda' ? ' (sob demanda: vem do fornecedor quando vende)' : ''}`;
     porCat.set(cat, [...(porCat.get(cat) ?? []), linha]);
   }
   const blocoCatalogo = [...porCat.entries()].map(([c, l]) => `${c}:\n${l.join('\n')}`).join('\n\n');

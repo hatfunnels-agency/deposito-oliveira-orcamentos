@@ -480,7 +480,7 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 
 // -------------------------------------------------------------- reativacao
 // Cadencia por tempo desde a ultima compra:
-//   obra ativa (<=30d) -> 7 dias | 31-60d -> 15 dias | >60d -> 30 dias
+//   ate 60d (obra ativa inclusive) -> 15 dias | >60d -> 30 dias
 // Nao dispara pra quem tem orcamento aberto (o follow-up ja esta cuidando).
 //
 // "Ultima compra" = o dia mais recente entre criado_em, data_entrega e
@@ -498,7 +498,7 @@ const STATUS_PEDIDO_EM_ANDAMENTO = [
 ];
 
 // Minimo de dias corridos sem compra antes de qualquer reativacao.
-export const REATIVACAO_MIN_DIAS = 7;
+export const REATIVACAO_MIN_DIAS = 15;
 
 // Dia (AAAA-MM-DD) em Brasilia de um timestamp ou de uma coluna date.
 function diaBrasilia(v: string): string {
@@ -541,10 +541,6 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
   if (errAndamento) throw new Error(`reativacao: ${errAndamento.message}`);
   const temPedidoEmAndamento = new Set((andamento || []).map((r: any) => String(r.cliente_id)));
 
-  // Pedreiro/empreiteiro: relacionamento proximo — toque semanal ate 60 dias
-  // sem compra (os demais so ate 30).
-  const { data: profRows } = await supabaseAdmin.from('cliente_tags').select('cliente_id').in('tag', ['pedreiro', 'empreiteiro']);
-  const profissionais = new Set((profRows || []).map((r: any) => String(r.cliente_id)));
 
   // Dia da ultima compra (AAAA-MM-DD, Brasilia) — ver comentario do topo.
   const ultimaCompra = new Map<string, { dia: string; cli: any }>();
@@ -596,9 +592,13 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     const diasSemComprar = diasEntre(dia, hojeDia);
     if (diasSemComprar < REATIVACAO_MIN_DIAS) continue;
 
-    const cadenciaDias = isObraAtivaActive(`${dia}T12:00:00-03:00`) || (profissionais.has(clienteId) && diasSemComprar <= 60) ? 7
-      : diasSemComprar <= 60 ? 15 : 30;
-    const momento = cadenciaDias === 7 ? 'semanal' : cadenciaDias === 15 ? 'quinzenal' : 'mensal';
+    // Roger (17/10/2026): toque semanal era demais. Obra ativa e quem comprou
+    // nos ultimos 60 dias recebem a cada 15 dias; depois disso, a cada 30. O
+    // momento 'semanal' continua sendo o da obra ativa (template
+    // reativacao_semanal, "como esta a obra?"), so que de 15 em 15 dias.
+    const obraAtiva = isObraAtivaActive(`${dia}T12:00:00-03:00`);
+    const cadenciaDias = diasSemComprar <= 60 ? 15 : 30;
+    const momento = obraAtiva ? 'semanal' : cadenciaDias === 15 ? 'quinzenal' : 'mensal';
 
     const anterior = ultimoEnvio.get(clienteId);
     if (anterior) {

@@ -21,7 +21,7 @@ export async function catalogoParaPrompt(): Promise<string> {
 
   const { data } = await supabaseAdmin
     .from('produtos')
-    .select('nome, preco_venda, unidade_venda, categoria')
+    .select('nome, preco_venda, unidade_venda, categoria, medidas')
     .eq('ativo', true)
     .neq('vendavel', false)             // ferro em metro: so estoque
     .order('categoria', { ascending: true })
@@ -31,12 +31,12 @@ export async function catalogoParaPrompt(): Promise<string> {
 
   const porCategoria = new Map<string, string[]>();
   for (const p of data as Array<{
-    nome: string; preco_venda: number; unidade_venda: string; categoria: string | null;
+    nome: string; preco_venda: number; unidade_venda: string; categoria: string | null; medidas?: string | null;
   }>) {
     const cat = p.categoria || 'Outros';
     if (!porCategoria.has(cat)) porCategoria.set(cat, []);
     porCategoria.get(cat)!.push(
-      `- ${p.nome}: R$ ${Number(p.preco_venda).toFixed(2)} / ${p.unidade_venda || 'un'}`,
+      `- ${p.nome}: R$ ${Number(p.preco_venda).toFixed(2)} / ${p.unidade_venda || 'un'}${p.medidas ? ` (${p.medidas})` : ''}`,
     );
   }
 
