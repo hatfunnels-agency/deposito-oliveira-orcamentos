@@ -22,7 +22,7 @@
 //   │       ├── Events { CancellationCharges, Cancellations, Captures, ChargebackRefunds, Chargebacks, Payments }
 //   │       ├── AcquirerTransactionKey (NSU), InitiatorTransactionKey
 //   │       ├── AuthorizationDateTime, CaptureLocalDateTime (aaaammddHHmmss, hora local)
-//   │       ├── AccountType* (credit|debit), InstallmentType*, NumberOfInstallments*
+//   │       ├── AccountType* (2 = credito, 3 = debito no arquivo real), InstallmentType*, NumberOfInstallments*
 //   │       ├── AuthorizedAmount*, CapturedAmount*, CanceledAmount*
 //   │       ├── BrandId*, CardNumber* (truncado), Poi/PoiType, EntryMode
 //   │       ├── FeeType (1 = MDR e antecipacao separados -> MdrAmount;
@@ -37,6 +37,7 @@
 // nunca em centavos. Datas sem fuso: hora local do estabelecimento (BRT, -03:00).
 // Antecipacao por parcela = (GrossAmount - NetAmount) - MdrAmount.
 
+import { ehLinhaCartaoStone } from './stone-extrato';
 import { gunzipSync } from 'zlib';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo, lerTudoEmLotes } from '@/lib/ler-tudo';
@@ -56,7 +57,6 @@ const BASE_URL = 'https://conciliation.stone.com.br';
 const TIMEOUT_MS = 120_000;
 const USER_AGENT = 'deposito-oliveira-orcamentos/financeiro (conciliacao)';
 // Mesmos prefixos que conciliacao.ts usa pra reconhecer a liquidacao do cartao no extrato Stone.
-const PREFIXOS_CARTAO = ['TRANSFERENCIA ENTRE CONTAS STONE', 'RECEBIVEL DE CARTAO'];
 const TOLERANCIA = 0.011;
 
 // ------------------------------------------------------------
@@ -220,9 +220,10 @@ export function dataHoraStone(s: string | null | undefined): string | null {
 
 function modalidadeDe(accountType: string | null): 'credito' | 'debito' {
   const t = (accountType ?? '').trim().toLowerCase();
-  if (/^(debit|d[eé]bito|2)$/.test(t)) return 'debito';
-  // 'credit' e o esperado; valor desconhecido cai em credito (o mais comum;
-  // o custo real vem do arquivo de qualquer jeito). Validar com arquivo real.
+  // No arquivo real (15/10/2026) AccountType vem numerico: 2 = credito
+  // (parcelado, previsao D+30) e 3 = debito (previsao D+1, MDR ~1,09%).
+  // Texto ('credit'/'debit') fica aceito por garantia.
+  if (/^(3|debit|d[eé]bito)$/.test(t)) return 'debito';
   return 'credito';
 }
 
@@ -630,7 +631,7 @@ export async function ligarLiquidacoesAoExtrato(de: string, ate: string): Promis
 
   const linhasUsadas = new Set<string>(usadasRows.map(r => String(r.lancamento_id)));
   const linhas = linhasRows
-    .filter(l => { const d = normalizar(String(l.descricao ?? '')); return PREFIXOS_CARTAO.some(p => d.startsWith(p)); })
+    .filter(l => ehLinhaCartaoStone(String(l.descricao ?? '')))
     .map(l => ({ id: String(l.id), data: String(l.data), valor: Number(l.valor) || 0 }));
 
   const diaMs = 24 * 60 * 60 * 1000;

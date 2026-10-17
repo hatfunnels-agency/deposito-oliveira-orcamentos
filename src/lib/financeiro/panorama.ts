@@ -29,13 +29,21 @@ export async function panorama(): Promise<Panorama> {
   const janela28 = limitesPeriodoUtc(somarDias(hoje, -SEMANAS_PROJECAO * 7), somarDias(hoje, -1));
   const janelaCartao = limitesPeriodoUtc(somarDias(hoje, -5), hoje);
 
+  // Previa da conciliacao (ultimos 7 dias, sem gravar) em paralelo com o resto:
+  // em sequencia, ela sozinha levava o Panorama ao limite de tempo da Vercel.
+  // Falha aqui nao derruba o Panorama.
+  const previas = Promise.all(contas.filter(c => c.ativo && (c.tipo === 'banco' || c.tipo === 'adquirente')).map(c =>
+    conciliar({ conta_id: c.id, de: somarDias(hoje, -7), ate: hoje, aplicar: false })
+      .then(r => r.totais.sugestoes)
+      .catch(e => { console.error('[financeiro/panorama] conciliacao (previa) falhou:', c.nome, e); return 0; })));
+
   const [saldos, receber, resumoCP, folha, dia, fech, pendentes, despesas, pagRecentes, pagCartao, contasHoje, agregadoMes] = await Promise.all([
     saldosAtuais(contas),
     calcularReceber(90),
     resumoContasPagar(hoje),
     folhaPrevista(),
     diaGestao(hoje),
-    fechamentoMensal(mes),
+    fechamentoMensal(mes, { comparativo: false }),
     listarContasPagar({ status: 'pendente' }),
     listarDespesasFixas(false, mes),
     carregarPagamentos(janela28.inicioUtc, janela28.fimUtc),
@@ -44,17 +52,7 @@ export async function panorama(): Promise<Panorama> {
     cartaoAgregado(`${mes}-01`, hoje, { taxas, contas }),
   ]);
 
-  // Sugestoes de conciliacao em aberto (ultimos 7 dias, sem gravar). Falha
-  // aqui nao derruba o Panorama.
-  let sugestoesPendentes = 0;
-  for (const c of contas.filter(c => c.ativo && (c.tipo === 'banco' || c.tipo === 'adquirente'))) {
-    try {
-      const r = await conciliar({ conta_id: c.id, de: somarDias(hoje, -7), ate: hoje, aplicar: false });
-      sugestoesPendentes += r.totais.sugestoes;
-    } catch (e) {
-      console.error('[financeiro/panorama] conciliacao (previa) falhou:', c.nome, e);
-    }
-  }
+  const sugestoesPendentes = (await previas).reduce((a, n) => a + n, 0);
 
   const totalDisp = totalDisponivel(saldos);
   const clientes = agruparPorCliente(receber.em_aberto, hoje);

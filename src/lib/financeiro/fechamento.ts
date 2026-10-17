@@ -10,10 +10,11 @@
 // descartada (possiveis_duplicidades); fatura de cartao (transferencia) fica
 // fora; juros da divida vao pra 'taxas' e a parcela liquida pra 'divida'.
 
+import { ehLinhaCartaoStone, ehPixMaquininha, pctPixTabela, tarifaPixDaLinha } from './stone-extrato';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo } from '@/lib/ler-tudo';
 import { normalizar } from '@/lib/categorizacao';
-import type { ContaPagar, FechamentoMensal, GrupoFechamento, GrupoGestao, Reembolso, ResumoMaquininhaMes } from './tipos';
+import type { ContaFinanceira, ContaPagar, FechamentoMensal, GrupoFechamento, GrupoGestao, Reembolso, ResumoMaquininhaMes } from './tipos';
 import { arred2, dataBRT, diasEntre, ehMes, hojeSP, inicioFimMes, limitesMesUtc, mesAnterior, somarDias } from './datas';
 import { ErroFinanceiro } from './eventos';
 import { carregarContasFinanceiras, saldosBasePorConta } from './saldos';
@@ -84,15 +85,15 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     totalRecebido += p.valor;
   }
   const linhasTransacao = linhas
-    .filter(l => tipoConta.get(String(l.conta_id)) === 'adquirente' && Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && normalizar(l.descricao).startsWith('TRANSACAO'));
+    .filter(l => tipoConta.get(String(l.conta_id)) === 'adquirente' && Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && ehPixMaquininha(l.descricao));
   // custo_bruto da tabela ja traz o Pix via Stone ESTIMADO; com extrato da
   // Stone no mes a tarifa real substitui a estimativa (nunca as duas).
   const pixEstimado = custos.filter(x => x.pagamento.metodo === 'pix' && x.pagamento.via_stone).reduce((a, x) => a + x.custo.custo_bruto, 0);
   const custoCartao = resumo.custo_bruto - pixEstimado;
   const tarifaPix = linhasTransacao.length
-    ? arred2(linhasTransacao.reduce((a, l) => a + (Number(l.tarifa) || 0), 0))
+    ? arred2(linhasTransacao.reduce((a, l) => a + tarifaPixDaLinha(l, pctPixTabela(taxas)), 0))
     : arred2(pixEstimado);
-  const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + (Number(r.valor) || 0), 0));
+  const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + (Number(r.valor) || 0), 0) + await cashbackCarteira(contas, inicio, fim));
   // A tarifa Pix da Stone e custo de receber tanto quanto a taxa do cartao.
   const taxasPrevistas = arred2(custoCartao - resumo.reembolso_previsto + tarifaPix);
   const taxasRealizadas = arred2(custoCartao - reembolsoRecebido + tarifaPix);
@@ -125,7 +126,7 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
   // Conta paga por banco nao tem linha propria: a do extrato, se nao casou, e a
   // mesma saida. Conta paga no caixa/cartao ja tem linha vinculada (fica fora).
   const refsContas: Ref[] = contasPagasRef
-    .filter(c => c.data_pagamento && c.conta_tipo !== 'caixa' && c.conta_tipo !== 'cartao_credito')
+    .filter(c => c.data_pagamento && c.conta_tipo !== 'caixa' && c.conta_tipo !== 'cartao_credito' && c.conta_tipo !== 'carteira')
     .map(c => ({ data: c.data_pagamento!, valor: arred2(c.valor_pago ?? c.valor) }));
 
   // (a) contas pagas por competencia (fatura fica fora: a despesa entrou na compra).
@@ -166,9 +167,21 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
   let folhaJaContada = 0, duplicidades = 0, aRevisar = 0;
   const saidasExtrato: Array<{ valor: number; conta_id: string }> = [];
   const saidasCaixa: number[] = [];
+  // Entradas do bloco de caixa: o que o extrato mostra que entrou (banco e
+  // adquirente, fora transferencia entre contas proprias), liquido de tarifa.
+  let entradasBanco = 0, entradasSemPedido = 0;
   for (const l of linhas) {
     const valor = Number(l.valor) || 0;
     const vinculada = Boolean(l.pagamento_id || l.conta_pagar_id || l.funcionario_pagamento_id || l.funcionario_vale_id);
+    if (valor > 0) {
+      const tipoE = tipoConta.get(String(l.conta_id));
+      const catE = um<Row>(l.categorias_financeiras);
+      if ((tipoE === 'banco' || tipoE === 'adquirente') && ehExtrato(l.origem_lancamento) && catE?.grupo !== 'transferencia') {
+        entradasBanco += valor - (Number(l.tarifa) || 0);
+        // Venda que entrou sem pedido ligado (o cartao Stone e conferido por dia, fica fora).
+        if (catE?.grupo === 'receita' && !vinculada && !ehLinhaCartaoStone(String(l.descricao ?? ''))) entradasSemPedido += valor;
+      }
+    }
     if (!l.revisado && !vinculada && (!l.categoria_id || l.categoria_origem === 'ia')) aRevisar++;
     if (valor >= 0 || vinculada) continue;
     const cat = um<Row>(l.categorias_financeiras);
@@ -177,8 +190,11 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     const doExtrato = (tipo === 'banco' || tipo === 'adquirente') && ehExtrato(l.origem_lancamento);
     const doCaixa = tipo === 'caixa' && l.origem_lancamento === 'manual';
     if (!doExtrato && !doCaixa) continue;
-    if (ehFolha(cat?.nome)) { folhaJaContada++; continue; }
     const abs = arred2(-valor);
+    // Salario pago por PIX so e descartado quando o mesmo pagamento esta
+    // registrado em Funcionarios (ai ele ja entrou pela folha). Sem registro,
+    // a linha do extrato E a folha realizada.
+    if (ehFolha(cat?.nome) && doExtrato && coincide(refsFolha, String(l.data), abs)) { folhaJaContada++; continue; }
     if (doExtrato && (coincide(refsContas, String(l.data), abs) || coincide(refsFolha, String(l.data), abs))) { duplicidades++; continue; }
     if (doExtrato) saidasExtrato.push({ valor: abs, conta_id: String(l.conta_id) }); else saidasCaixa.push(abs);
     // Categoria com grupo_gestao NULL (nao operacional) fica fora; sem categoria cai em 'outro'.
@@ -212,10 +228,15 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
   const semDinheiro = (metodo: string | null, contaId: string | null) => metodo
     ? metodo !== 'dinheiro' && tipoConta.get(String(contaId)) !== 'caixa'
     : contaId ? tipoConta.get(String(contaId)) !== 'caixa' : false;
-  const entradas = arred2(totalRecebido - (porMetodo.dinheiro ?? 0) - custoCartao - tarifaPix);
+  // Recebido no sistema que deveria cair no banco: sem dinheiro, sem custos
+  // do cartao e sem os 15% que vao pra carteira Vloz. So pra comparar.
+  const splitCarteira = await somaCarteira(inicio, fim, /^VENDA/);
+  const recebidoNoSistema = arred2(totalRecebido - (porMetodo.dinheiro ?? 0) - custoCartao - tarifaPix - splitCarteira);
+  const entradas = arred2(entradasBanco);
   const saidasPorTipo: Record<string, number> = { contas: 0, faturas: 0, folha: 0, vales: 0, extrato: 0 };
   for (const c of contasPagasMes) {
-    if (c.conta_tipo === 'cartao_credito' || c.metodo_pagamento === 'dinheiro' || c.conta_tipo === 'caixa') continue;   // sai na fatura / no caixa fisico
+    // sai na fatura / no caixa fisico / no saldo Vloz: nao e dinheiro de banco
+    if (c.conta_tipo === 'cartao_credito' || c.metodo_pagamento === 'dinheiro' || c.conta_tipo === 'caixa' || c.conta_tipo === 'carteira') continue;
     saidasPorTipo[c.categoria_grupo === 'transferencia' ? 'faturas' : 'contas'] += c.valor_pago ?? c.valor;
   }
   for (const f of folhaPaga) if (semDinheiro(f.metodo, f.conta_id)) saidasPorTipo.folha += Number(f.valor_liquido) || 0;
@@ -247,6 +268,7 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     },
     caixa: {
       saldo_inicial: saldoInicial, entradas, saidas, saldo_final_calculado: saldoFinalCalculado, saldo_final_informado: saldoFinalInformado,
+      entradas_sem_pedido: arred2(entradasSemPedido), recebido_no_sistema: recebidoNoSistema,
       diferenca: saldoFinalCalculado !== null && saldoFinalInformado !== null ? arred2(saldoFinalInformado - saldoFinalCalculado) : null,
       saidas_por_tipo: saidasPorTipo,
     },
@@ -268,9 +290,32 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
   };
 }
 
-export async function fechamentoMensal(mes: string): Promise<FechamentoMensal> {
+/**
+ * Cashback da Votoran que caiu na carteira Vloz no mes (categoria de
+ * reembolso de taxa, em conta tipo 'carteira'). E reembolso recebido tanto
+ * quanto um PIX: so que vira credito pra comprar cimento.
+ */
+async function cashbackCarteira(contas: ContaFinanceira[], inicio: string, fim: string): Promise<number> {
+  return somaCarteira(inicio, fim, /REEMBOLSO DE TAXA/, contas);
+}
+
+/** Entradas da(s) carteira(s) no periodo cuja categoria casa com `re`. */
+async function somaCarteira(inicio: string, fim: string, re: RegExp, contasCache?: ContaFinanceira[]): Promise<number> {
+  const contas = contasCache ?? await carregarContasFinanceiras();
+  const carteiras = contas.filter(c => c.tipo === 'carteira').map(c => c.id);
+  if (!carteiras.length) return 0;
+  const linhas = await lerTudo<Row>(() => supabaseAdmin
+    .from('lancamentos_bancarios').select('valor, categorias_financeiras ( nome )')
+    .in('conta_id', carteiras).gte('data', inicio).lte('data', fim).gt('valor', 0));
+  return arred2(linhas
+    .filter(l => re.test(normalizar(um<Row>(l.categorias_financeiras)?.nome)))
+    .reduce((a, l) => a + (Number(l.valor) || 0), 0));
+}
+
+export async function fechamentoMensal(mes: string, opcoes: { comparativo?: boolean } = {}): Promise<FechamentoMensal> {
   if (!ehMes(mes)) throw new ErroFinanceiro(400, 'Mês inválido (AAAA-MM).');
-  return calcular(mes, true);
+  // O Panorama nao mostra o mes anterior: pular o comparativo corta metade das leituras.
+  return calcular(mes, opcoes.comparativo !== false);
 }
 
 // ------------------------------------------------------------
@@ -313,8 +358,8 @@ export async function resumoMaquininhaMes(mes: string): Promise<ResumoMaquininha
   ]);
   const resumo = resumirCustos(custos, taxas);
   const reembolsos = reembolsosRaw.map(mapearReembolso);
-  const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + r.valor, 0));
-  const transacoesPix = linhasPix.filter(l => Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && normalizar(l.descricao).startsWith('TRANSACAO'));
+  const reembolsoRecebido = arred2(reembolsos.reduce((a, r) => a + r.valor, 0) + await cashbackCarteira(contas, inicio, fim));
+  const transacoesPix = linhasPix.filter(l => Number(l.valor) > 0 && ehExtrato(l.origem_lancamento) && ehPixMaquininha(l.descricao));
   const tarifasPix = arred2(transacoesPix.reduce((a, l) => a + (Number(l.tarifa) || 0), 0));
   // Mesma regra do fechamento: Pix via Stone ou pela tabela ou pelo extrato, nunca os dois.
   const pixEstimado = custos.filter(x => x.pagamento.metodo === 'pix' && x.pagamento.via_stone).reduce((a, x) => a + x.custo.custo_bruto, 0);

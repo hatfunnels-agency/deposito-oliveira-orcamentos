@@ -49,9 +49,12 @@ export async function contaPorTipo(tipo: TipoConta, contas?: ContaFinanceira[]):
 }
 
 interface SaldoBase { conta_id: string; data: string; saldo: number; origem: 'extrato' | 'manual' | 'conector'; criado_em: string }
-const PRIORIDADE_ORIGEM: Record<string, number> = { conector: 3, extrato: 2, manual: 1 };
+// Mesma data: o digitado ganha. O extrato exportado no meio do dia traz um
+// saldo parcial (o do Itau de 16/10 saiu as 14h43), e quem digita sabe o
+// saldo daquele momento.
+const PRIORIDADE_ORIGEM: Record<string, number> = { manual: 3, conector: 2, extrato: 1 };
 
-/** Saldo informado mais recente por conta (maior data; empate: conector > extrato > manual). */
+/** Saldo informado mais recente por conta (maior data; empate: manual > conector > extrato). */
 export async function saldosBasePorConta(ateData?: string): Promise<Map<string, SaldoBase>> {
   const rows = await lerTudo<Row>(() => {
     let q = supabaseAdmin.from('saldos_conta').select('conta_id, data, saldo, origem, criado_em');
@@ -138,6 +141,30 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
       continue;
     }
 
+    if (c.tipo === 'carteira') {
+      // Credito junto ao fornecedor: entra 15% das vendas no cartao e o
+      // cashback (arquivo da Vloz); sai o cimento pago com o saldo. O arquivo
+      // de vendas nao traz o uso do saldo, entao o saldo informado (app da
+      // Vloz) e a base; depois dele somam so as linhas de dias seguintes.
+      const baseCart = bases.get(c.id);
+      const linhas = await lerTudo<Row>(() => {
+        let q = supabaseAdmin.from('lancamentos_bancarios').select('valor, data').eq('conta_id', c.id);
+        if (baseCart) q = q.gt('data', baseCart.data);
+        return q;
+      });
+      const mov = linhas.reduce((a, l) => a + (Number(l.valor) || 0), 0);
+      saida.push({
+        ...vazio,
+        saldo_base: baseCart ? arred2(baseCart.saldo) : null,
+        data_base: baseCart?.data ?? null,
+        origem: baseCart ? baseCart.origem : 'calculado',
+        defasagem_dias: baseCart ? diasEntre(baseCart.data, hoje) : null,
+        movimentos_apos_base: arred2(mov),
+        saldo_estimado: arred2((baseCart?.saldo ?? 0) + mov),
+      });
+      continue;
+    }
+
     if (c.tipo === 'cartao_credito') {
       // Negativo = devedor. Fatura aberta = compras ainda sem fatura gerada.
       const linhas = await lerTudo<Row>(() => supabaseAdmin
@@ -178,10 +205,13 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
         .gt('data', base.data)),
     ]);
 
-    // Linha do mesmo dia do saldo so conta se foi importada DEPOIS dele
-    // (o saldo do extrato ja a inclui quando veio no mesmo arquivo).
+    // Saldo digitado vale pro fim do dia: linha do mesmo dia nunca soma (o
+    // de 16/10/2026 ja incluia os PIX do dia e eles entraram de novo).
+    // Saldo de extrato pode ser do meio do dia: linha do mesmo dia so soma
+    // se veio depois, num arquivo posterior.
     const mov = linhas
-      .filter(l => String(l.data) > base.data || (String(l.data) === base.data && String(l.criado_em ?? '') > base.criado_em))
+      .filter(l => String(l.data) > base.data
+        || (base.origem !== 'manual' && String(l.data) === base.data && String(l.criado_em ?? '') > base.criado_em))
       .reduce((a, l) => a + (Number(l.valor) || 0) - (Number(l.tarifa) || 0), 0);
     const pagos = contasPagas
       .filter(x => !vinculados.contas.has(String(x.id)))
@@ -216,7 +246,8 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
 export function totalDisponivel(saldos: SaldoConta[]): number | null {
   let total = 0;
   for (const s of saldos) {
-    if (s.tipo === 'cartao_credito') continue;
+    // Carteira (Vloz) nao e dinheiro disponivel: so compra cimento.
+    if (s.tipo === 'cartao_credito' || s.tipo === 'carteira') continue;
     if (s.saldo_estimado === null) {
       if (s.tipo === 'caixa') continue;
       return null;

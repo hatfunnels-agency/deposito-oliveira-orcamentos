@@ -463,7 +463,7 @@ export function ModalPagarConta({ conta, onFechar, onSalvo }: { conta: ContaPaga
           {METODOS.map(m => <option key={m.v} value={m.v}>{m.l}</option>)}
         </select>
       </Campo>
-      <Campo rotulo="De qual conta" dica={contaSel?.tipo === 'caixa' ? 'Sai do caixa em espécie.' : contaSel?.tipo === 'cartao_credito' ? 'Vai pra fatura do cartão; o caixa só sai quando a fatura for paga.' : contaSel ? 'O extrato dessa conta vai conciliar este pagamento.' : undefined}>
+      <Campo rotulo="De qual conta" dica={contaSel?.tipo === 'caixa' ? 'Sai do caixa em espécie.' : contaSel?.tipo === 'carteira' ? 'Sai do saldo Vloz (crédito da Votoran).' : contaSel?.tipo === 'cartao_credito' ? 'Vai pra fatura do cartão; o caixa só sai quando a fatura for paga.' : contaSel ? 'O extrato dessa conta vai conciliar este pagamento.' : undefined}>
         <select value={contaId ?? ''} onChange={e => setContaId(e.target.value || null)} className={INPUT}>
           <option value="">— sem conta —</option>
           {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}
@@ -659,7 +659,7 @@ export function ModalContaForm({ conta, modo = 'conta', dataPadrao, onFechar, on
                   </select>
                 </Campo>
               </div>
-              <Campo rotulo="De qual conta" dica={contaSel?.tipo === 'caixa' ? 'Sai do caixa em espécie.' : contaSel?.tipo === 'cartao_credito' ? 'Vai pra fatura do cartão.' : undefined}>
+              <Campo rotulo="De qual conta" dica={contaSel?.tipo === 'caixa' ? 'Sai do caixa em espécie.' : contaSel?.tipo === 'carteira' ? 'Sai do saldo Vloz.' : contaSel?.tipo === 'cartao_credito' ? 'Vai pra fatura do cartão.' : undefined}>
                 <select value={contaId ?? ''} onChange={e => setContaId(e.target.value || null)} className={INPUT}>
                   <option value="">— sem conta —</option>
                   {contas.map(c => <option key={c.id} value={c.id}>{c.nome}</option>)}

@@ -9,6 +9,7 @@
 // (fica so como conta), folha paga so vem de funcionario_pagamentos/vales, e
 // linha de extrato categorizada como folha ou transferencia nao e despesa.
 
+import { ehPixMaquininha, pctPixTabela, tarifaPixDaLinha } from './stone-extrato';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo } from '@/lib/ler-tudo';
 import { normalizar } from '@/lib/categorizacao';
@@ -149,7 +150,6 @@ export async function extratoAtePorConta(contas?: ContaFinanceira[]): Promise<Re
   return Object.fromEntries(pares);
 }
 
-const ehFolha = (categoriaNome: string | null) => /^FOLHA - /.test(normalizar(categoriaNome));
 
 export async function diaGestao(data: string = hojeSP()): Promise<DiaFinanceiro> {
   if (!ehData(data)) throw new ErroFinanceiro(400, 'Data inválida (AAAA-MM-DD).');
@@ -172,7 +172,7 @@ export async function diaGestao(data: string = hojeSP()): Promise<DiaFinanceiro>
 
   // ----- recebido liquido -----
   const resumo = resumirCustos(custos, taxas);
-  const linhasTransacao = calc.linhas.filter(l => tipoConta(l.conta_id) === 'adquirente' && l.valor > 0 && normalizar(l.descricao).startsWith('TRANSACAO'));
+  const linhasTransacao = calc.linhas.filter(l => tipoConta(l.conta_id) === 'adquirente' && l.valor > 0 && ehPixMaquininha(l.descricao));
   const bruto = Object.values(calc.recebidoPorMetodo).reduce((a, v) => a + v, 0);
   let taxasCartao = 0, antecipacao = 0, pixEstimado = 0;
   const porMetodo: Record<string, { bruto: number; liquido: number; qtd: number }> = {};
@@ -189,7 +189,8 @@ export async function diaGestao(data: string = hojeSP()): Promise<DiaFinanceiro>
   }
   // Com extrato Stone do dia, a tarifa Pix e a real; sem ele, a estimativa da tabela.
   const temExtratoStone = linhasTransacao.length > 0;
-  const tarifaPix = temExtratoStone ? linhasTransacao.reduce((a, l) => a + l.tarifa, 0) : pixEstimado;
+  const pctPix = pctPixTabela(taxas);
+  const tarifaPix = temExtratoStone ? linhasTransacao.reduce((a, l) => a + tarifaPixDaLinha(l, pctPix), 0) : pixEstimado;
   if (porMetodo.pix) porMetodo.pix.liquido -= tarifaPix;
   const liquido = bruto - taxasCartao - antecipacao - tarifaPix;
 
@@ -240,7 +241,9 @@ export async function diaGestao(data: string = hojeSP()): Promise<DiaFinanceiro>
         tipo: 'caixa', id: l.id, descricao: l.descricao, fornecedor: l.contraparte, categoria: l.categoria_nome, grupo_gestao: l.grupo_gestao,
         valor: arred2(-l.valor), metodo: 'dinheiro', conta_nome: nomeConta(l.conta_id),
       });
-    } else if ((tipo === 'banco' || tipo === 'adquirente') && (!l.origem_lancamento || ['extrato', 'conector'].includes(l.origem_lancamento)) && !ehFolha(l.categoria_nome)) {
+    } else if ((tipo === 'banco' || tipo === 'adquirente') && (!l.origem_lancamento || ['extrato', 'conector'].includes(l.origem_lancamento))) {
+      // Folha registrada em Funcionarios ja esta em refsBanco: coincideBanco
+      // descarta a linha. Salario so pago por PIX (sem registro) fica.
       if (coincideBanco(arred2(-l.valor))) continue;
       itens.push({
         tipo: 'extrato', id: l.id, descricao: l.descricao, fornecedor: l.contraparte, categoria: l.categoria_nome, grupo_gestao: l.grupo_gestao,

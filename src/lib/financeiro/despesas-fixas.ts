@@ -252,7 +252,7 @@ export async function propagarDespesaFixa(id: string): Promise<number> {
   if (!d) throw new ErroFinanceiro(404, 'Despesa fixa não encontrada.');
   const pendentes = await lerTudo<Row>(() => supabaseAdmin
     .from('contas_pagar')
-    .select('id, valor, vencimento, competencia, editada_manualmente')
+    .select('id, valor, vencimento, competencia, editada_manualmente, chave_recorrencia')
     .eq('despesa_fixa_id', id)
     .eq('status', 'pendente'));
 
@@ -265,7 +265,12 @@ export async function propagarDespesaFixa(id: string): Promise<number> {
 
   let alteradas = 0;
   for (const c of pendentes) {
-    const mes = mesDe(String(c.competencia));
+    // O mes que a despesa gerou esta na chave ('despesa_fixa:<id>:<AAAA-MM>'),
+    // nao na competencia: se alguem mudou a competencia na mao, a conta
+    // continua sendo daquele mes (mudar o inicio para novembro tem que
+    // cancelar a de outubro, nao move-la para novembro e duplicar).
+    const mesChave = /:(\d{4}-\d{2})$/.exec(String(c.chave_recorrencia ?? ''))?.[1];
+    const mes = mesChave ?? mesDe(String(c.competencia));
     const fora = !d.ativo || !d.gera_conta || mes < mesDe(d.inicio) || (d.fim !== null && mes > mesDe(d.fim));
     if (fora) {
       const { error } = await supabaseAdmin.from('contas_pagar').update({ status: 'cancelado' }).eq('id', c.id);

@@ -156,7 +156,9 @@ export function mapearContaPagar(r: Row, hoje: string = hojeSP()): ContaPagar {
   const lanc = lista(r.lancamentos_bancarios)[0] ?? null;
   const status = (r.status as StatusContaPagar) || 'pendente';
   const vencimento = String(r.vencimento);
-  const precisa = r.precisa_confirmacao === true;
+  // "Ja pagou?" so faz sentido para o que ja venceu: se o vencimento foi
+  // movido para hoje ou depois, a conta volta a ser uma conta normal.
+  const precisa = r.precisa_confirmacao === true && vencimento < hoje;
   return {
     id: String(r.id),
     descricao: String(r.descricao ?? ''),
@@ -504,6 +506,7 @@ export async function pagarConta(
   const metodo = validarMetodo(pg.metodo_pagamento);
   const dataPagamento = pg.data_pagamento ?? hojeSP();
   if (!ehData(dataPagamento)) throw new ErroFinanceiro(400, 'Data de pagamento inválida (AAAA-MM-DD).');
+  if (dataPagamento > hojeSP()) throw new ErroFinanceiro(400, 'A data do pagamento não pode ser no futuro. Marque como paga quando pagar.');
   const valor = arred2(Number(atual.valor));
   const valorPago = pg.valor_pago == null ? valor : validarValor(pg.valor_pago, 'Valor pago');
 
@@ -538,7 +541,7 @@ export async function pagarConta(
       if (ehConflitoUnico(error)) throw new ErroFinanceiro(409, 'Essa linha do extrato já está vinculada a outra conta.');
       throw new Error(error.message);
     }
-  } else if (conta && (conta.tipo === 'caixa' || conta.tipo === 'cartao_credito')) {
+  } else if (conta && (conta.tipo === 'caixa' || conta.tipo === 'cartao_credito' || conta.tipo === 'carteira')) {
     let documento: string | null = null;
     if (atual.fornecedor_id) {
       const { data: f } = await supabaseAdmin.from('fornecedores').select('documentos').eq('id', atual.fornecedor_id).maybeSingle();
@@ -728,6 +731,9 @@ export async function confirmarRetroativa(id: string, jaPagou: boolean, data: st
   const atual = await lerConta(id);
   if (atual.status !== 'pendente') throw new ErroFinanceiro(409, 'Essa conta não está pendente.');
   if (data && !ehData(data)) throw new ErroFinanceiro(400, 'Data inválida (AAAA-MM-DD).');
+  if (jaPagou && String(atual.vencimento) >= hojeSP() && !data) {
+    throw new ErroFinanceiro(400, 'Essa conta ainda não venceu. Use "Paguei" quando pagar.');
+  }
   // Sim: pagarConta ja zera precisa_confirmacao; se falhar, a conta continua
   // em "ja pagou?" em vez de virar atrasada.
   const paga = jaPagou
