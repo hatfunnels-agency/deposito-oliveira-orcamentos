@@ -693,6 +693,7 @@ export interface Panorama {
   fluxo_30d: FluxoDia[];
   entradas_atrasadas: number;
   alertas: Alerta[];
+  indicadores: IndicadoresMes;
 }
 
 // ------------------------------------------------------------
@@ -890,7 +891,7 @@ export interface StatusStone {
 // Trilha
 // ------------------------------------------------------------
 export interface EventoFinanceiro {
-  entidade: 'conta_pagar' | 'lancamento' | 'despesa_fixa' | 'pagamento' | 'taxa' | 'reembolso' | 'saldo' | 'fornecedor' | 'cenario' | 'estoque';
+  entidade: 'conta_pagar' | 'lancamento' | 'despesa_fixa' | 'pagamento' | 'taxa' | 'reembolso' | 'saldo' | 'fornecedor' | 'cenario' | 'estoque' | 'configuracao';
   entidade_id?: string | null;
   acao: string;
   antes?: unknown;
@@ -931,7 +932,26 @@ export interface ItemPainelEstoque {
   abaixo_minimo: boolean;
   zerado: boolean;
   sem_venda_90d: boolean;
-  secundarios: string[];            // nomes que compartilham este estoque
+  secundarios: string[];            // nomes que compartilham este estoque (ou que baixam dele)
+  prazo_entrega_dias: number | null; // dias corridos do pedido a chegada; null = entrega rapida
+  // Previsao de reposicao pelo ritmo de venda dos ultimos 30 dias. null =
+  // sem base (nunca contado ou sem venda).
+  reposicao: ReposicaoEstoque | null;
+}
+
+export interface ReposicaoEstoque {
+  consumo_dia: number;              // unidade de estoque por dia de funcionamento (seg-sab)
+  // Pedir quando o saldo cobrir `cobertura_pedido_dias` (dias de funcionamento):
+  // 2 x o prazo de entrega, ou 3 dias se a entrega e rapida.
+  cobertura_pedido_dias: number;
+  ponto_pedido: number;             // saldo em que tem que pedir: max(minimo cadastrado, cobertura x consumo)
+  minimo_sugerido: number;          // cobertura x consumo (o minimo que o prazo pede)
+  chega_em: string | null;          // se pedir na data sugerida
+  falta_antes_de_chegar: boolean;   // pedindo hoje, acaba antes de chegar
+  pedir_em: string;                 // 'YYYY-MM-DD' (seg-sab); hoje ou antes = pedir ja
+  acaba_em: string;                 // quando zera no ritmo atual
+  dias_ate_pedido: number;          // dias de funcionamento; <= 0 = atrasado
+  sugerido: number;                 // quanto pedir para cobrir 2 semanas a partir do pedido
 }
 
 export interface TotaisEstoque {
@@ -957,6 +977,8 @@ export interface PainelEstoque {
   itens: ItemPainelEstoque[];
   // Pedido ao fornecedor so quando vende: nao tem saldo nem contagem.
   sob_demanda: ProdutoSobDemanda[];
+  excluidos: ProdutoSobDemanda[];   // arquivados (ativo = false), restauraveis
+  hoje: string;
   totais: TotaisEstoque;
   categorias: string[];
 }
@@ -1072,4 +1094,98 @@ export interface RespostaLeitura {
   valor_calculado: number | null;   // ticket: soma dos itens calculados
   foto_path: string | null;         // bucket financeiro-comprovantes
   aviso_foto: string | null;
+}
+
+// ------------------------------------------------------------
+// Vendas do dia (conciliacao manual, aba Dia)
+// ------------------------------------------------------------
+export interface VendaDoDia {
+  id: string;
+  codigo: string | null;
+  hora: string;                     // ISO do pedido
+  cliente: string;
+  telefone: string | null;
+  total: number;
+  pago: number;
+  saldo: number;
+  status: string;
+  status_pagamento: string | null;
+  forma_pagamento: string | null;
+  metodos_pagos: string[];          // metodos dos pagamentos registrados no pedido (qualquer dia)
+  condicao_pagamento: string | null;
+  tipo_entrega: string | null;
+}
+
+export interface RecebimentoDoDia {
+  id: string;
+  orcamento_id: string | null;
+  codigo: string | null;
+  cliente: string;
+  hora: string;                     // ISO do pagamento
+  valor: number;
+  metodo: string;
+  parcelas: number | null;
+  origem: string | null;
+  observacoes: string | null;
+  pedido_de_outro_dia: boolean;
+  extrato: { id: string; data: string; valor: number; tarifa: number; descricao: string; conta: string | null } | null;
+}
+
+export interface VendasDoDia {
+  data: string;
+  vendas: VendaDoDia[];
+  recebimentos: RecebimentoDoDia[];
+  totais: {
+    pedidos: number;
+    faturamento: number;
+    pago_nos_pedidos: number;
+    em_aberto: number;
+    recebido: number;
+    recebido_conciliado: number;
+    por_metodo: Record<string, { valor: number; qtd: number; conciliado: number }>;
+  };
+}
+
+// ------------------------------------------------------------
+// Metas e indicadores do mes (Panorama)
+// ------------------------------------------------------------
+export interface MetasFinanceiras {
+  faturamento_mes: number | null;
+  ticket_medio: number | null;
+  margem_pct: number | null;
+}
+
+export interface IndicadoresMes {
+  mes: string;
+  metas: MetasFinanceiras;
+  // acima_meta: projecao >= meta; acima_minimo: cobre os custos mas nao a meta;
+  // abaixo_minimo: no ritmo atual o mes fecha no vermelho.
+  status: 'acima_meta' | 'acima_minimo' | 'abaixo_minimo' | 'sem_dados';
+  faturamento: number;
+  projecao: number;
+  media_por_dia: number;
+  dias_uteis_total: number;
+  dias_uteis_passados: number;      // inclui hoje
+  dias_uteis_restantes: number;     // inclui hoje
+  dias_fechados: number;
+  resultado_projetado: number | null;
+  minimo: {
+    valor: number | null;           // ponto de equilibrio do mes
+    custos_mes: number;
+    composicao: Record<string, number>;
+    margem_pct: number | null;
+    custo_cartao_pct: number;
+    por_dia: number | null;
+    falta_por_dia: number | null;
+    atingido: boolean;
+  };
+  meta: {
+    valor: number | null;
+    pct: number | null;
+    projecao_pct: number | null;
+    por_dia: number | null;
+    falta_por_dia: number | null;
+  };
+  ticket_medio: number;
+  qtd_pedidos: number;
 }

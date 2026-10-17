@@ -1,12 +1,12 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, ClipboardCheck, PackageMinus, Search, SlidersHorizontal, ChevronDown, ChevronUp } from 'lucide-react';
+import { ArrowDownToLine, ClipboardCheck, PackageMinus, Search, SlidersHorizontal, ChevronDown, ChevronUp, Trash2, ShoppingCart } from 'lucide-react';
 import type {
   ItemPainelEstoque, MovimentoEstoque, NovoMovimentoEstoque, PainelEstoque, ResultadoMovimentoEstoque, TipoMovimentoEstoque,
 } from '@/lib/financeiro/tipos';
 import { apiFinanceiro } from '@/lib/financeiro/cliente-api';
-import { brl, dataCurta, horaBRT, numero } from '@/lib/financeiro/formato';
+import { brl, dataCurta, diaSemanaCurto, horaBRT, numero } from '@/lib/financeiro/formato';
 import {
   Abas, Aviso, BotaoPrimario, BotaoSecundario, Campo, CampoMoeda, CampoNumero, Carregando, Cartao, Erro, Estatistica,
   INPUT, Modal, Selo, Vazio,
@@ -17,7 +17,12 @@ import {
 // contagem — antes disso quase tudo esta em zero porque o deposito nunca
 // contou; a venda so dava baixa.
 
-type Filtro = 'todos' | 'nao_contados' | 'zerados' | 'abaixo_minimo' | 'sem_venda' | 'sob_demanda';
+type Filtro = 'todos' | 'comprar' | 'nao_contados' | 'zerados' | 'abaixo_minimo' | 'sem_venda' | 'sob_demanda' | 'excluidos';
+
+// Horizonte do "comprar em breve": pedidos que vencem nos proximos 6 dias de
+// funcionamento (uma semana de seg a sab).
+const HORIZONTE_COMPRA = 6;
+const comprarEmBreve = (i: ItemPainelEstoque) => !!i.reposicao && i.reposicao.dias_ate_pedido <= HORIZONTE_COMPRA;
 
 const ROTULO_TIPO: Record<string, string> = {
   entrada: 'Entrada', saida: 'Venda', cancelamento: 'Cancelamento', ajuste: 'Ajuste', perda: 'Perda', contagem: 'Contagem',
@@ -39,21 +44,26 @@ export default function Estoque() {
 
   // Sob demanda = pedido ao fornecedor so quando vende: sai do painel de
   // saldo e a venda nao baixa estoque.
-  const alternarTipo = async (produtoId: string, sobDemanda: boolean) => {
+  const patch = async (produtoId: string, corpo: Record<string, unknown>) => {
     setMudandoTipo(produtoId);
     setErro(null);
     try {
-      await apiFinanceiro('/api/financeiro/estoque', {
-        method: 'PATCH',
-        body: JSON.stringify({ produto_id: produtoId, tipo_estoque: sobDemanda ? 'sob_demanda' : 'estocavel' }),
-      });
+      await apiFinanceiro('/api/financeiro/estoque', { method: 'PATCH', body: JSON.stringify({ produto_id: produtoId, ...corpo }) });
       await carregar();
     } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao mudar o tipo do produto');
+      setErro(e instanceof Error ? e.message : 'Erro ao alterar o produto');
+      if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
     } finally {
       setMudandoTipo(null);
     }
   };
+  const alternarTipo = (produtoId: string, sobDemanda: boolean) => patch(produtoId, { tipo_estoque: sobDemanda ? 'sob_demanda' : 'estocavel' });
+  const excluir = (produtoId: string, nome: string) => {
+    if (!window.confirm(`Excluir "${nome}"? Ele some do catálogo, do orçamento e do estoque. Os pedidos antigos continuam com ele, e dá para restaurar em "Excluídos".`)) return;
+    patch(produtoId, { ativo: false });
+  };
+  const restaurar = (produtoId: string) => patch(produtoId, { ativo: true });
+  const salvarPrazo = (produtoId: string, dias: number | null) => patch(produtoId, { prazo_entrega_dias: dias });
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -74,6 +84,7 @@ export default function Estoque() {
     return itens.filter(i => {
       if (categoria && (i.categoria || 'Geral') !== categoria) return false;
       if (termo && !i.nome.toLowerCase().includes(termo) && !i.secundarios.some(s => s.toLowerCase().includes(termo))) return false;
+      if (filtro === 'comprar') return comprarEmBreve(i);
       if (filtro === 'nao_contados') return !i.ultima_contagem;
       if (filtro === 'zerados') return i.zerado;
       if (filtro === 'abaixo_minimo') return i.abaixo_minimo;
@@ -81,6 +92,13 @@ export default function Estoque() {
       return true;
     });
   }, [itens, busca, categoria, filtro]);
+  const aComprar = useMemo(() => itens.filter(comprarEmBreve)
+    .sort((a, b) => (a.reposicao!.pedir_em.localeCompare(b.reposicao!.pedir_em)) || a.nome.localeCompare(b.nome, 'pt-BR')), [itens]);
+  const excluidosFiltrados = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return (dados?.excluidos ?? []).filter(i =>
+      (!categoria || (i.categoria || 'Geral') === categoria) && (!termo || i.nome.toLowerCase().includes(termo)));
+  }, [dados, busca, categoria]);
   const sobDemanda = useMemo(() => {
     const termo = busca.trim().toLowerCase();
     return (dados?.sob_demanda ?? []).filter(i =>
@@ -100,6 +118,8 @@ export default function Estoque() {
         <Estatistica rotulo="Abaixo do mínimo" valor={t.abaixo_minimo} detalhe="com estoque mínimo cadastrado" tom={t.abaixo_minimo ? 'laranja' : 'neutro'} />
         <Estatistica rotulo="Já contados" valor={`${t.contados} de ${t.itens}`} detalhe={`${t.sem_venda_90d} sem venda em 90 dias`} tom={t.nunca_contados ? 'amarelo' : 'verde'} />
       </div>
+
+      <ComprarEmBreve itens={aComprar} hoje={dados.hoje} contados={t.contados} onVerTodos={() => setFiltro('comprar')} />
 
       {t.nunca_contados > 0 && (
         <Cartao titulo="Contagem inicial" selo={<Selo tom="amarelo">{t.nunca_contados} sem contagem</Selo>}
@@ -126,17 +146,36 @@ export default function Estoque() {
         </div>
         <Abas className="mt-3" valor={filtro} onChange={setFiltro} opcoes={[
           { key: 'todos', rotulo: 'Todos', contagem: itens.length },
+          { key: 'comprar', rotulo: 'Comprar em breve', contagem: aComprar.length },
           { key: 'nao_contados', rotulo: 'Não contados', contagem: t.nunca_contados },
           { key: 'zerados', rotulo: 'Zerados', contagem: t.zerados },
           { key: 'abaixo_minimo', rotulo: 'Abaixo do mínimo', contagem: t.abaixo_minimo },
           { key: 'sem_venda', rotulo: 'Sem venda 90d', contagem: t.sem_venda_90d },
           { key: 'sob_demanda', rotulo: 'Sob demanda', contagem: dados.sob_demanda.length },
+          { key: 'excluidos', rotulo: 'Excluídos', contagem: dados.excluidos.length },
         ]} />
       </Cartao>
 
       {erro && <Erro mensagem={erro} onTentar={carregar} />}
 
-      {filtro === 'sob_demanda' ? (
+      {filtro === 'excluidos' ? (
+        <Cartao titulo="Excluídos" selo={<Selo tom="cinza">{excluidosFiltrados.length}</Selo>}>
+          <p className="text-xs text-gray-600 mb-3">Produtos arquivados: não aparecem no catálogo, no orçamento nem no estoque. Os pedidos antigos continuam com eles.</p>
+          {excluidosFiltrados.length === 0 ? <Vazio>Nenhum produto excluído.</Vazio> : (
+            <ul className="divide-y divide-gray-100">
+              {excluidosFiltrados.map(i => (
+                <li key={i.produto_id} className="py-2 flex items-center justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block text-sm font-medium text-gray-800 break-words">{i.nome}</span>
+                    <span className="block text-[11px] text-gray-500">{i.categoria || 'Geral'}</span>
+                  </span>
+                  <BotaoSecundario onClick={() => restaurar(i.produto_id)} carregando={mudandoTipo === i.produto_id}>Restaurar</BotaoSecundario>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Cartao>
+      ) : filtro === 'sob_demanda' ? (
         <Cartao titulo="Sob demanda" selo={<Selo tom="azul">{sobDemanda.length}</Selo>}>
           <p className="text-xs text-gray-600 mb-3">Produtos que vêm direto do fornecedor quando vendem: não têm saldo nem contagem, e a venda não baixa estoque. Desmarque para voltar a controlar o estoque.</p>
           {sobDemanda.length === 0 ? <Vazio>Nenhum produto sob demanda com esse filtro.</Vazio> : (
@@ -151,7 +190,12 @@ export default function Estoque() {
                       <span className="block text-[11px] text-gray-500">{i.categoria || 'Geral'}</span>
                     </span>
                   </label>
-                  <span className="text-xs text-gray-500 tabular-nums shrink-0">{numero(i.vendido_90d, 1)} {i.unidade} em 90d</span>
+                  <span className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs text-gray-500 tabular-nums">{numero(i.vendido_90d, 1)} {i.unidade} em 90d</span>
+                    <button type="button" onClick={() => excluir(i.produto_id, i.nome)} disabled={mudandoTipo === i.produto_id}
+                      aria-label={`Excluir ${i.nome}`} title="Excluir produto"
+                      className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-700 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                  </span>
                 </li>
               ))}
             </ul>
@@ -165,7 +209,8 @@ export default function Estoque() {
             <CartaoProduto key={i.produto_id} item={i} aberto={aberto === i.produto_id} versaoHistorico={versaoHistorico}
               onAlternar={() => setAberto(a => (a === i.produto_id ? null : i.produto_id))}
               onAcao={tipo => setAcao({ item: i, tipo })}
-              mudandoTipo={mudandoTipo === i.produto_id} onSobDemanda={() => alternarTipo(i.produto_id, true)} />
+              mudandoTipo={mudandoTipo === i.produto_id} onSobDemanda={() => alternarTipo(i.produto_id, true)}
+              onExcluir={() => excluir(i.produto_id, i.nome)} onPrazo={d => salvarPrazo(i.produto_id, d)} />
           ))}
         </div>
       )}
@@ -174,6 +219,7 @@ export default function Estoque() {
         Vendido = pedidos confirmados (fora orçamento e cancelado) dos últimos 30/90 dias, convertidos para a unidade de estoque e somando os produtos que compartilham o estoque.
         Giro 90d ≈ vendido em 90 dias ÷ estoque atual (o estoque médio ainda não existe: só passa a haver histórico de saldo depois da primeira contagem).
         Cobertura = estoque ÷ venda média diária dos últimos 30 dias.
+        Reposição (só produtos já contados): pedir quando o saldo cobrir 2× o prazo de entrega no ritmo atual (ferro: 1 semana de prazo → pedir com 2 semanas de estoque), ou 3 dias de venda se a entrega é rápida; o estoque mínimo cadastrado vale se for maior. A sugestão cobre o que vende até chegar mais 2 semanas (seg a sáb), no ritmo dos últimos 30 dias. Ferro conta a barra (12 m) e a calculadora de ferragem.
       </p>
 
       {acao && (
@@ -186,10 +232,10 @@ export default function Estoque() {
 
 // ---------------------------------------------------------------- cartao
 
-function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda }: {
+function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda, onExcluir, onPrazo }: {
   item: ItemPainelEstoque; aberto: boolean; versaoHistorico: number;
   onAlternar: () => void; onAcao: (t: TipoMovimentoEstoque) => void;
-  mudandoTipo: boolean; onSobDemanda: () => void;
+  mudandoTipo: boolean; onSobDemanda: () => void; onExcluir: () => void; onPrazo: (dias: number | null) => void;
 }) {
   const cobertura = i.cobertura_dias === null ? (i.zerado ? '—' : 'sem venda') : `${numero(i.cobertura_dias, i.cobertura_dias < 10 ? 1 : 0)} dias`;
   return (
@@ -204,6 +250,11 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, m
           </p>
           <div className="flex flex-wrap gap-1 mt-2">
             {!i.ultima_contagem && <Selo tom="amarelo">nunca contado</Selo>}
+            {i.reposicao && i.reposicao.dias_ate_pedido <= HORIZONTE_COMPRA && (
+              <Selo tom={i.reposicao.dias_ate_pedido <= 0 ? 'vermelho' : 'laranja'}>
+                {i.reposicao.dias_ate_pedido <= 0 ? 'pedir já' : `pedir ${diaSemanaCurto(i.reposicao.pedir_em)} ${dataCurta(i.reposicao.pedir_em)}`}
+              </Selo>
+            )}
             {i.zerado && <Selo tom="vermelho">zerado</Selo>}
             {i.abaixo_minimo && <Selo tom="laranja">abaixo do mínimo ({qtd(i.estoque_minimo, i.unidade)})</Selo>}
             {i.sem_venda_90d && <Selo tom="cinza">sem venda 90d</Selo>}
@@ -230,10 +281,37 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, m
         <BotaoSecundario onClick={() => onAcao('contagem')}><ClipboardCheck className="w-4 h-4" /> Contagem</BotaoSecundario>
       </div>
 
-      <label className="px-4 pb-3 -mt-1 flex items-center gap-2 text-xs text-gray-600 min-h-[44px] cursor-pointer w-fit">
-        <input type="checkbox" checked={false} disabled={mudandoTipo} onChange={onSobDemanda} className="w-5 h-5 accent-[#F7941D]" />
-        Sob demanda <span className="text-gray-400">(vem do fornecedor quando vende)</span>
-      </label>
+      <div className="px-4 pb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+        <label className="flex items-center gap-2 min-h-[44px]">
+          Prazo de entrega
+          <input type="number" inputMode="numeric" min={0} max={120} defaultValue={i.prazo_entrega_dias ?? ''} placeholder="rápida"
+            key={`${i.produto_id}-${i.prazo_entrega_dias ?? ''}`} disabled={mudandoTipo}
+            onBlur={e => {
+              const v = e.target.value.trim() === '' ? null : Number(e.target.value);
+              if ((v ?? null) !== (i.prazo_entrega_dias ?? null)) onPrazo(v && v > 0 ? v : null);
+            }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right" aria-label={`Prazo de entrega de ${i.nome} em dias`} />
+          dias
+        </label>
+        {i.reposicao && (
+          <span className="text-gray-500">
+            pedir com {qtd(i.reposicao.ponto_pedido, i.unidade)}
+            {i.reposicao.ponto_pedido > i.estoque_minimo && i.reposicao.minimo_sugerido > i.estoque_minimo
+              ? ` (${i.reposicao.cobertura_pedido_dias} dias de venda${i.prazo_entrega_dias ? `: 2× o prazo` : ''})` : ' (mínimo cadastrado)'}
+          </span>
+        )}
+      </div>
+      <div className="px-4 pb-3 flex items-center justify-between gap-2">
+        <label className="flex items-center gap-2 text-xs text-gray-600 min-h-[44px] cursor-pointer">
+          <input type="checkbox" checked={false} disabled={mudandoTipo} onChange={onSobDemanda} className="w-5 h-5 accent-[#F7941D]" />
+          Sob demanda <span className="text-gray-400 hidden sm:inline">(vem do fornecedor quando vende)</span>
+        </label>
+        <button type="button" onClick={onExcluir} disabled={mudandoTipo}
+          className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-700 hover:bg-red-50 rounded-lg px-2 min-h-[44px]">
+          <Trash2 className="w-4 h-4" /> Excluir
+        </button>
+      </div>
 
       {aberto && <Historico produtoId={i.produto_id} unidade={i.unidade} versao={versaoHistorico} />}
     </section>
@@ -398,5 +476,63 @@ function ModalMovimento({ item, tipoInicial, onFechar, onSalvo }: {
 
       <Historico produtoId={item.produto_id} unidade={item.unidade} versao={0} limite={5} />
     </Modal>
+  );
+}
+
+// ---------------------------------------------------------------- comprar em breve
+
+function ComprarEmBreve({ itens, hoje, contados, onVerTodos }: {
+  itens: ItemPainelEstoque[]; hoje: string; contados: number; onVerTodos: () => void;
+}) {
+  if (contados === 0) {
+    return (
+      <Cartao titulo="Comprar em breve" selo={<Selo tom="cinza">aguardando contagem</Selo>}>
+        <p className="text-sm text-gray-600">A previsão de compra aparece aqui assim que os produtos forem contados: o sistema usa o saldo contado e o ritmo de venda dos últimos 30 dias para dizer o que pedir e em que dia.</p>
+      </Cartao>
+    );
+  }
+  if (itens.length === 0) {
+    return (
+      <Cartao titulo="Comprar em breve" selo={<Selo tom="verde">nada esta semana</Selo>}>
+        <p className="text-sm text-gray-600">Nenhum produto contado chega ao ponto de pedido nos próximos {HORIZONTE_COMPRA} dias de funcionamento.</p>
+      </Cartao>
+    );
+  }
+  const grupos = new Map<string, ItemPainelEstoque[]>();
+  for (const i of itens) {
+    const chave = i.reposicao!.pedir_em <= hoje ? hoje : i.reposicao!.pedir_em;
+    grupos.set(chave, [...(grupos.get(chave) ?? []), i]);
+  }
+  return (
+    <Cartao titulo="Comprar em breve" selo={<Selo tom="laranja">{itens.length}</Selo>}
+      acao={<BotaoSecundario onClick={onVerTodos}><ShoppingCart className="w-4 h-4" /> Ver no filtro</BotaoSecundario>}>
+      <div className="space-y-3">
+        {[...grupos.entries()].map(([dia, lista]) => (
+          <div key={dia}>
+            <p className="text-xs font-semibold text-gray-600 mb-1">
+              {dia === hoje ? 'Pedir hoje' : `Pedir ${diaSemanaCurto(dia)} ${dataCurta(dia)}`}
+            </p>
+            <ul className="divide-y divide-gray-100 rounded-lg border border-gray-100">
+              {lista.map(i => (
+                <li key={i.produto_id} className="px-3 py-2 flex items-start justify-between gap-3 text-sm">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-800 break-words">{i.nome}</p>
+                    <p className="text-[11px] text-gray-500">
+                      tem {qtd(i.estoque_atual, i.unidade)} · vende {numero(i.reposicao!.consumo_dia, i.reposicao!.consumo_dia < 10 ? 1 : 0)}/dia · acaba {diaSemanaCurto(i.reposicao!.acaba_em)} {dataCurta(i.reposicao!.acaba_em)}
+                      {i.reposicao!.chega_em && <> · chega {diaSemanaCurto(i.reposicao!.chega_em)} {dataCurta(i.reposicao!.chega_em)} ({i.prazo_entrega_dias} dias)</>}
+                    </p>
+                    {i.reposicao!.falta_antes_de_chegar && <p className="text-[11px] font-medium text-red-700">Vai faltar antes do pedido chegar.</p>}
+                  </div>
+                  <div className="text-right shrink-0">
+                    <p className="text-[10px] text-gray-500">sugerido</p>
+                    <p className="font-bold tabular-nums text-gray-900">{qtd(i.reposicao!.sugerido, i.unidade)}</p>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Cartao>
   );
 }

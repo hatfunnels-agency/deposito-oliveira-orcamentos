@@ -213,9 +213,9 @@ export default function FinanceiroApp() {
             </div>
             <div className="flex items-center gap-2 shrink-0">
               {usuario.papel === 'admin' && (
-                <button type="button" onClick={() => setFotoAberta(true)} title="Lançar por foto (nota, boleto, ticket de pesagem)"
+                <button type="button" onClick={() => setFotoAberta(true)} title="Lançar por foto ou à mão (nota, boleto, ticket de pesagem, pagamento)"
                   className="inline-flex items-center gap-1.5 rounded-lg bg-[#F7941D] px-3 text-sm font-medium text-white hover:bg-[#E8850A] min-h-[44px]">
-                  <Camera size={18} /> <span className="hidden sm:inline">Lançar foto</span>
+                  <Camera size={18} /> <span className="hidden sm:inline">Lançar</span>
                 </button>
               )}
               <span className="text-sm text-slate-600 truncate max-w-[40vw]">

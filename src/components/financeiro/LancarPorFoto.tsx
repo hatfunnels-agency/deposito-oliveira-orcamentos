@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Camera, ImageUp, RotateCcw, CheckCircle2 } from 'lucide-react';
+import { Camera, ImageUp, RotateCcw, CheckCircle2, PencilLine, Plus } from 'lucide-react';
 import type {
   CandidatoProduto, ContaPagar, Metodo, NovaContaPagar, NovoMovimentoEstoque, PainelEstoque, RespostaLeitura, TipoDocumentoLido,
 } from '@/lib/financeiro/tipos';
@@ -38,6 +38,7 @@ interface Linha {
   pesoKg: number | null;
   densidade: number | null;
   conferirPeso: boolean;
+  avulsa?: boolean;              // adicionada a mao (descricao segue o produto escolhido)
 }
 
 interface OpcaoProduto { id: string; nome: string; unidade: string; custo: number; densidade: number | null; sugerido: boolean }
@@ -108,6 +109,8 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   const [contaCriada, setContaCriada] = useState<string | null>(null);
   const [linhasSalvas, setLinhasSalvas] = useState<number[]>([]);
   const [resumoSalvo, setResumoSalvo] = useState<string[]>([]);
+  // Lancamento a mao: mesmo formulario, sem foto e sem leitura.
+  const [manual, setManual] = useState(false);
 
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
 
@@ -125,15 +128,15 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
     const todos: OpcaoProduto[] = (painel?.itens ?? []).map(p => ({
       id: p.produto_id, nome: p.nome, unidade: p.unidade, custo: p.custo_unitario, densidade: densidadePorNome(p.nome), sugerido: false,
     }));
-    return (resp?.itens ?? []).map(s => {
-      const sugeridos: OpcaoProduto[] = s.produtos.map((c: CandidatoProduto) => ({
+    return linhas.map((_, i) => {
+      const sugeridos: OpcaoProduto[] = (resp?.itens[i]?.produtos ?? []).map((c: CandidatoProduto) => ({
         id: c.produto_id, nome: c.nome, unidade: c.unidade, custo: c.preco_custo / (c.fator_conversao || 1),
         densidade: c.densidade_t_m3, sugerido: true,
       }));
       const ids = new Set(sugeridos.map(o => o.id));
       return [...sugeridos, ...todos.filter(o => !ids.has(o.id))];
     });
-  }, [painel, resp]);
+  }, [painel, resp, linhas]);
 
   const opcao = (indice: number, id: string): OpcaoProduto | undefined => opcoesPorLinha[indice]?.find(o => o.id === id);
 
@@ -222,10 +225,38 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
     setLinhasSalvas([]);
   };
 
+  const linhaVazia = (ticket: boolean, n: number): Linha => ({
+    incluir: true, descricao: ticket ? `Carga ${n}` : `Item ${n}`, produtoId: '', quantidade: null, custo: null,
+    pesoKg: null, densidade: null, conferirPeso: false, avulsa: true,
+  });
+
+  const lancarManual = (tipo: TipoDocumentoLido) => {
+    const r: RespostaLeitura = {
+      leitura: {
+        tipo, data: hoje, valor_total: null, fornecedor_nome: null, fornecedor_documento: null, numero_documento: null,
+        vencimento: null, metodo: null, itens: [], observacoes: null, confianca: 'alta', campos_duvidosos: [],
+      },
+      fornecedores: [], itens: [], valor_calculado: null, foto_path: null, aviso_foto: null,
+    };
+    preencher(r);
+    setDescricao('');
+    setValorEditado(tipo !== 'ticket_pesagem');
+    const comItens = tipo === 'ticket_pesagem' || tipo === 'nota_fiscal';
+    setLinhas(comItens ? [linhaVazia(tipo === 'ticket_pesagem', 1)] : []);
+    setComEstoque(comItens);
+    setResp(r);
+    setManual(true);
+    setErro(null);
+    setFase('conferir');
+  };
+
+  const adicionarLinha = () => setLinhas(ls => [...ls, linhaVazia(ehTicket, ls.length + 1)]);
+
   const mudarLinha = (i: number, mudanca: Partial<Linha>) => setLinhas(ls => ls.map((l, k) => (k === i ? { ...l, ...mudanca } : l)));
 
   const escolherProduto = (i: number, id: string) => {
     const o = opcao(i, id);
+    if (linhas[i]?.avulsa && o) mudarLinha(i, { descricao: o.nome });
     if (ehTicket) {
       mudarLinha(i, { produtoId: id, incluir: !!id, ...(o ? { custo: Math.round(o.custo * 100) / 100, densidade: o.densidade ?? linhas[i].densidade } : {}) });
     } else {
@@ -240,7 +271,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   };
 
   const recomecar = () => {
-    setResp(null); setLinhas([]); setErro(null); setFase('foto');
+    setResp(null); setLinhas([]); setErro(null); setFase('foto'); setManual(false);
     setContaCriada(null); setLinhasSalvas([]); setValorEditado(false);
     if (previa) URL.revokeObjectURL(previa);
     setPrevia(null);
@@ -309,7 +340,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
             ehTicket && l.pesoKg ? `(${numero(l.pesoKg, 0)} kg ÷ ${numero(l.densidade ?? 0, 2)} t/m³)` : '',
             anexo,
           ].filter(Boolean).join(' '),
-          ...(contaId_ ? { referencia_tipo: 'conta_pagar', referencia_id: contaId_ } : { referencia_tipo: 'leitura_foto' }),
+          ...(contaId_ ? { referencia_tipo: 'conta_pagar', referencia_id: contaId_ } : { referencia_tipo: manual ? 'lancamento_manual' : 'leitura_foto' }),
         };
         await apiFinanceiro('/api/financeiro/estoque', { method: 'POST', body: JSON.stringify(corpo) });
         salvas.push(i);
@@ -333,7 +364,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
     return (
       <Modal titulo="Lançado" onFechar={onFechar} largura="md"
         rodape={<>
-          <BotaoSecundario onClick={recomecar}><Camera className="w-4 h-4" /> Outra foto</BotaoSecundario>
+          <BotaoSecundario onClick={recomecar}><Plus className="w-4 h-4" /> Lançar outro</BotaoSecundario>
           <BotaoPrimario onClick={onFechar}>Fechar</BotaoPrimario>
         </>}>
         <div className="flex items-start gap-2 text-emerald-800">
@@ -346,7 +377,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
 
   if (fase !== 'conferir' || !resp) {
     return (
-      <Modal titulo="Lançar por foto" onFechar={onFechar} largura="md">
+      <Modal titulo="Lançar" onFechar={onFechar} largura="md">
         <p className="text-sm text-gray-600">Fotografe o comprovante, boleto, nota fiscal ou ticket de pesagem. A leitura preenche o formulário; você confere antes de salvar.</p>
         <input ref={inputCamera} type="file" accept="image/*" capture="environment" className="hidden"
           onChange={e => enviar(e.target.files?.[0])} />
@@ -366,6 +397,17 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
           </div>
         )}
         <p className="text-[11px] text-gray-500">Dica: documento inteiro na foto, sem reflexo, bem de frente.</p>
+        {fase !== 'lendo' && (
+          <div className="border-t border-gray-100 pt-3">
+            <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1"><PencilLine className="w-4 h-4" /> Ou lance à mão, sem foto</p>
+            <div className="grid grid-cols-2 gap-2">
+              <BotaoSecundario onClick={() => lancarManual('boleto')}>Conta / boleto</BotaoSecundario>
+              <BotaoSecundario onClick={() => lancarManual('nota_fiscal')}>Nota com mercadoria</BotaoSecundario>
+              <BotaoSecundario onClick={() => lancarManual('ticket_pesagem')}>Ticket de pesagem</BotaoSecundario>
+              <BotaoSecundario onClick={() => lancarManual('comprovante_pagamento')}>Pagamento feito</BotaoSecundario>
+            </div>
+          </div>
+        )}
         {erro && <Aviso tom="erro">{erro}</Aviso>}
       </Modal>
     );
@@ -375,9 +417,9 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   const contaSel = contas.find(c => c.id === contaId);
 
   return (
-    <Modal titulo="Conferir e lançar" onFechar={onFechar} largura="lg"
+    <Modal titulo={manual ? `Lançar à mão · ${ROTULO_TIPO[l.tipo]}` : 'Conferir e lançar'} onFechar={onFechar} largura="lg"
       rodape={<>
-        <BotaoSecundario onClick={recomecar} disabled={salvando}><RotateCcw className="w-4 h-4" /> Outra foto</BotaoSecundario>
+        <BotaoSecundario onClick={recomecar} disabled={salvando}><RotateCcw className="w-4 h-4" /> {manual ? 'Voltar' : 'Outra foto'}</BotaoSecundario>
         <BotaoPrimario onClick={salvar} carregando={salvando}>Salvar</BotaoPrimario>
       </>}>
       <div className="flex items-start gap-3">
@@ -387,10 +429,12 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
           </a>
         )}
         <div className="min-w-0 space-y-1">
-          <div className="flex flex-wrap gap-1">
-            <Selo tom="azul">{ROTULO_TIPO[l.tipo]}</Selo>
-            <Selo tom={l.confianca === 'alta' ? 'verde' : l.confianca === 'media' ? 'amarelo' : 'vermelho'}>leitura {l.confianca}</Selo>
-          </div>
+          {!manual && (
+            <div className="flex flex-wrap gap-1">
+              <Selo tom="azul">{ROTULO_TIPO[l.tipo]}</Selo>
+              <Selo tom={l.confianca === 'alta' ? 'verde' : l.confianca === 'media' ? 'amarelo' : 'vermelho'}>leitura {l.confianca}</Selo>
+            </div>
+          )}
           {l.campos_duvidosos.length > 0 && <p className="text-xs text-amber-800">Conferir com atenção: {l.campos_duvidosos.join(', ')}.</p>}
           {resp.aviso_foto && <p className="text-[11px] text-gray-500">{resp.aviso_foto}</p>}
         </div>
@@ -465,7 +509,8 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
               </div>
             );
           })}
-          {linhas.length === 0 && <Aviso tom="alerta">A leitura não achou o material no ticket. Lance à mão ou tente outra foto.</Aviso>}
+          {linhas.length === 0 && <Aviso tom="alerta">A leitura não achou o material no ticket. Adicione a carga abaixo ou tente outra foto.</Aviso>}
+          <BotaoSecundario onClick={adicionarLinha}><Plus className="w-4 h-4" /> Adicionar carga</BotaoSecundario>
         </div>
       )}
 
@@ -546,7 +591,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
 
         {comEstoque && !ehTicket && (
           <div className="space-y-2">
-            {linhas.length === 0 && <Aviso tom="info">A leitura não trouxe itens. Use a aba Estoque para dar a entrada à mão.</Aviso>}
+            {linhas.length === 0 && <Aviso tom="info">{manual ? 'Adicione os produtos que chegaram.' : 'A leitura não trouxe itens. Adicione os produtos abaixo.'}</Aviso>}
             {linhas.map((ln, i) => {
               const o = opcao(i, ln.produtoId);
               return (
@@ -554,7 +599,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
                   <label className="flex items-start gap-2 text-sm text-gray-800 min-h-[40px]">
                     <input type="checkbox" checked={ln.incluir} onChange={e => mudarLinha(i, { incluir: e.target.checked })} className="w-4 h-4 mt-0.5 accent-[#F7941D]" />
                     <span className="break-words">{ln.descricao}
-                      {resp.leitura.itens[i]?.quantidade !== null && <span className="text-gray-500"> · {numero(resp.leitura.itens[i].quantidade ?? 0, 2)} {resp.leitura.itens[i].unidade ?? ''} na nota</span>}
+                      {resp.leitura.itens[i]?.quantidade != null && <span className="text-gray-500"> · {numero(resp.leitura.itens[i].quantidade ?? 0, 2)} {resp.leitura.itens[i].unidade ?? ''} na nota</span>}
                     </span>
                   </label>
                   {ln.incluir && (
@@ -573,6 +618,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
                 </div>
               );
             })}
+            <BotaoSecundario onClick={adicionarLinha}><Plus className="w-4 h-4" /> Adicionar produto</BotaoSecundario>
           </div>
         )}
         {comEstoque && ehTicket && (

@@ -6,6 +6,7 @@ import type { Alerta, Panorama as PanoramaDados, SaldoConta } from '@/lib/financ
 import { apiFinanceiro } from '@/lib/financeiro/cliente-api';
 import { brl, dataBR, dataCurta, hojeBRT, pct, rotuloMes } from '@/lib/financeiro/formato';
 import { FluxoCaixa30d } from './Graficos';
+import IndicadoresMeta from './IndicadoresMeta';
 import {
   Aviso, BotaoPrimario, BotaoSecundario, Campo, CampoMoeda, Carregando, Cartao, Erro, INPUT, LinhaValor,
   LinkSecao, Modal, Selo,
@@ -57,6 +58,8 @@ export default function Panorama() {
       </div>
 
       {erro && <Erro mensagem={erro} onTentar={carregar} />}
+
+      {dados.indicadores && <IndicadoresMeta ind={dados.indicadores} onSalvo={carregar} />}
 
       {/* Hoje: a rotina de 2 minutos */}
       <Cartao titulo="Hoje" descricao="O que ainda falta na rotina do dia."
