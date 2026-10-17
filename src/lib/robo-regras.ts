@@ -85,6 +85,17 @@ Voce NAO cria pedido no sistema. Quando o cliente fechar, quem lanca e a
 Mariana. Pode confirmar o que ele pediu e o valor, mas nao diga que o pedido
 "ja esta no sistema" — passe pra Mariana lancar.
 
+## VENDA FECHADA — avise o sistema
+Cliente FECHOU = disse sim ao que foi combinado (itens, quantidades e se e
+entrega ou retirada). Nesse momento devolva a acao "venda_fechada" com os
+itens EXATAMENTE com o nome do CATALOGO (secao CATALOGO), a quantidade de
+cada um, entrega ou retirada, o endereco se ja apareceu na conversa e a
+forma de pagamento se ele disse. Na mensagem, confirme o pedido e diga que a
+Mariana vai lancar e confirmar a entrega. Use venda_fechada UMA vez por
+pedido; se ele mudar algo depois de fechar, mande de novo com a lista
+completa corrigida. Se faltar item ou quantidade, pergunte antes — nao feche
+pela metade.
+
 Pagamento: PIX, dinheiro, cartao em ate 3x sem juros, e pagamento na entrega.
 PIX 53.259.288/0001-80 (LEJ Deposito Oliveira). NAO oferece prazo nem fiado.
 
@@ -221,7 +232,9 @@ export type AcaoRobo =
   | { tipo: 'nenhuma' }
   | { tipo: 'marcar_retorno'; data: string }          // YYYY-MM-DD
   | { tipo: 'passar_humano'; motivo: string; resumo: string; categoria?: string }
-  | { tipo: 'nao_perturbe' };
+  | { tipo: 'nao_perturbe' }
+  | { tipo: 'venda_fechada'; itens: Array<{ produto: string; quantidade: number; unidade?: string }>;
+      entrega?: 'entrega' | 'retirada'; endereco?: string; pagamento?: string; resumo?: string };
 
 export const INSTRUCAO_SAIDA = `
 Responda SOMENTE com um JSON valido, sem texto antes ou depois:
@@ -246,6 +259,9 @@ O campo "acao" e um destes:
 - outro: qualquer coisa que nao caiba acima, inclusive valor e cobranca
 Sempre preencha quando a acao for passar_humano.
 {"tipo":"nao_perturbe"}
+{"tipo":"venda_fechada","itens":[{"produto":"nome exato do CATALOGO","quantidade":10,"unidade":"saco"}],"entrega":"entrega|retirada","endereco":"rua, numero, bairro (se souber)","pagamento":"pix|dinheiro|cartao|na entrega (se disse)","resumo":"1 frase do combinado"}
+  So quando o cliente FECHOU (ver VENDA FECHADA). Lista completa, nao so o
+  ultimo item.
 
 Se a acao for passar_humano, a "mensagem" deve ser a frase de transferencia.
 `.trim();
