@@ -219,9 +219,10 @@ interface ProdutoCandidatoRow {
 async function carregarProdutos(): Promise<ProdutoCandidatoRow[]> {
   const base = 'id, nome, unidade, fator_conversao, preco_custo, tipo_estoque, estoque_compartilhado_com, ativo';
   // densidade_t_m3 so existe depois da migration 20261017_estoque_gestao_e_densidade.
-  const comDensidade = await supabaseAdmin.from('produtos').select(`${base}, densidade_t_m3`).eq('ativo', true).limit(1000);
+  // Barra/estribo pronto baixam do ferro em metro: a entrada vai no produto em metro.
+  const comDensidade = await supabaseAdmin.from('produtos').select(`${base}, densidade_t_m3`).eq('ativo', true).is('baixa_estoque_em_produto_id', null).limit(1000);
   if (!comDensidade.error) return (comDensidade.data || []) as ProdutoCandidatoRow[];
-  const sem = await supabaseAdmin.from('produtos').select(base).eq('ativo', true).limit(1000);
+  const sem = await supabaseAdmin.from('produtos').select(base).eq('ativo', true).is('baixa_estoque_em_produto_id', null).limit(1000);
   if (sem.error) throw new Error(sem.error.message);
   return (sem.data || []) as ProdutoCandidatoRow[];
 }
