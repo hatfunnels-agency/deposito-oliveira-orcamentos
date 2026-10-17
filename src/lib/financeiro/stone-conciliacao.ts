@@ -21,7 +21,7 @@
 //   │   └── Transaction (uma por venda; campos marcados * so existem quando Events/Captures = 1)
 //   │       ├── Events { CancellationCharges, Cancellations, Captures, ChargebackRefunds, Chargebacks, Payments }
 //   │       ├── AcquirerTransactionKey (NSU), InitiatorTransactionKey
-//   │       ├── AuthorizationDateTime, CaptureLocalDateTime (aaaammddHHmmss, hora local)
+//   │       ├── AuthorizationDateTime (aaaammddHHmmss, UTC), CaptureLocalDateTime (mesmo formato, hora de Brasilia)
 //   │       ├── AccountType* (2 = credito, 3 = debito no arquivo real), InstallmentType*, NumberOfInstallments*
 //   │       ├── AuthorizedAmount*, CapturedAmount*, CanceledAmount*
 //   │       ├── BrandId*, CardNumber* (truncado), Poi/PoiType, EntryMode
@@ -208,6 +208,12 @@ export function dataStone(s: string | null | undefined): string | null {
   return `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`;
 }
 
+/** aaaammddHHmmss em UTC -> ISO com Z. */
+export function dataHoraStoneUtc(s: string | null | undefined): string | null {
+  const local = dataHoraStone(s);
+  return local ? local.replace(/-\d{2}:00$/, 'Z') : null;
+}
+
 /** 'aaaammddHHmmss' (hora local BRT) -> ISO com offset -03:00. */
 export function dataHoraStone(s: string | null | undefined): string | null {
   if (!s) return null;
@@ -220,10 +226,10 @@ export function dataHoraStone(s: string | null | undefined): string | null {
 
 function modalidadeDe(accountType: string | null): 'credito' | 'debito' {
   const t = (accountType ?? '').trim().toLowerCase();
-  // No arquivo real (15/10/2026) AccountType vem numerico: 2 = credito
-  // (parcelado, previsao D+30) e 3 = debito (previsao D+1, MDR ~1,09%).
-  // Texto ('credit'/'debit') fica aceito por garantia.
-  if (/^(3|debit|d[eé]bito)$/.test(t)) return 'debito';
+  // No arquivo real (out/2026) AccountType vem numerico: 1 = debito
+  // (previsao D+1, MDR ~1,09%), 2 = credito (previsao D+30) e 3 = pre-pago
+  // (cartao pre-pago, liquida como debito). Texto fica aceito por garantia.
+  if (/^(1|3|debit|d[eé]bito|pr[eé]-?pago)$/.test(t)) return 'debito';
   return 'credito';
 }
 
@@ -283,7 +289,9 @@ export function parseConciliacao(xml: string, stoneCode: string, arquivoData: st
     vendas.push({
       stone_code: stoneCode,
       nsu,
-      autorizado_em: dataHoraStone(texto(t, 'AuthorizationDateTime')) ?? dataHoraStone(texto(t, 'CaptureLocalDateTime')) ?? `${referencia}T00:00:00-03:00`,
+      // No arquivo real, AuthorizationDateTime vem em UTC (3h a frente do
+      // horario da loja); CaptureLocalDateTime e o horario local.
+      autorizado_em: dataHoraStone(texto(t, 'CaptureLocalDateTime')) ?? dataHoraStoneUtc(texto(t, 'AuthorizationDateTime')) ?? `${referencia}T00:00:00-03:00`,
       capturado_em: dataHoraStone(texto(t, 'CaptureLocalDateTime')),
       modalidade: modalidadeDe(texto(t, 'AccountType')),
       tipo_parcelamento: texto(t, 'InstallmentType'),
