@@ -5,10 +5,8 @@ import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
-import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
 import { SeletorParcelas } from '@/components/financeiro/Comuns';
-import FuncionariosTab from './FuncionariosTab';
 import ClienteProfile from './ClienteProfile';
 import BuscaEndereco from './BuscaEndereco';
 import MapaEntregas from './MapaEntregas';
@@ -595,7 +593,7 @@ export default function OrcamentoApp() {  // Auth state
       ? ['entregas']
       : papelUsuario === 'atendente'
       ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro']
-      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro', 'funcionarios', 'dashboard', 'ia'];
+      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -615,9 +613,6 @@ export default function OrcamentoApp() {  // Auth state
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userProfile, abaAtiva]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
-  const [inputIA, setInputIA] = useState('');
-  const [carregandoIA, setCarregandoIA] = useState(false);
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
   const [nomeCliente, setNomeCliente] = useState('');
@@ -3434,35 +3429,6 @@ export default function OrcamentoApp() {  // Auth state
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
-    const textoEnviar = pergunta || inputIA;
-    if (!textoEnviar && !tipo) return;
-    setCarregandoIA(true);
-    const labels = {
-      resumo_dia: '📊 Resumo do Dia',
-      relatorio_semanal: '📈 Relatório Semanal',
-      analise_clientes: '👥 Análise de Clientes',
-      previsao_estoque: '📦 Previsão de Estoque',
-    };
-    const msgUsuario = textoEnviar || (tipo ? (labels[tipo as keyof typeof labels] || tipo) : '');
-    setMensagensIA(prev => [...prev, { role: 'user', content: msgUsuario }]);
-    setInputIA('');
-    try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pergunta: msgUsuario, tipo }),
-      });
-      const json = await res.json();
-      const conteudo = json.resposta || (json.error ? 'Erro: ' + json.error : 'Sem resposta.');
-      setMensagensIA(prev => [...prev, { role: 'assistant', content: conteudo }]);
-    } catch {
-      setMensagensIA(prev => [...prev, { role: 'assistant', content: 'Erro ao conectar com a IA.' }]);
-    } finally {
-      setCarregandoIA(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -5517,24 +5483,11 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
-            {/* ===== DASHBOARD TAB ===== */}
-        {abaAtiva === 'dashboard' && (
-          <div className="px-4 pt-4 pb-8">
-            <DashboardTab />
-          </div>
-        )}
-
         {/* ===== FINANCEIRO TAB ===== */}
-        {/* Extratos, DRE e o resto da gestao vivem em /financeiro (link na
-            sidebar e dentro da aba). Aqui fica so o operacional do balcao. */}
+        {/* So o operacional do balcao (clientes com saldo em aberto). Toda a
+            gestao (extratos, fechamento, funcionarios, dashboard) vive em /financeiro. */}
         {abaAtiva === 'financeiro' && (
-          <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />
-        )}
-
-        {/* ===== FUNCIONARIOS TAB ===== */}
-        {/* Salario e so do admin: a API tambem confere o papel. */}
-        {abaAtiva === 'funcionarios' && papelUsuario === 'admin' && (
-          <FuncionariosTab />
+          <FinanceiroTab simples onAbrirPedido={abrirDetalhe} />
         )}
 
         {/* ===== ESTOQUE TAB ===== */}
@@ -6827,77 +6780,6 @@ export default function OrcamentoApp() {  // Auth state
         </div>
       )}
 
-
-      {/* === ABA IA === */}
-      {abaAtiva === 'ia' && (
-        <div className="pb-8">
-          <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
-            <h2 className="text-lg font-bold text-gray-800 mb-1">🤖 Assistente IA</h2>
-            <p className="text-sm text-gray-500">Pergunte qualquer coisa sobre o negócio</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <button onClick={() => enviarPerguntaIA(undefined, 'resumo_dia')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">📊</div>
-              <div className="font-semibold text-gray-800 text-sm">Resumo do Dia</div>
-              <div className="text-xs text-gray-500">Faturamento e pedidos hoje</div>
-            </button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'relatorio_semanal')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">📈</div>
-              <div className="font-semibold text-gray-800 text-sm">Relatório Semanal</div>
-              <div className="text-xs text-gray-500">Performance da semana</div>
-            </button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'analise_clientes')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">👥</div>
-              <div className="font-semibold text-gray-800 text-sm">Análise de Clientes</div>
-              <div className="text-xs text-gray-500">Perfil e comportamento</div>
-            </button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'previsao_estoque')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">📦</div>
-              <div className="font-semibold text-gray-800 text-sm">Previsão de Estoque</div>
-              <div className="text-xs text-gray-500">Reposição necessária</div>
-            </button>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="h-80 overflow-y-auto mb-4 space-y-3">
-              {mensagensIA.length === 0 && (
-                <p className="text-gray-400 text-sm text-center pt-8">Use os botões acima ou digite uma pergunta</p>
-              )}
-              {mensagensIA.map((msg, idx) => (
-                <div key={idx} className={msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                  <div className={msg.role === 'user'
-                    ? 'bg-orange-100 text-gray-800 rounded-2xl rounded-tr-sm px-4 py-2 max-w-xs text-sm'
-                    : 'bg-gray-100 text-gray-800 rounded-2xl rounded-tl-sm px-4 py-2 max-w-sm text-sm'}>
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                </div>
-              ))}
-              {carregandoIA && (
-                <div className="flex justify-start">
-                  <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2 text-sm text-gray-500">Pensando...</div>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inputIA}
-                onChange={e => setInputIA(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !carregandoIA) enviarPerguntaIA(inputIA, undefined); }}
-                placeholder="Pergunte sobre vendas, estoque, clientes..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
-                disabled={carregandoIA}
-              />
-              <button
-                onClick={() => enviarPerguntaIA(inputIA, undefined)}
-                disabled={carregandoIA || !inputIA.trim()}
-                className="bg-[#F7941D] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#E8850A] transition disabled:opacity-50"
-              >
-                Enviar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* === MODAL CALCULADORA DE FERRO === */}
       {/* Cobranca ao concluir entrega com saldo em aberto */}

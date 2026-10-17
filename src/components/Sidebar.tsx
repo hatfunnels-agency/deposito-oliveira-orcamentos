@@ -10,10 +10,8 @@ import {
   Warehouse,
   Wallet,
   BarChart3,
-  Sparkles,
   ListChecks,
   Headset,
-  IdCard,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -27,10 +25,7 @@ export type AbaKey =
   | 'ferragens'
   | 'entregas'
   | 'estoque'
-  | 'financeiro'
-  | 'funcionarios'
-  | 'ia'
-  | 'dashboard';
+  | 'financeiro';
 
 interface SidebarItem {
   key: AbaKey;
@@ -38,7 +33,8 @@ interface SidebarItem {
   icon: LucideIcon;
 }
 
-// Ordem definitiva dos 11 items. abasVisiveis (no parent) filtra por role.
+// Ordem definitiva dos items. Funcionarios, Dashboard e o assistente
+// moraram aqui ate out/2026; agora vivem em /financeiro (Gestao). abasVisiveis (no parent) filtra por role.
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'produtos', label: 'Catálogo', icon: Package },
   { key: 'orcamento', label: 'Orçamento', icon: ShoppingCart },
@@ -48,17 +44,14 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'entregas', label: 'Entregas', icon: Truck },
   { key: 'estoque', label: 'Estoque', icon: Warehouse },
   { key: 'financeiro', label: 'Financeiro', icon: Wallet },
-  { key: 'funcionarios', label: 'Funcionários', icon: IdCard },
-  { key: 'dashboard', label: 'Dashboard', icon: BarChart3 },
-  { key: 'ia', label: 'IA', icon: Sparkles },
 ];
 
 // Paginas proprias (fora das abas): navegam pra outra rota. Ficam no topo
 // porque e por onde a atendente comeca o dia. Motorista nao ve.
-const PAGINAS: Array<{ href: string; label: string; icon: LucideIcon }> = [
+const PAGINAS: Array<{ href: string; label: string; icon: LucideIcon; soAdmin?: boolean }> = [
   { href: '/tarefas', label: 'Tarefas do dia', icon: ListChecks },
   { href: '/atendimento', label: 'Atendimento', icon: Headset },
-  { href: '/financeiro', label: 'Gestão financeira', icon: Wallet },
+  { href: '/financeiro', label: 'Gestão', icon: BarChart3, soAdmin: true },
 ];
 
 interface SidebarProps {
@@ -122,7 +115,8 @@ export default function Sidebar({
             navegar na mesma aba apagaria o carrinho, que so vive em memoria. */}
         {abasVisiveis.includes('orcamento') && (
           <nav className="mb-3 flex flex-col gap-1 border-b border-slate-700 pb-3">
-            {PAGINAS.map(p => {
+            {/* Sidebar nao recebe o papel; 'estoque' so aparece pro admin. */}
+            {PAGINAS.filter(p => !p.soAdmin || abasVisiveis.includes('estoque')).map(p => {
               const Icone = p.icon;
               const novaAba = quantidadeItens > 0;
               return (
