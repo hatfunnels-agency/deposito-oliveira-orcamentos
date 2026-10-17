@@ -399,6 +399,33 @@ export async function candidatosPosvenda(): Promise<Candidato[]> {
 // Cadencia por tempo desde a ultima compra:
 //   obra ativa (<=30d) -> 7 dias | 31-60d -> 15 dias | >60d -> 30 dias
 // Nao dispara pra quem tem orcamento aberto (o follow-up ja esta cuidando).
+//
+// "Ultima compra" = o dia mais recente entre criado_em, data_entrega e
+// data_retirada dos pedidos confirmados (nem orcamento nem cancelado), em
+// dias corridos de Brasilia. Antes contava so o criado_em: pedido fechado
+// numa segunda pra entregar na sexta "fazia 7 dias" na segunda seguinte, e o
+// cliente recebia "faz um tempo que nao pede nada" 2-3 dias depois de
+// receber o material (caso Tay/Ferreira Topografia, 10/2026). E quem tem
+// pedido EM ANDAMENTO (pagamento, separacao, entrega/retirada pendente, em
+// rota, ocorrencia) ou entrega marcada pra hoje/futuro nao recebe nada: a
+// obra esta ativa e a gente ja esta falando com ele por causa do pedido.
+const STATUS_PEDIDO_EM_ANDAMENTO = [
+  'pagamento_pendente', 'pagamento_ok', 'separacao', 'entrega_pendente',
+  'entrega_parcial', 'retirada_pendente', 'em_rota', 'ocorrencia',
+];
+
+// Minimo de dias corridos sem compra antes de qualquer reativacao.
+export const REATIVACAO_MIN_DIAS = 7;
+
+// Dia (AAAA-MM-DD) em Brasilia de um timestamp ou de uma coluna date.
+function diaBrasilia(v: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return v;
+  return new Date(new Date(v).getTime() - 3 * 3600_000).toISOString().slice(0, 10);
+}
+
+function diasEntre(deDia: string, ateDia: string): number {
+  return Math.round((Date.parse(`${ateDia}T00:00:00Z`) - Date.parse(`${deDia}T00:00:00Z`)) / 86_400_000);
+}
 // Ate onde a reativacao olha pra tras. Antes isto nao existia por escrito:
 // o Supabase corta em 1.000 linhas, e as 1.000 mais recentes davam ~54 dias
 // (e encolhendo conforme o movimento cresce). Na pratica quem nao compra ha
@@ -413,7 +440,7 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
   try {
     compras = await lerTudo(() => supabaseAdmin
       .from('orcamentos')
-      .select('cliente_id, criado_em, status, clientes (id, nome, telefone, data_followup)')
+      .select('cliente_id, criado_em, data_entrega, data_retirada, status, clientes (id, nome, telefone, data_followup)')
       .not('cliente_id', 'is', null)
       .gte('criado_em', new Date(Date.now() - REATIVACAO_MAX_DIAS * 86_400_000).toISOString())
       .order('criado_em', { ascending: false }));
@@ -421,7 +448,18 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     throw new Error(`reativacao: ${(e as Error).message}`);
   }
 
-  const ultimaCompra = new Map<string, { quando: string; cli: any }>();
+  // Pedido em andamento SEM janela de data: pedido antigo com entrega
+  // reagendada pra frente tambem segura a reativacao.
+  const { data: andamento, error: errAndamento } = await supabaseAdmin
+    .from('orcamentos')
+    .select('cliente_id')
+    .not('cliente_id', 'is', null)
+    .in('status', STATUS_PEDIDO_EM_ANDAMENTO);
+  if (errAndamento) throw new Error(`reativacao: ${errAndamento.message}`);
+  const temPedidoEmAndamento = new Set((andamento || []).map((r: any) => String(r.cliente_id)));
+
+  // Dia da ultima compra (AAAA-MM-DD, Brasilia) — ver comentario do topo.
+  const ultimaCompra = new Map<string, { dia: string; cli: any }>();
   const temOrcamentoAberto = new Set<string>();
 
   for (const row of compras || []) {
@@ -429,9 +467,13 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     if (!r.cliente_id) continue;
     if (r.status === 'orcamento') { temOrcamentoAberto.add(r.cliente_id); continue; }
     if (r.status === 'cancelado') continue;
-    if (!ultimaCompra.has(r.cliente_id)) {
-      ultimaCompra.set(r.cliente_id, { quando: r.criado_em, cli: r.clientes });
-    }
+    const dia = [r.criado_em, r.data_entrega, r.data_retirada]
+      .filter(Boolean)
+      .map((v: string) => diaBrasilia(v))
+      .sort()
+      .pop()!;
+    const atual = ultimaCompra.get(r.cliente_id);
+    if (!atual || dia > atual.dia) ultimaCompra.set(r.cliente_id, { dia, cli: r.clientes });
   }
 
   // Ultimo envio de reativacao por cliente, pro freio de cadencia.
@@ -453,16 +495,20 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
   const hoje = new Date();
   const saida: Candidato[] = [];
 
-  for (const [clienteId, { quando, cli }] of ultimaCompra) {
+  const hojeDia = hojeBrasilia();
+
+  for (const [clienteId, { dia, cli }] of ultimaCompra) {
     if (temOrcamentoAberto.has(clienteId)) continue;
+    if (temPedidoEmAndamento.has(clienteId)) continue;
     if (bloqueados.has(clienteId)) continue;
     if (!cli?.telefone) continue;
     if (retornoAindaNaoChegou(cli.data_followup)) continue;
 
-    const diasSemComprar = Math.floor((hoje.getTime() - new Date(quando).getTime()) / 86_400_000);
-    if (diasSemComprar < 7) continue;
+    // Entrega/retirada hoje ou no futuro da diasSemComprar <= 0 e cai aqui.
+    const diasSemComprar = diasEntre(dia, hojeDia);
+    if (diasSemComprar < REATIVACAO_MIN_DIAS) continue;
 
-    const cadenciaDias = isObraAtivaActive(quando) ? 7 : diasSemComprar <= 60 ? 15 : 30;
+    const cadenciaDias = isObraAtivaActive(`${dia}T12:00:00-03:00`) ? 7 : diasSemComprar <= 60 ? 15 : 30;
     const momento = cadenciaDias === 7 ? 'semanal' : cadenciaDias === 15 ? 'quinzenal' : 'mensal';
 
     const anterior = ultimoEnvio.get(clienteId);

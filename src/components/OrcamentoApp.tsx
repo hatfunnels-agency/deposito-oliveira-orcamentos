@@ -11,6 +11,7 @@ import ClienteProfile from './ClienteProfile';
 import BuscaEndereco from './BuscaEndereco';
 import MapaEntregas from './MapaEntregas';
 import Sidebar, { type AbaKey } from './Sidebar';
+import EditarClienteEndereco from './EditarClienteEndereco';
 import { Menu, LogOut } from 'lucide-react';
 import { TAGS_VALIDAS } from '@/lib/tags';
 
@@ -673,6 +674,8 @@ export default function OrcamentoApp() {  // Auth state
   // null = caller cai no fallback do backend (is_padrao) ou em endereco_novo
   // quando modoEndereco='novo'.
   const [enderecosDoCliente, setEnderecosDoCliente] = useState<EnderecoClienteUI[]>([]);
+  // Editar nome/endereco do cliente: 'form' (aba Orcamento) ou 'detalhe' (pedido aberto).
+  const [editandoCliente, setEditandoCliente] = useState<'form' | 'detalhe' | null>(null);
   const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
   const [modoEndereco, setModoEndereco] = useState<'existente' | 'novo'>('existente');
   const [enderecoNovoForm, setEnderecoNovoForm] = useState<EnderecoNovoForm>(ENDERECO_NOVO_VAZIO);
@@ -1761,6 +1764,15 @@ export default function OrcamentoApp() {  // Auth state
   // Recibo do pedido confirmado — o que vai pro cliente depois do "Confirmar
   // venda". Leva endereco, data e os dois avisos: conferir no recebimento e
   // que a equipe nao guarda o material na obra (o mesmo da impressao).
+  // Desconto na mensagem do WhatsApp (orcamento e recibo): o cliente ve o
+  // valor cheio, o desconto e o total. Sem desconto, nao sai linha nenhuma.
+  const linhasDesconto = (valor: number | null | undefined, pct: number | null | undefined): string[] => {
+    const v = Number(valor) || 0;
+    if (v < 0.01) return [];
+    const p = Number(pct) || 0;
+    return [`🏷️ *Desconto: − R$ ${formatBRL(v)}*${p >= 0.1 ? ` (${p.toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%)` : ''}`];
+  };
+
   const gerarReciboWhatsApp = (d: OrcamentoDetalhe): string => {
     const fmtData = (iso: string) => new Date(iso + 'T12:00:00').toLocaleDateString('pt-BR');
     const SEP = '------------------------------';
@@ -1793,6 +1805,7 @@ export default function OrcamentoApp() {  // Auth state
       ...itensTxt,
       '',
       Number(d.valor_frete) > 0 ? `Frete: R$ ${formatBRL(Number(d.valor_frete))}` : null,
+      ...linhasDesconto(d.desconto_valor, d.desconto_percentual),
       `*TOTAL: R$ ${formatBRL(d.total)}*`,
       d.forma_pagamento ? `*Pagamento:* ${formas[d.forma_pagamento] || d.forma_pagamento}` : null,
       SEP,
@@ -1841,6 +1854,7 @@ export default function OrcamentoApp() {  // Auth state
         '*Produtos:*',
         ...detalhe.orcamento_itens.map(i => formatarItem(i.produto_nome, Number(i.quantidade), i.unidade, Number(i.subtotal))),
         '',
+        ...linhasDesconto(detalhe.desconto_valor, detalhe.desconto_percentual),
         `*TOTAL: R$ ${formatBRL(detalhe.total)}*`,
         'Em até 3x sem juros',
         '',
@@ -1877,6 +1891,9 @@ export default function OrcamentoApp() {  // Auth state
         (i.preco_custom ?? i.produto.preco) * i.quantidade,
       )),
       '',
+      ...(totalFinal < subtotal - 0.005
+        ? linhasDesconto(subtotal - totalFinal, subtotal > 0 ? ((subtotal - totalFinal) / subtotal) * 100 : 0)
+        : []),
       `*TOTAL: R$ ${formatBRL(totalFinal)}*`,
       'Em até 3x sem juros',
       '',
@@ -2125,7 +2142,19 @@ export default function OrcamentoApp() {  // Auth state
       ? new Date(ep.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')
       : new Date(ep.criado_em).toLocaleDateString('pt-BR');
     const itensHtml = ep.entregas_parciais_itens.map(epi => `<tr><td style="padding:9px 12px;border-bottom:1px solid #eee">${epi.orcamento_itens?.produto_nome || '—'}</td><td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:center;font-weight:bold">${epi.quantidade}</td><td style="padding:9px 12px;border-bottom:1px solid #eee;text-align:center">${epi.orcamento_itens?.unidade || ''}</td></tr>`).join('');
-    const obs = ep.observacoes ? `<p style="margin:10px 0;padding:8px 10px;background:#f9fafb;border-left:3px solid #4338ca;font-size:13px;color:#555"><b>Observações:</b> ${ep.observacoes}</p>` : '';
+    // Saldo do pedido na folha da viagem: o motorista precisa saber se cobra.
+    // Mesmas tres situacoes da folha do pedido inteiro (pago / a prazo / a receber).
+    const totalPed = Number(d.total) || 0;
+    const pagoPed = Number((d as any).valor_pago) || 0;
+    const saldoPed = totalPed - pagoPed;
+    const condPed = (d as any).condicao_pagamento as string | null;
+    const vencPed = (d as any).vencimento as string | null;
+    const pagHtml = saldoPed <= 0.01
+      ? `<p style="margin:10px 0;padding:8px 10px;border-left:4px solid #16a34a;background:#f0fdf4;font-size:14px;color:#15803d"><b>Pagamento:</b> ✓ Pedido pago</p>`
+      : condPed === 'prazo'
+        ? `<p style="margin:10px 0;padding:8px 10px;border-left:4px solid #ca8a04;background:#fefce8;font-size:14px;color:#a16207"><b>Pagamento:</b> A prazo${vencPed ? ' · vence ' + new Date(vencPed + 'T12:00:00').toLocaleDateString('pt-BR') : ''} — não cobrar na entrega</p>`
+        : `<p style="margin:10px 0;padding:10px 12px;border:2px solid #d97706;border-left-width:6px;background:#fffbeb;font-size:16px;color:#92400e"><b>A RECEBER: R$ ${formatBRL(saldoPed)}</b><br/><span style="font-size:12px">Pedido R$ ${formatBRL(totalPed)}${pagoPed > 0 ? ' · já pago R$ ' + formatBRL(pagoPed) : ''}. Combine com o escritório se cobra nesta viagem.</span></p>`;
+    const obs = pagHtml + (ep.observacoes ? `<p style="margin:10px 0;padding:8px 10px;background:#f9fafb;border-left:3px solid #4338ca;font-size:13px;color:#555"><b>Observações:</b> ${ep.observacoes}</p>` : '');
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Entrega ${cod} #${ep.numero_entrega}</title><style>@page{size:A4 portrait;margin:14mm}*{box-sizing:border-box}body{font-family:Arial,sans-serif;font-size:15px;color:#333;margin:0;padding:0}.hdr{display:flex;align-items:center;gap:16px;margin-bottom:12px}.hdr img{height:64px;width:auto}.hdr h1{margin:0;font-size:22px;color:#F7941D}.hdr p{margin:3px 0;color:#666;font-size:13px}hr{border:none;border-top:2px solid #F7941D;margin:10px 0}.title{font-size:18px;font-weight:bold;color:#4338ca;margin:14px 0 4px}.subtitle{font-size:12px;color:#666;margin-bottom:10px}.ig{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;margin:8px 0}.ir{font-size:14px;line-height:1.8}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin:12px 0;font-size:15px}th{background:#4338ca;color:white;padding:10px 12px;text-align:left}.tc{text-align:center}.sign{margin-top:50px;display:grid;grid-template-columns:1fr 1fr;gap:40px}.sign-box{border-top:1px solid #333;padding-top:6px;text-align:center;font-size:12px;color:#666}.ftr{margin-top:30px;padding-top:8px;border-top:1px solid #ddd;font-size:11px;color:#999;text-align:center}</style></head><body><div class="hdr"><img src="${logoBase64||'/logo.png'}" alt="Logo"/><div><h1>Depósito Oliveira</h1><p>Materiais de Construção</p><p>Av. Inocêncio Seráfico, 4020 - Centro | Carapicuíba - SP, 06380-021</p><p>Tel: (11) 4187-1801</p></div></div><hr/><p class="title">Comprovante de Entrega #${ep.numero_entrega}</p><p class="subtitle">Itens desta entrega — pedido ${cod}</p><div class="ig"><div class="ir"><b>Pedido:</b> ${cod}</div><div class="ir"><b>Data:</b> ${dataFmt}</div><div class="ir"><b>Cliente:</b> ${nome}</div>${tel?'<div class="ir"><b>Telefone:</b> '+tel+'</div>':''}<div class="ir"><b>Tipo:</b> ${tipo==='entrega'?'Entrega no endereço':'Retirada na loja'}</div>${tipo==='entrega'&&end?'<div class="ir full"><b>Endereço:</b> '+end+'</div>':''}</div><table><thead><tr><th>Produto</th><th class="tc">Quantidade</th><th class="tc">Unidade</th></tr></thead><tbody>${itensHtml}</tbody></table>${obs}<div class="sign"><div class="sign-box">Entregue por</div><div class="sign-box">Recebido por (assinatura)</div></div><div class="ftr">Depósito Oliveira · Comprovante da entrega #${ep.numero_entrega} do pedido ${cod}</div></body></html>`;
     printWindow.document.write(html);
     printWindow.document.close();
@@ -3746,8 +3775,14 @@ export default function OrcamentoApp() {  // Auth state
                             <button onClick={() => setClienteProfileId(clienteEncontrado.id)} className="mt-1 text-xs font-semibold text-[#F7941D] hover:underline">Ver perfil</button>
                           )}
                         </div>
-                        <button onClick={trocarClienteForm}
-                          className="shrink-0 bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">Trocar cliente</button>
+                        <div className="shrink-0 flex flex-col gap-1.5">
+                          <button onClick={trocarClienteForm}
+                            className="bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">Trocar cliente</button>
+                          {clienteEncontrado?.id && (
+                            <button onClick={() => setEditandoCliente('form')}
+                              className="bg-white border border-gray-300 text-gray-700 text-sm font-medium rounded-lg px-3 py-1.5 hover:bg-gray-50 transition">✏️ Editar</button>
+                          )}
+                        </div>
                       </div>
                       {/* Endereco no proprio cartao: la embaixo, so depois de marcar
                           "Entrega", ninguem achava como trocar (13/10). Sem endereco
@@ -4227,6 +4262,38 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 </div>
               </div>
+              </div>
+            )}
+          </div>
+          {/* Painel lateral: resumo e acoes, como no sistema de referencia — o
+              cliente que ja quer fechar nao precisa gerar orcamento, abrir e
+              confirmar. No celular desce pra baixo do formulario. */}
+          <aside className="mt-4 lg:mt-0">
+            <div className="lg:sticky lg:top-4 space-y-3">
+              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+                <h2 className="font-bold text-gray-800 mb-2">Resumo</h2>
+                <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal ({itens.length} {itens.length === 1 ? 'item' : 'itens'})</span><span className="font-medium text-gray-800">R$ {formatBRL(subtotal)}</span></div>
+                {totalFinal < subtotal - 0.005 && (
+                  <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Desconto</span><span className="font-medium text-green-700">− R$ {formatBRL(subtotal - totalFinal)}</span></div>
+                )}
+                <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-gray-800">Total</span><span className="font-bold text-2xl text-[#E8850A]">R$ {formatBRL(totalFinal)}</span></div>
+              {/* Card pricing */}
+              {(() => {
+                const p = montarParcelasCartao(totalFinal, ACRESCIMO_CARTAO);
+                return (
+                  <div className="mt-3 pt-3 border-t border-gray-100 text-sm">
+                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista (PIX/dinheiro):</span><span className="font-bold text-gray-800">R$ {formatBRL(p.valorAVista)}</span></div>
+                    <div className="text-gray-600 mb-1"><span className="block font-medium">💳 Cartão até 3x sem juros:</span>
+                      <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-200 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                    </div>
+                    <div className="text-gray-600"><span className="block font-medium">💳 Cartão 4x-6x (+8%):</span>
+                      <div className="flex flex-wrap gap-1 mt-1">{p.comAcrescimo.map(par => (<span key={par.n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
+                    </div>
+                  </div>
+                );
+              })()}
+              </div>
+              {/* Simulador de desconto na lateral, perto do total e dos botoes. */}
               {/* === SIMULADOR DE DESCONTO === */}
               {itens.length > 0 && (() => {
                 const MARGEM_MINIMA = 0.20;
@@ -4246,7 +4313,7 @@ export default function OrcamentoApp() {  // Auth state
                 const getMargemIcon = (m: number, ok?: boolean) => ok !== undefined ? (ok ? '✅' : '❌') : (m >= 0.30 ? '✅' : m >= 0.20 ? '⚠️' : '❌');
 
                 return custoTotal > 0 ? (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
                     <button onClick={() => setMostrarSimulador(!mostrarSimulador)} className="w-full flex items-center justify-between text-sm font-bold text-blue-800 mb-2">
                       <span>💰 Simulador de Desconto</span>
                       <span className="text-xs font-normal text-blue-600">Margem atual: <span className={getMargemColor(margemAtual)}>{(margemAtual * 100).toFixed(1)}%</span> | Máx: {descontoMaxPct.toFixed(1)}%</span>
@@ -4346,60 +4413,45 @@ export default function OrcamentoApp() {  // Auth state
                   </div>
                 ) : null;
               })()}
-              </div>
-            )}
-          </div>
-          {/* Painel lateral: resumo e acoes, como no sistema de referencia — o
-              cliente que ja quer fechar nao precisa gerar orcamento, abrir e
-              confirmar. No celular desce pra baixo do formulario. */}
-          <aside className="mt-4 lg:mt-0">
-            <div className="lg:sticky lg:top-4 space-y-3">
+              {/* Acoes em duas secoes: salvar orcamento (cliente ainda decide) em
+                  cima, neutro; venda fechada embaixo, verde e com confirmacao. A
+                  atendente confundia os dois botoes quando eram vizinhos (out/2026). */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                <h2 className="font-bold text-gray-800 mb-2">Resumo</h2>
-                <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Subtotal ({itens.length} {itens.length === 1 ? 'item' : 'itens'})</span><span className="font-medium text-gray-800">R$ {formatBRL(subtotal)}</span></div>
-                {totalFinal < subtotal - 0.005 && (
-                  <div className="flex justify-between text-sm text-gray-600 mb-1"><span>Desconto</span><span className="font-medium text-green-700">− R$ {formatBRL(subtotal - totalFinal)}</span></div>
+                {!enderecoResolvido && tipoEntrega === 'entrega' && (
+                  <div className="text-sm text-red-600 mb-2">Informe o endereço de entrega antes de salvar.</div>
                 )}
-                <div className="flex justify-between items-baseline mt-2 pt-2 border-t border-gray-200"><span className="font-bold text-gray-800">Total</span><span className="font-bold text-2xl text-[#E8850A]">R$ {formatBRL(totalFinal)}</span></div>
-              {/* Card pricing */}
-              {(() => {
-                const p = montarParcelasCartao(totalFinal, ACRESCIMO_CARTAO);
-                return (
-                  <div className="mt-3 pt-3 border-t border-gray-100 text-sm">
-                    <div className="flex justify-between text-gray-600 mb-1"><span>💵 À vista (PIX/dinheiro):</span><span className="font-bold text-gray-800">R$ {formatBRL(p.valorAVista)}</span></div>
-                    <div className="text-gray-600 mb-1"><span className="block font-medium">💳 Cartão até 3x sem juros:</span>
-                      <div className="flex flex-wrap gap-1 mt-1">{p.semJuros.map(par => (<span key={par.n} className="text-xs bg-green-50 border border-green-200 rounded px-2 py-0.5 text-green-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
-                    </div>
-                    <div className="text-gray-600"><span className="block font-medium">💳 Cartão 4x-6x (+8%):</span>
-                      <div className="flex flex-wrap gap-1 mt-1">{p.comAcrescimo.map(par => (<span key={par.n} className="text-xs bg-orange-50 border border-orange-200 rounded px-2 py-0.5 text-orange-700">{par.n}x R$ {formatBRL(par.valor)}</span>))}</div>
-                    </div>
-                  </div>
-                );
-              })()}
-              </div>
-              <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-                            {!enderecoResolvido && tipoEntrega === 'entrega' && (
-                              <div className="text-sm text-red-600 mb-2">
-                                Informe o endereço de entrega antes de salvar.
-                              </div>
-                            )}
-                            {itens.length === 0 && (
-                              <div className="text-sm text-gray-500 mb-2">Adicione pelo menos um produto pra salvar.</div>
-                            )}
-                            {statusPedidoForm === 'orcamento' && (
-                              <button onClick={() => salvarEGerarOrcamento(tipoEntrega === 'entrega' ? 'entrega_pendente' : 'retirada_pendente')}
-                                disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
-                                className="w-full bg-[#F7941D] text-white py-3 px-2 rounded-xl text-sm font-bold hover:bg-[#E8850A] transition shadow disabled:opacity-60">
-                                {salvandoOrcamento ? 'Salvando...' : tipoEntrega === 'entrega' ? '✅ Salvar e confirmar venda (entrega)' : '✅ Salvar e confirmar venda (retirada)'}
-                              </button>
-                            )}
-                            {statusPedidoForm === 'orcamento' && (
-                              <p className="text-[11px] text-gray-500 mt-1 mb-2 leading-snug">O cliente já fechou? Pula o orçamento: vai direto pra {tipoEntrega === 'entrega' ? 'Entrega' : 'Retirada'} Pendente e baixa o estoque.</p>
-                            )}
-                            <button onClick={() => salvarEGerarOrcamento()} disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
-                  className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition shadow disabled:opacity-60">
-                  {salvandoOrcamento ? 'Salvando...' : editandoId ? (statusPedidoForm === 'orcamento' ? 'Atualizar orçamento' : 'Salvar pedido') : 'Salvar orçamento'}
-                </button>
+                {itens.length === 0 && (
+                  <div className="text-sm text-gray-500 mb-2">Adicione pelo menos um produto pra salvar.</div>
+                )}
+                {statusPedidoForm === 'orcamento' ? (
+                  <>
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 mb-1">Ainda é orçamento</p>
+                    <button onClick={() => salvarEGerarOrcamento()} disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
+                      className="w-full bg-white border-2 border-gray-300 text-gray-800 py-3 rounded-xl font-bold hover:bg-gray-50 transition disabled:opacity-60">
+                      {salvandoOrcamento ? 'Salvando...' : editandoId ? '💾 Atualizar orçamento' : '💾 Salvar orçamento'}
+                    </button>
+                    <p className="text-[11px] text-gray-500 mt-1 leading-snug">O cliente ainda vai decidir. Não baixa estoque nem vira entrega.</p>
+
+                    <div className="my-4 border-t-2 border-dashed border-gray-200" />
+
+                    <p className="text-[11px] font-semibold uppercase tracking-wide text-green-700 mb-1">Cliente fechou a compra</p>
+                    <button onClick={() => {
+                        const destino = tipoEntrega === 'entrega' ? 'Entrega Pendente' : 'Retirada Pendente';
+                        if (!window.confirm(`Confirmar a VENDA?\n\nO pedido vai para ${destino} e o estoque é baixado.\n\nSe o cliente ainda não fechou, cancele e use "Salvar orçamento".`)) return;
+                        salvarEGerarOrcamento(tipoEntrega === 'entrega' ? 'entrega_pendente' : 'retirada_pendente');
+                      }}
+                      disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
+                      className="w-full bg-green-600 text-white py-3 px-2 rounded-xl font-bold hover:bg-green-700 transition shadow disabled:opacity-60">
+                      {salvandoOrcamento ? 'Salvando...' : tipoEntrega === 'entrega' ? '✅ Confirmar venda (entrega)' : '✅ Confirmar venda (retirada)'}
+                    </button>
+                    <p className="text-[11px] text-gray-500 mt-1 leading-snug">Vai direto para {tipoEntrega === 'entrega' ? 'Entrega' : 'Retirada'} Pendente e baixa o estoque.</p>
+                  </>
+                ) : (
+                  <button onClick={() => salvarEGerarOrcamento()} disabled={salvandoOrcamento || !enderecoResolvido || itens.length === 0}
+                    className="w-full bg-green-600 text-white py-3 rounded-xl font-bold hover:bg-green-700 transition shadow disabled:opacity-60">
+                    {salvandoOrcamento ? 'Salvando...' : '💾 Salvar pedido'}
+                  </button>
+                )}
                 {/* Descartar: o cliente desistiu e o carrinho ficava pro proximo
                     cliente. Editando, so larga a edicao — o orcamento salvo fica. */}
                 {(itens.length > 0 || nomeCliente || editandoId) && (
@@ -4408,7 +4460,7 @@ export default function OrcamentoApp() {  // Auth state
                       if (editandoId) { if (window.confirm('Sair da edição sem salvar as mudanças?')) cancelarEdicao(); return; }
                       if (window.confirm('Descartar este orçamento? Os produtos e o cliente saem do formulário.')) resetarFormulario();
                     }}
-                    className="w-full mt-2 border border-gray-300 text-gray-600 py-2.5 rounded-xl text-sm font-medium hover:bg-gray-50 transition">
+                    className="w-full mt-4 text-gray-500 py-2 rounded-xl text-sm hover:bg-gray-50 transition">
                     {editandoId ? 'Descartar mudanças' : '🗑️ Descartar orçamento'}
                   </button>
                 )}
@@ -5037,19 +5089,15 @@ export default function OrcamentoApp() {  // Auth state
                           onClick={ev => { ev.stopPropagation(); setExpandedDia(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id]); }}
                           className="shrink-0 text-xs text-orange-500 hover:text-orange-700 px-2 py-1 rounded hover:bg-orange-50 whitespace-nowrap"
                         >
-                          {expandedDia.includes(e.id) ? '▲ Fechar' : '📦 Ver pedido'}
+                          {expandedDia.includes(e.id) ? '▲ Recolher' : '▼ Expandir'}
                         </button>
                           {/* Sem atalho de motorista aqui: em Pendentes o pedido
                               ainda nao saiu, e quem leva e definido no envio para
                               rota. Corrigir depois se faz em Em Rota. */}
                           <button onClick={() => abrirDetalhe(e.id)} className="shrink-0 text-xs text-blue-500 hover:text-blue-700 px-2 py-1 rounded hover:bg-blue-50 whitespace-nowrap">📋 Ver Pedido</button>
-                          {/* Concluir direto, sem passar por rota/leva (entrega feita
-                              fora do roteiro, ou registrada depois). */}
-                          <button
-                            onClick={ev => { ev.stopPropagation(); iniciarConclusaoEntrega(e); }}
-                            disabled={loadingCompleto === e.id}
-                            className="shrink-0 text-xs font-semibold text-green-700 border border-green-300 bg-white px-2 py-1 rounded hover:bg-green-50 whitespace-nowrap disabled:opacity-50"
-                          >{loadingCompleto === e.id ? '...' : '✔ Entregue'}</button>
+                          {/* Sem "Entregue" aqui de proposito: a entrega passa por Em Rota
+                              (com motorista) antes de ser concluida. Entrega feita fora
+                              do roteiro se conclui abrindo o pedido (Ver Pedido). */}
                       </div>
                       {expandedDia.includes(e.id) && (
                         <div className="border-t border-gray-100 bg-orange-50 px-4 py-3 text-xs space-y-1">
@@ -5497,6 +5545,43 @@ export default function OrcamentoApp() {  // Auth state
 
 
 
+      {/* Editar nome/endereco do cliente (aba Orcamento ou pedido aberto) */}
+      {editandoCliente === 'form' && clienteEncontrado?.id && (() => {
+        const endSel = enderecosDoCliente.find(x => x.id === enderecoIdSelecionado) ?? null;
+        return (
+          <EditarClienteEndereco
+            clienteId={clienteEncontrado.id}
+            nome={clienteEncontrado.nome || nomeCliente}
+            recebedor={recebedor || clienteEncontrado.recebedor}
+            endereco={tipoEntrega === 'entrega' ? endSel : null}
+            onFechar={() => setEditandoCliente(null)}
+            onSalvo={r => {
+              setEditandoCliente(null);
+              setClienteEncontrado(c => (c ? { ...c, nome: r.nome, recebedor: r.recebedor || null } : c));
+              setNomeCliente(r.nome);
+              setRecebedor(r.recebedor);
+              if (r.endereco) {
+                const e = r.endereco;
+                setEnderecosDoCliente(lista => lista.map(x => (x.id === e.id ? { ...x, ...e } : x)));
+                setEnderecoViaCEP([e.rua, e.bairro, e.cidade ? `${e.cidade}-${e.estado || ''}` : null].filter(Boolean).join(', '));
+                setNumeroEndereco(e.numero || '');
+                setComplementoEndereco(e.complemento || '');
+              }
+            }}
+          />
+        );
+      })()}
+      {editandoCliente === 'detalhe' && orcamentoDetalhe?.clientes?.id && (
+        <EditarClienteEndereco
+          clienteId={orcamentoDetalhe.clientes.id}
+          nome={orcamentoDetalhe.clientes.nome || ''}
+          recebedor={orcamentoDetalhe.clientes.recebedor}
+          endereco={orcamentoDetalhe.tipo_entrega === 'entrega' ? orcamentoDetalhe.endereco_completo : null}
+          onFechar={() => setEditandoCliente(null)}
+          onSalvo={() => { setEditandoCliente(null); abrirDetalhe(orcamentoDetalhe.id); }}
+        />
+      )}
+
       {/* Modal Detalhe do Orcamento (Bug 6 fix - edit button restored) */}
       {mostrarDetalhe && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4" onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }}>
@@ -5537,6 +5622,10 @@ export default function OrcamentoApp() {  // Auth state
                       }}
                       className="mt-2 text-xs font-semibold text-[#F7941D] hover:underline"
                     >👤 Ver perfil do cliente</button>
+                  )}
+                  {orcamentoDetalhe.clientes?.id && (
+                    <button onClick={() => setEditandoCliente('detalhe')}
+                      className="mt-2 ml-3 text-xs font-semibold text-[#F7941D] hover:underline">✏️ Editar nome/endereço</button>
                   )}
                 </div>
                 <div className="px-4 py-2 border-b border-gray-100">
@@ -5760,6 +5849,24 @@ export default function OrcamentoApp() {  // Auth state
           )}
                   </div>
                   <div className="p-3 space-y-3 md:sticky md:top-0 md:self-start">
+                    {/* Entrega parcial: a folha do caminhao e a da VIAGEM. Fica no topo e
+                        em destaque; imprimir o pedido inteiro ja fez o time levar o que
+                        nao era pra ir (out/2026). */}
+                    {orcamentoDetalhe.tipo_entrega === 'entrega' && entregasParciais.some(ep => ep.status === 'programada') && (
+                      <div className="rounded-xl border-2 border-indigo-300 bg-indigo-50 p-3">
+                        <h3 className="font-bold text-indigo-900 text-sm mb-1">🚚 Folha do caminhão</h3>
+                        <p className="text-[11px] text-indigo-800 mb-2">Pedido com entrega parcial: imprima só a viagem que vai sair.</p>
+                        <div className="space-y-1.5">
+                          {entregasParciais.filter(ep => ep.status === 'programada').map(ep => (
+                            <button key={ep.id} onClick={() => imprimirEntregaParcial(ep)}
+                              className="w-full bg-indigo-600 text-white py-2.5 rounded-xl font-bold hover:bg-indigo-700 transition text-sm">
+                              🖨️ Imprimir entrega #{ep.numero_entrega}{ep.data_entrega ? ` (${new Date(ep.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})` : ''}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
                     {/* Enviar para o cliente */}
                     <div className="rounded-xl border border-gray-200 p-3">
                       <h3 className="font-bold text-gray-800 text-sm mb-2">Enviar para o cliente</h3>
@@ -5777,9 +5884,15 @@ export default function OrcamentoApp() {  // Auth state
                           className="border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50 transition text-sm">
                           {textoCopiado ? '✓ Copiado' : 'Copiar texto'}
                         </button>
-                        <button onClick={() => imprimirOrcamento(orcamentoDetalhe)}
+                        <button onClick={() => {
+                            const temParcial = entregasParciais.length > 0
+                              || orcamentoDetalhe.orcamento_itens.some(i => (Number(i.quantidade_entregue) || 0) > 1e-9);
+                            if (temParcial && orcamentoDetalhe.tipo_entrega === 'entrega'
+                              && !window.confirm('Este pedido tem entrega parcial.\n\nImprimir o PEDIDO INTEIRO (todos os itens)?\n\nPara o caminhão, use "Imprimir entrega #" na Folha do caminhão.')) return;
+                            imprimirOrcamento(orcamentoDetalhe);
+                          }}
                           className="border border-gray-300 text-gray-700 py-2 rounded-xl font-medium hover:bg-gray-50 transition text-sm">
-                          🖨️ Imprimir
+                          🖨️ {entregasParciais.length > 0 && orcamentoDetalhe.tipo_entrega === 'entrega' ? 'Pedido inteiro' : 'Imprimir'}
                         </button>
                       </div>
                     </div>
