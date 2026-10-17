@@ -549,6 +549,7 @@ function parseVlozCsv(texto: string, contaId: string): ResultadoParse {
   const col = (re: RegExp) => titulo.findIndex(t => re.test(t));
   const cData = col(/^data$/), cForma = col(/forma/), cBand = col(/bandeira/), cParc = col(/parcelas/);
   const cBruta = col(/^venda bruta$/), cVlozLiq = col(/^vloz l[ií]quido$/), cCash = col(/cashback/), cCod = col(/c[oó]digo/);
+  const cTaxas = col(/^taxas$/);
   if (cData < 0 || cVlozLiq < 0 || cCash < 0 || cCod < 0) {
     throw new Error('CSV da Vloz sem as colunas Data, Vloz Líquido, Cashback ou Código da Transação');
   }
@@ -567,18 +568,24 @@ function parseVlozCsv(texto: string, contaId: string): ResultadoParse {
     const sufixo = Number.isNaN(bruta) ? '' : ` (venda R$ ${bruta.toFixed(2).replace('.', ',')})`;
     const vloz = paraNumero(get(cVlozLiq));
     const cash = paraNumero(get(cCash));
+    // Taxa TOTAL da venda (MDR + antecipacao + Pix), que o arquivo da Stone
+    // nao traz inteira. Vai na coluna tarifa da primeira linha da venda; o
+    // saldo da carteira soma so `valor`, entao nao interfere.
+    const taxaVenda = paraNumero(get(cTaxas));
+    let taxaPendente = Number.isNaN(taxaVenda) ? 0 : Math.abs(taxaVenda);
     // Codigo da transacao e unico por venda: reimportar o mesmo periodo nao duplica.
     const hash = (tipo: string) => createHash('sha256').update([contaId, 'vloz', codigo, tipo].join('|')).digest('hex').slice(0, 32);
     if (!Number.isNaN(vloz) && vloz > 0) {
       lancamentos.push({
         data, descricao: `Vloz 15% — ${venda}${sufixo}`, contraparte: 'Votorantim (Vloz)', documento: null,
-        valor: vloz, saldo: null, tarifa: 0, hash_linha: hash('split'),
+        valor: vloz, saldo: null, tarifa: taxaPendente, hash_linha: hash('split'),
       });
+      taxaPendente = 0;
     }
     if (!Number.isNaN(cash) && cash > 0) {
       lancamentos.push({
         data, descricao: `Cashback Votoran — ${venda}${sufixo}`, contraparte: 'Votorantim (Vloz)', documento: null,
-        valor: cash, saldo: null, tarifa: 0, hash_linha: hash('cashback'),
+        valor: cash, saldo: null, tarifa: taxaPendente, hash_linha: hash('cashback'),
       });
     }
   }

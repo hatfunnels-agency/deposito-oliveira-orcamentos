@@ -104,6 +104,10 @@ export default function Maquininha() {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <Estatistica rotulo="Volume no cartão" valor={brl(dados.volume_bruto)}
           detalhe={`débito ${brl(dados.volume_debito)} · crédito ${brl(dados.volume_credito)}${dados.volume_pix_stone > 0 ? ` · pix ${brl(dados.volume_pix_stone)}` : ''} · ${dados.qtd} pgto(s)`} />
+        {(dados.taxas_reais ?? 0) > 0 && (
+          <Estatistica rotulo="Taxas pagas (real, arquivo Vloz)" valor={brl(dados.taxas_reais ?? 0)} tom="vermelho"
+            detalhe={`cashback da Votoran ${brl(dados.reembolso_recebido)} · custo líquido ${brl(dados.custo_liquido_realizado)}`} />
+        )}
         <Estatistica rotulo="Custo pela tabela" valor={brl(dados.custo_bruto)} tom="vermelho" selo={seloCusto}
           detalhe={`${taxaTabela === null ? '—' : pct(taxaTabela, 2)} · MDR ${brl(dados.taxas)} + antecipação ${brl(dados.antecipacao)}`} />
         <Estatistica rotulo="Taxa efetiva real (extrato)" valor={dados.taxa_efetiva_extrato_pct === null ? 'sem extrato' : pct(dados.taxa_efetiva_extrato_pct, 2)}
