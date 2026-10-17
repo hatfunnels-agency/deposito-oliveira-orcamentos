@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exigirPapel } from '@/lib/auth-admin';
 import type { NovoMovimentoEstoque, TipoMovimentoEstoque } from '@/lib/financeiro/tipos';
-import { definirTipoEstoque, historicoMovimentos, painelEstoque, registrarMovimento, TIPOS_MOVIMENTO } from '@/lib/financeiro/estoque';
+import { definirAtivo, definirTipoEstoque, historicoMovimentos, painelEstoque, registrarMovimento, TIPOS_MOVIMENTO } from '@/lib/financeiro/estoque';
 import { ErroFinanceiro } from '@/lib/financeiro/eventos';
 
 export const dynamic = 'force-dynamic';
@@ -65,13 +65,17 @@ export async function POST(request: NextRequest) {
   }
 }
 
-// PATCH /api/financeiro/estoque  { produto_id, tipo_estoque: 'estocavel' | 'sob_demanda' }
+// PATCH /api/financeiro/estoque  { produto_id, tipo_estoque: 'estocavel' | 'sob_demanda' } | { produto_id, ativo }
 export async function PATCH(request: NextRequest) {
   const { negado, usuario } = await exigirPapel(request, ['admin'], RECURSO);
   if (negado) return negado;
   try {
-    const body = (await request.json().catch(() => null)) as { produto_id?: string; tipo_estoque?: string } | null;
+    const body = (await request.json().catch(() => null)) as { produto_id?: string; tipo_estoque?: string; ativo?: boolean } | null;
     if (!body?.produto_id) return NextResponse.json({ error: 'Escolha o produto.' }, { status: 400 });
+    // { produto_id, ativo: false } = excluir (arquiva); ativo: true = restaurar.
+    if (typeof body.ativo === 'boolean') {
+      return NextResponse.json(await definirAtivo(String(body.produto_id), body.ativo, usuario?.id ?? null));
+    }
     if (body.tipo_estoque !== 'estocavel' && body.tipo_estoque !== 'sob_demanda') {
       return NextResponse.json({ error: 'Tipo deve ser estocavel ou sob_demanda.' }, { status: 400 });
     }

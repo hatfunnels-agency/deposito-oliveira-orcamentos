@@ -10,6 +10,7 @@ import {
   Modal, Selo, SeletorData, Vazio,
 } from './Comuns';
 import { CartaoContaPagar, ModalContaForm, ModalPagarConta } from './ContasPagar';
+import VendasDia from './VendasDia';
 
 // O dia em uma tela: vendeu, recebeu (bruto -> liquido), pagou, sobrou.
 // Substitui o antigo FechamentoDia. "Lancar pagamento" e o unico formulario:
@@ -35,12 +36,14 @@ export default function Dia() {
   const [pagando, setPagando] = useState<DiaFinanceiro['a_pagar_hoje'][number] | null>(null);
   const [fechando, setFechando] = useState(false);
   const [ocupado, setOcupado] = useState(false);
+  const [versaoVendas, setVersaoVendas] = useState(0);
   // Da pra navegar pro futuro pra ver contas a vencer, mas nao pra pagar la.
   const futuro = data > hojeBRT();
 
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro(null);
+    setVersaoVendas(v => v + 1);
     try {
       setDados(await apiFinanceiro<DiaFinanceiro>(`/api/financeiro/dia-gestao?data=${data}`));
     } catch (e) {
@@ -161,6 +164,8 @@ export default function Dia() {
           </div>
         </Cartao>
       </div>
+
+      <VendasDia data={data} versao={versaoVendas} />
 
       {/* A pagar hoje */}
       <Cartao titulo="A pagar hoje" descricao="Contas vencendo até hoje (as atrasadas também). Toque em Paguei.">

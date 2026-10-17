@@ -16,6 +16,7 @@ import { diaGestao } from './dia';
 import { fechamentoMensal } from './fechamento';
 import { cartaoAgregado, conciliar } from './conciliacao';
 import { calcularCusto, carregarPagamentos, carregarTaxas, taxasVigentes } from './taxas';
+import { indicadoresMes, lerMetas } from './metas';
 
 type Row = Record<string, any>;
 const brl = (n: number) => `R$ ${arred2(n).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
@@ -37,7 +38,7 @@ export async function panorama(): Promise<Panorama> {
       .then(r => r.totais.sugestoes)
       .catch(e => { console.error('[financeiro/panorama] conciliacao (previa) falhou:', c.nome, e); return 0; })));
 
-  const [saldos, receber, resumoCP, folha, dia, fech, pendentes, despesas, pagRecentes, pagCartao, contasHoje, agregadoMes] = await Promise.all([
+  const [saldos, receber, resumoCP, folha, dia, fech, pendentes, despesas, pagRecentes, pagCartao, contasHoje, agregadoMes, metas] = await Promise.all([
     saldosAtuais(contas),
     calcularReceber(90),
     resumoContasPagar(hoje),
@@ -50,6 +51,7 @@ export async function panorama(): Promise<Panorama> {
     carregarPagamentos(janelaCartao.inicioUtc, janelaCartao.fimUtc),
     lerTudo<Row>(() => supabaseAdmin.from('contas_pagar').select('id, status').eq('vencimento', hoje).neq('status', 'cancelado')),
     cartaoAgregado(`${mes}-01`, hoje, { taxas, contas }),
+    lerMetas(),
   ]);
 
   const sugestoesPendentes = (await previas).reduce((a, n) => a + n, 0);
@@ -168,5 +170,6 @@ export async function panorama(): Promise<Panorama> {
     fluxo_30d: fluxo,
     entradas_atrasadas: arred2(receber.resumo.vencido),
     alertas,
+    indicadores: indicadoresMes(mes, hoje, fech, despesas, metas),
   };
 }

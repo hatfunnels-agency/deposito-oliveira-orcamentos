@@ -20,9 +20,9 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo, lerTudoEmLotes } from '@/lib/ler-tudo';
 import type {
   ItemPainelEstoque, MovimentoEstoque, NovoMovimentoEstoque, PainelEstoque, ResultadoMovimentoEstoque,
-  TipoMovimentoEstoque, TotaisEstoque, ProdutoSobDemanda,
+  TipoMovimentoEstoque, TotaisEstoque, ProdutoSobDemanda, ReposicaoEstoque,
 } from './tipos';
-import { arred2 } from './datas';
+import { arred2, diaSemana, hojeSP, somarDias } from './datas';
 import { ErroFinanceiro, registrarEvento } from './eventos';
 
 // Pedido que conta como venda (mesmo criterio do CMV: tudo menos
@@ -55,6 +55,44 @@ interface ProdutoRow {
   ativo: boolean | null;
   tipo_estoque: string | null;
   estoque_compartilhado_com: string | null;
+}
+
+// ------------------------------------------------------------ reposicao
+
+// Previsao de compra pelo ritmo de venda. O deposito funciona de segunda a
+// sabado: o consumo e por dia de funcionamento e as datas pulam domingo.
+const DIAS_SEGURANCA = 3;        // pedir quando sobrar o equivalente a 3 dias de venda (ou o minimo, se maior)
+const DIAS_COBERTURA_PEDIDO = 12; // o pedido cobre 2 semanas de funcionamento
+const DIAS_UTEIS_30 = 26;         // dias de funcionamento em 30 corridos (aprox.)
+
+/** Soma n dias de funcionamento (seg-sab) a uma data. */
+function somarDiasUteis(data: string, n: number): string {
+  let d = data;
+  let resta = Math.max(0, Math.floor(n));
+  while (resta > 0) {
+    d = somarDias(d, 1);
+    if (diaSemana(d) !== 0) resta--;
+  }
+  return diaSemana(d) === 0 ? somarDias(d, 1) : d;
+}
+
+function calcularReposicao(estoque: number, minimo: number, vendido30: number, hoje: string): ReposicaoEstoque | null {
+  const consumo = vendido30 / DIAS_UTEIS_30;
+  if (consumo <= 0) return null;
+  const pontoPedido = Math.max(minimo, consumo * DIAS_SEGURANCA);
+  const saldo = Math.max(0, estoque);
+  const diasAtePedido = (saldo - pontoPedido) / consumo;
+  const diasAteAcabar = saldo / consumo;
+  const pedirEm = diasAtePedido <= 0 ? hoje : somarDiasUteis(hoje, diasAtePedido);
+  const saldoNoPedido = Math.max(0, Math.min(saldo, pontoPedido));
+  return {
+    consumo_dia: arred3(consumo),
+    ponto_pedido: arred3(pontoPedido),
+    pedir_em: pedirEm,
+    acaba_em: somarDiasUteis(hoje, diasAteAcabar),
+    dias_ate_pedido: Math.round(diasAtePedido * 10) / 10,
+    sugerido: Math.ceil(Math.max(0, consumo * DIAS_COBERTURA_PEDIDO - saldoNoPedido + pontoPedido) * 10) / 10,
+  };
 }
 
 // ------------------------------------------------------------ painel
@@ -121,9 +159,14 @@ export async function painelEstoque(): Promise<PainelEstoque> {
 
   const itens: ItemPainelEstoque[] = [];
   const sobDemanda: ProdutoSobDemanda[] = [];
+  const excluidos: ProdutoSobDemanda[] = [];
+  const hoje = hojeSP();
   for (const p of produtos) {
-    if (p.ativo === false) continue;
     if (p.estoque_compartilhado_com) continue;          // secundario: aparece no principal
+    if (p.ativo === false) {
+      excluidos.push({ produto_id: p.id, nome: p.nome, categoria: p.categoria ?? null, unidade: p.unidade, vendido_90d: 0 });
+      continue;
+    }
     if ((p.tipo_estoque ?? 'estocavel') !== 'estocavel') {
       sobDemanda.push({
         produto_id: p.id, nome: p.nome, categoria: p.categoria ?? null, unidade: p.unidade,
@@ -162,6 +205,8 @@ export async function painelEstoque(): Promise<PainelEstoque> {
       zerado: estoque <= 0,
       sem_venda_90d: v90 <= 0,
       secundarios: (secundarios.get(p.id) ?? []).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+      // Sem contagem o saldo nao vale, entao nao ha previsao.
+      reposicao: ultimaContagem.has(p.id) ? calcularReposicao(estoque, minimo, v30, hoje) : null,
     });
   }
   itens.sort((a, b) => b.valor_estoque - a.valor_estoque || b.vendido_90d - a.vendido_90d || a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -178,8 +223,37 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   const categorias = [...new Set(itens.map(i => i.categoria || 'Geral'))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
   sobDemanda.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  excluidos.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 
-  return { gerado_em: new Date(agora).toISOString(), itens, sob_demanda: sobDemanda, totais, categorias };
+  return { gerado_em: new Date(agora).toISOString(), hoje, itens, sob_demanda: sobDemanda, excluidos, totais, categorias };
+}
+
+// ------------------------------------------------------------ excluir
+
+/**
+ * "Excluir" arquiva (ativo = false): o produto some do catalogo, do
+ * orcamento e do estoque, mas pedidos antigos, historico de custo e
+ * movimentacoes continuam apontando para ele (apagar de verdade quebraria
+ * o historico e a FK de movimentacoes_estoque). Recusa se houver produto
+ * ativo compartilhando o estoque dele.
+ */
+export async function definirAtivo(produtoId: string, ativo: boolean, usuarioId: string | null): Promise<{ produto_id: string; ativo: boolean }> {
+  const { data: p } = await supabaseAdmin.from('produtos').select('id, nome, ativo').eq('id', produtoId).maybeSingle();
+  if (!p) throw new ErroFinanceiro(404, 'Produto não encontrado.');
+  if ((p.ativo !== false) === ativo) return { produto_id: p.id, ativo };
+  if (!ativo) {
+    const { data: dependentes } = await supabaseAdmin.from('produtos').select('nome').eq('estoque_compartilhado_com', p.id).eq('ativo', true);
+    if (dependentes && dependentes.length) {
+      throw new ErroFinanceiro(409, `${dependentes.map(d => d.nome).join(', ')} usa o estoque de ${p.nome}. Exclua ${dependentes.length > 1 ? 'esses produtos' : 'esse produto'} antes.`);
+    }
+  }
+  const { error } = await supabaseAdmin.from('produtos').update({ ativo }).eq('id', p.id);
+  if (error) throw new Error(error.message);
+  await registrarEvento({
+    entidade: 'estoque', entidade_id: p.id, acao: ativo ? 'restaurar_produto' : 'excluir_produto',
+    antes: { ativo: !ativo }, depois: { ativo, nome: p.nome }, usuario_id: usuarioId,
+  });
+  return { produto_id: p.id, ativo };
 }
 
 // ------------------------------------------------------------ sob demanda
