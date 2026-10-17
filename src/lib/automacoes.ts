@@ -12,7 +12,7 @@ import { lerTudo } from '@/lib/ler-tudo';
 import { isObraAtivaActive } from '@/lib/tags';
 import { listarWorkflows } from '@/lib/ghl';
 
-export type TipoAutomacao = 'followup' | 'posvenda' | 'reativacao';
+export type TipoAutomacao = 'followup' | 'posvenda' | 'reativacao' | 'recuperacao';
 
 export type Candidato = {
   chaveDedup: string;
@@ -32,7 +32,7 @@ export type Candidato = {
   // true = so dispara com a janela de 24h aberta (nao tem template de fallback).
   exigeJanelaAberta: boolean;
   // tipo/momento aceitos por /api/ia/mensagem, que tem vocabulario proprio.
-  iaTipo: 'followup' | 'review' | 'reativacao' | 'retorno';
+  iaTipo: 'followup' | 'review' | 'reativacao' | 'retorno' | 'recuperacao';
   iaMomento: string;
 };
 
@@ -53,6 +53,11 @@ export const TEMPLATES: Record<string, string> = {
   // Com a janela de 24h aberta a IA escreve livre e nada disso e usado.
   'retorno:com_orcamento': 'followup_dia1',
   'retorno:sem_orcamento': 'reativacao_geral',
+  // Orcamento grande perdido: dois toques (1 e 3 semanas depois). O template
+  // 'recuperacao_orcamento' precisa existir no GHL; ate la so a IA (janela
+  // aberta) manda, e o tick registra "sem workflow" sem quebrar.
+  'recuperacao:dia7': 'recuperacao_orcamento',
+  'recuperacao:dia21': 'recuperacao_orcamento',
 };
 
 // Resolve o template para o WORKFLOW do GHL que dispara aquele template.
@@ -286,6 +291,84 @@ export async function candidatosRetorno(): Promise<Candidato[]> {
       iaTipo: 'retorno',
       iaMomento: orc ? 'com_orcamento' : 'sem_orcamento',
     });
+  }
+  return saida;
+}
+
+// ---------------------------------------------------------------- recuperacao
+// Orcamento GRANDE que foi dado como perdido (status cancelado + perdido_em)
+// e o cliente nao comprou depois: a obra existe, so nao fechou com a gente.
+// Dois toques, 7 e 21 dias depois da perda; uma chave por orcamento/momento.
+// Nao dispara se ele fechou outro pedido depois, se abriu orcamento novo, se
+// tem retorno marcado ou se esta fora das reguas (DND, atendente falou...).
+export const RECUPERACAO_VALOR_MINIMO = 2000;
+// So orcamento que era recente quando foi dado como perdido. A limpeza em
+// massa de 10/10 marcou 769 orcamentos de meses atras: "ha uma semana voce
+// pediu um orcamento" seria mentira pra esses.
+export const RECUPERACAO_FRESCOR_DIAS = 45;
+export const orcamentoEraRecente = (criadoEm: string, perdidoEm: string) =>
+  Date.parse(perdidoEm) - Date.parse(criadoEm) <= RECUPERACAO_FRESCOR_DIAS * 86_400_000;
+const JANELAS_RECUPERACAO = [
+  { momento: 'dia7', deDias: 7, ateDias: 14 },
+  { momento: 'dia21', deDias: 21, ateDias: 35 },
+];
+
+export async function candidatosRecuperacao(): Promise<Candidato[]> {
+  const saida: Candidato[] = [];
+  const [bloqueados, fechouDepois] = await Promise.all([clientesForaDasReguas(), ultimaCompraFechadaPorCliente()]);
+  const dia = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+
+  for (const janela of JANELAS_RECUPERACAO) {
+    const { data, error } = await supabaseAdmin
+      .from('orcamentos')
+      .select('id, codigo, total, criado_em, perdido_em, motivo_perda, cliente_id, clientes (id, nome, telefone, data_followup)')
+      .eq('status', 'cancelado')
+      .not('perdido_em', 'is', null)
+      .gte('total', RECUPERACAO_VALOR_MINIMO)
+      .gte('perdido_em', dia(janela.ateDias))
+      .lt('perdido_em', dia(janela.deDias))
+      .order('total', { ascending: false });
+    if (error) throw new Error(`recuperacao ${janela.momento}: ${error.message}`);
+    if (!data?.length) continue;
+
+    // Orcamento novo aberto depois da perda: ja esta no follow-up.
+    const { data: abertos } = await supabaseAdmin.from('orcamentos').select('cliente_id, criado_em')
+      .eq('status', 'orcamento').in('cliente_id', data.map(o => o.cliente_id).filter(Boolean));
+    const abriuDepois = new Map<string, string>();
+    for (const o of abertos || []) {
+      const k = String(o.cliente_id);
+      if (!abriuDepois.has(k) || String(o.criado_em) > abriuDepois.get(k)!) abriuDepois.set(k, String(o.criado_em));
+    }
+
+    const vistos = new Set<string>();
+    for (const orc of data) {
+      const cli = (orc as any).clientes;
+      if (!cli?.telefone || !cli?.id || bloqueados.has(String(cli.id)) || vistos.has(String(cli.id))) continue;
+      if (retornoAindaNaoChegou(cli.data_followup)) continue;
+      const perdido = String((orc as any).perdido_em);
+      if (!orcamentoEraRecente(String((orc as any).criado_em), perdido)) continue;
+      const fechado = fechouDepois.get(String(cli.id));
+      if (fechado && fechado > perdido) continue;
+      const aberto = abriuDepois.get(String(cli.id));
+      if (aberto && aberto > perdido) continue;
+      vistos.add(String(cli.id));
+      saida.push({
+        chaveDedup: `recuperacao:${orc.id}:${janela.momento}`,
+        tipo: 'recuperacao',
+        momento: janela.momento,
+        clienteId: cli.id,
+        clienteNome: cli.nome || '',
+        telefone: cli.telefone,
+        orcamentoId: orc.id,
+        template: TEMPLATES[`recuperacao:${janela.momento}`] || '',
+        variaveis: [primeiroNome(cli.nome)],
+        contexto: `Orcamento ${orc.codigo || ''} de ${brl(orc.total)} foi dado como perdido ha ${janela.deDias} dias` +
+          `${(orc as any).motivo_perda && (orc as any).motivo_perda !== 'outro' ? ` (motivo: ${(orc as any).motivo_perda})` : ''}; o cliente nao comprou depois.`,
+        exigeJanelaAberta: false,
+        iaTipo: 'recuperacao',
+        iaMomento: janela.momento,
+      });
+    }
   }
   return saida;
 }

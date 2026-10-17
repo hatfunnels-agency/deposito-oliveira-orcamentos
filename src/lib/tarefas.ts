@@ -11,9 +11,9 @@
 import { ultimosContatos } from './contatos';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo } from '@/lib/ler-tudo';
-import { hojeBrasilia, clientesNaoPerturbe, ultimaCompraFechadaPorCliente } from '@/lib/automacoes';
+import { hojeBrasilia, clientesNaoPerturbe, ultimaCompraFechadaPorCliente, orcamentoEraRecente } from '@/lib/automacoes';
 
-export type TipoTarefa = 'retorno' | 'orcamento' | 'reativacao';
+export type TipoTarefa = 'retorno' | 'orcamento' | 'reativacao' | 'perdido';
 export type ResultadoTarefa = 'feito' | 'sem_resposta' | 'perdido';
 
 export type Tarefa = {
@@ -39,9 +39,13 @@ export const ESPERA_DIAS: Record<TipoTarefa, Record<ResultadoTarefa, number>> = 
   retorno: { feito: 3650, sem_resposta: 1, perdido: 3650 },
   orcamento: { feito: 3, sem_resposta: 2, perdido: 3650 },
   reativacao: { feito: 30, sem_resposta: 7, perdido: 90 },
+  // Orcamento perdido: falou -> volta em 2 semanas; nao volta -> some.
+  perdido: { feito: 14, sem_resposta: 7, perdido: 3650 },
 };
 
-export const LIMITE_POR_BLOCO = { orcamento: 10, reativacao: 10 };
+export const LIMITE_POR_BLOCO = { orcamento: 10, reativacao: 10, perdido: 10 };
+// Orcamento perdido que vale correr atras (90% do valor perdido esta acima disto).
+const VALOR_MINIMO_PERDIDO = 2000;
 
 // Orcamento pequeno a regua resolve sozinha; ligacao de gente e pro que pesa.
 // 90% do dinheiro em aberto (R$ 378 mil de R$ 419 mil) esta acima disto.
@@ -276,18 +280,103 @@ async function reativacao(dnd: Set<string>, jaNaLista: Set<string>): Promise<Tar
     });
 }
 
+// ---------------------------------------------------------------- perdidos
+// Orcamento grande dado como perdido nos ultimos 90 dias e o cliente nao
+// comprou nem abriu orcamento depois: a obra existe, so nao fechou com a
+// gente. Os maiores primeiro; obra ativa na frente. Se o robo mandou a
+// recuperacao nos ultimos 7 dias, espera a resposta antes de aparecer aqui.
+async function perdidos(dnd: Set<string>, jaNaLista: Set<string>): Promise<Tarefa[]> {
+  const desde = new Date(Date.now() - 90 * DIA_MS).toISOString();
+  const [{ data: lista }, fechouDepois, obra] = await Promise.all([
+    supabaseAdmin.from('orcamentos')
+      .select('id, codigo, total, criado_em, perdido_em, motivo_perda, cliente_id, clientes (id, nome, telefone)')
+      .eq('status', 'cancelado').not('perdido_em', 'is', null).gte('total', VALOR_MINIMO_PERDIDO)
+      .gte('perdido_em', desde).order('total', { ascending: false }).limit(400),
+    ultimaCompraFechadaPorCliente(),
+    lerTudo(() => supabaseAdmin.from('cliente_tags').select('cliente_id').eq('tag', 'obra_ativa')),
+  ]);
+  const temObra = new Set((obra || []).map(o => String(o.cliente_id)));
+  const cands = (lista || []).filter(o => {
+    const cli = (o as any).clientes;
+    if (!cli?.id || !cli?.telefone || dnd.has(String(cli.id)) || jaNaLista.has(String(cli.id))) return false;
+    if (!orcamentoEraRecente(String(o.criado_em), String(o.perdido_em))) return false;
+    const fechado = fechouDepois.get(String(cli.id));
+    return !(fechado && fechado > String(o.perdido_em));
+  });
+  if (!cands.length) return [];
+  // Um por cliente (o maior), obra ativa primeiro.
+  const porCliente = new Map<string, any>();
+  for (const o of cands) if (!porCliente.has(String(o.cliente_id))) porCliente.set(String(o.cliente_id), o);
+  const unicos = [...porCliente.values()].sort((a, b) =>
+    Number(temObra.has(String(b.cliente_id))) - Number(temObra.has(String(a.cliente_id))) || Number(b.total) - Number(a.total));
+
+  const chave = (o: any) => `perdido:${o.id}`;
+  const [escondidas, { data: abertos }, { data: envios }] = await Promise.all([
+    chavesEscondidas(unicos.map(chave), 'perdido'),
+    supabaseAdmin.from('orcamentos').select('cliente_id, criado_em').eq('status', 'orcamento')
+      .in('cliente_id', unicos.map(o => String(o.cliente_id))),
+    supabaseAdmin.from('automacao_envios').select('orcamento_id')
+      .in('orcamento_id', unicos.map(o => String(o.id))).eq('tipo', 'recuperacao').eq('status', 'enviado')
+      .gte('criado_em', new Date(Date.now() - 7 * DIA_MS).toISOString()),
+  ]);
+  const abriuDepois = new Map<string, string>();
+  for (const o of abertos || []) {
+    const k = String(o.cliente_id);
+    if (!abriuDepois.has(k) || String(o.criado_em) > abriuDepois.get(k)!) abriuDepois.set(k, String(o.criado_em));
+  }
+  const roboMandou = new Set((envios || []).map(e => String(e.orcamento_id)));
+  const fila = unicos.filter(o => !escondidas.has(chave(o)) && !roboMandou.has(String(o.id))
+    && !(abriuDepois.get(String(o.cliente_id)) && abriuDepois.get(String(o.cliente_id))! > String(o.perdido_em)))
+    .slice(0, LIMITE_POR_BLOCO.perdido);
+  if (!fila.length) return [];
+
+  const { data: itens } = await supabaseAdmin.from('orcamento_itens').select('orcamento_id, produto_nome, quantidade, unidade')
+    .in('orcamento_id', fila.map(o => String(o.id)));
+  const itensDe = new Map<string, string[]>();
+  for (const i of itens || []) {
+    const k = String(i.orcamento_id);
+    const lista = itensDe.get(k) ?? [];
+    // Ferro montado na calculadora ja traz a metragem no nome ("... | 78m").
+    const nome = String(i.produto_nome || '');
+    const rotulo = /barras/i.test(nome) ? nome : `${Number(i.quantidade)} ${i.unidade || ''} ${nome}`;
+    if (lista.length < 3) lista.push(rotulo.replace(/\s+/g, ' ').trim());
+    itensDe.set(k, lista);
+  }
+  const MOTIVO: Record<string, string> = { concorrente: 'comprou em outro depósito', preco: 'achou caro', desistiu: 'desistiu / adiou', outro: 'motivo não informado' };
+
+  return fila.map(o => {
+    const cli = (o as any).clientes;
+    const dias = diasDesde(String(o.perdido_em));
+    const resumoItens = (itensDe.get(String(o.id)) ?? []).join(', ');
+    return {
+      chave: chave(o),
+      tipo: 'perdido' as const,
+      clienteId: String(cli.id),
+      orcamentoId: String(o.id),
+      nome: cli.nome || 'Cliente',
+      telefone: cli.telefone,
+      motivo: temObra.has(String(o.cliente_id)) ? 'Obra ativa com orçamento grande perdido' : 'Orçamento grande perdido',
+      detalhe: `${o.codigo || ''} · ${brl(Number(o.total))} · perdido há ${dias} dia${dias === 1 ? '' : 's'} · ${MOTIVO[String(o.motivo_perda)] ?? String(o.motivo_perda || '')}${resumoItens ? ` · ${resumoItens}` : ''}`,
+      selo: temObra.has(String(o.cliente_id)) ? 'obra ativa' : undefined,
+      mensagem: `${ola(cli.nome)} Vi que o orçamento ${o.codigo || ''} de ${brl(Number(o.total))}${resumoItens ? ` (${resumoItens})` : ''} acabou não saindo. Como está a obra? Se ainda for usar o material, consigo rever o preço e as condições pra fechar com a gente.`,
+    };
+  });
+}
+
 // ---------------------------------------------------------------- tudo
-export async function tarefasDoDia(): Promise<{ retornos: Tarefa[]; orcamentos: Tarefa[]; reativacao: Tarefa[] }> {
+export async function tarefasDoDia(): Promise<{ retornos: Tarefa[]; orcamentos: Tarefa[]; reativacao: Tarefa[]; perdidos: Tarefa[] }> {
   const dnd = await clientesNaoPerturbe();
   const ret = await retornos(dnd);
   const orc = (await orcamentosGrandes(dnd))
     .filter(t => !ret.some(r => r.clienteId === t.clienteId)); // um cliente, uma tarefa
   const jaNaLista = new Set([...ret, ...orc].map(t => t.clienteId));
+  const perd = await perdidos(dnd, jaNaLista);
+  for (const t of perd) jaNaLista.add(t.clienteId);
   const reat = await reativacao(dnd, jaNaLista);
 
   // Ultimo contato + nota de contexto em cada cartao: a atendente escreve
   // continuando o assunto, sem abrir o perfil.
-  const todas = [...ret, ...orc, ...reat];
+  const todas = [...ret, ...orc, ...reat, ...perd];
   const ids = [...new Set(todas.map(t => t.clienteId))];
   if (ids.length) {
     const [ultimos, { data: notas }] = await Promise.all([
@@ -301,7 +390,7 @@ export async function tarefasDoDia(): Promise<{ retornos: Tarefa[]; orcamentos: 
       t.contexto = notaDe.get(t.clienteId) ?? null;
     }
   }
-  return { retornos: ret, orcamentos: orc, reativacao: reat };
+  return { retornos: ret, orcamentos: orc, reativacao: reat, perdidos: perd };
 }
 
 // ---------------------------------------------------------------- placar
