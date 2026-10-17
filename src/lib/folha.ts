@@ -176,6 +176,10 @@ export function camposFuncionario(body: Record<string, unknown>, parcial: boolea
     if (body.data_desligamento && !data(body.data_desligamento)) return 'Data de desligamento inválida.';
     out.data_desligamento = body.data_desligamento || null;
   }
+  if ('direitos_desde' in body) {
+    if (body.direitos_desde && !data(body.direitos_desde)) return 'Data dos direitos inválida.';
+    out.direitos_desde = body.direitos_desde || null;
+  }
   if ('controle_desde' in body) {
     if (!data(body.controle_desde)) return 'Data de início do controle inválida.';
     out.controle_desde = body.controle_desde;

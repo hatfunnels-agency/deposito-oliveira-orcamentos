@@ -890,10 +890,186 @@ export interface StatusStone {
 // Trilha
 // ------------------------------------------------------------
 export interface EventoFinanceiro {
-  entidade: 'conta_pagar' | 'lancamento' | 'despesa_fixa' | 'pagamento' | 'taxa' | 'reembolso' | 'saldo' | 'fornecedor' | 'cenario';
+  entidade: 'conta_pagar' | 'lancamento' | 'despesa_fixa' | 'pagamento' | 'taxa' | 'reembolso' | 'saldo' | 'fornecedor' | 'cenario' | 'estoque';
   entidade_id?: string | null;
   acao: string;
   antes?: unknown;
   depois?: unknown;
   usuario_id?: string | null;
+}
+
+// ------------------------------------------------------------
+// Estoque (gestao) — /api/financeiro/estoque
+// ------------------------------------------------------------
+// Quantidades em UNIDADE DE ESTOQUE (produtos.unidade). preco_custo do
+// produto e por unidade de VENDA; custo por unidade de estoque =
+// preco_custo / fator_conversao (hoje todo produto ativo tem fator 1).
+export type TipoMovimentoEstoque = 'entrada' | 'ajuste' | 'perda' | 'contagem';
+
+export interface ItemPainelEstoque {
+  produto_id: string;               // sempre o principal
+  nome: string;
+  categoria: string | null;
+  unidade: string;                  // unidade de estoque
+  unidade_venda: string;
+  fator_conversao: number;
+  estoque_atual: number;
+  estoque_minimo: number;
+  preco_custo: number;              // por unidade de venda (como no cadastro)
+  custo_unitario: number;           // por unidade de estoque
+  valor_estoque: number;            // estoque_atual x custo_unitario (negativo conta 0)
+  vendido_30d: number;              // unidade de estoque, inclui os secundarios
+  vendido_90d: number;
+  venda_media_dia_30d: number;
+  // Giro aproximado: vendido 90d / estoque atual (o estoque medio exige
+  // historico de saldo, que so passa a existir depois da 1a contagem).
+  // null quando o estoque e 0.
+  giro_90d: number | null;
+  cobertura_dias: number | null;    // estoque / venda media diaria 30d; null = sem venda
+  ultima_entrada: string | null;    // ISO
+  ultima_contagem: string | null;   // ISO; null = nunca contado
+  abaixo_minimo: boolean;
+  zerado: boolean;
+  sem_venda_90d: boolean;
+  secundarios: string[];            // nomes que compartilham este estoque
+}
+
+export interface TotaisEstoque {
+  itens: number;
+  valor_estoque: number;
+  zerados: number;
+  abaixo_minimo: number;
+  sem_venda_90d: number;
+  contados: number;                 // ja tiveram contagem
+  nunca_contados: number;
+}
+
+export interface ProdutoSobDemanda {
+  produto_id: string;
+  nome: string;
+  categoria: string | null;
+  unidade: string;
+  vendido_90d: number;              // unidade de estoque, somando secundarios
+}
+
+export interface PainelEstoque {
+  gerado_em: string;
+  itens: ItemPainelEstoque[];
+  // Pedido ao fornecedor so quando vende: nao tem saldo nem contagem.
+  sob_demanda: ProdutoSobDemanda[];
+  totais: TotaisEstoque;
+  categorias: string[];
+}
+
+export interface NovoMovimentoEstoque {
+  produto_id: string;               // pode ser secundario: a lib resolve o principal
+  tipo: TipoMovimentoEstoque;
+  // entrada/perda: > 0. ajuste: com sinal (+ entrou, - saiu). contagem: o
+  // valor contado (>= 0); a diferenca e o que se grava.
+  quantidade: number;
+  custo_unitario?: number | null;   // so entrada; por unidade de estoque
+  motivo?: string | null;           // obrigatorio em perda e ajuste
+  referencia_tipo?: string | null;  // ex.: 'conta_pagar'
+  referencia_id?: string | null;    // uuid
+}
+
+export interface MovimentoEstoque {
+  id: string;
+  produto_id: string;
+  tipo: string;                     // inclui 'saida' e 'cancelamento' das vendas
+  quantidade: number;
+  estoque_anterior: number;
+  estoque_novo: number;
+  referencia_tipo: string | null;
+  referencia_id: string | null;
+  observacoes: string | null;
+  criado_em: string;
+}
+
+export interface ResultadoMovimentoEstoque {
+  movimento: MovimentoEstoque | null;
+  produto_principal_id: string;
+  estoque_anterior: number;
+  estoque_novo: number;
+  diferenca: number;
+  custo_atualizado: { produto_id: string; anterior: number; novo: number } | null;
+}
+
+// ------------------------------------------------------------
+// Lancar por foto — /api/financeiro/leitura
+// ------------------------------------------------------------
+export type TipoDocumentoLido = 'comprovante_pagamento' | 'boleto' | 'nota_fiscal' | 'ticket_pesagem' | 'outro';
+export type ConfiancaLeitura = 'alta' | 'media' | 'baixa';
+
+export interface ItemDocumentoLido {
+  descricao: string;
+  quantidade: number | null;
+  unidade: string | null;
+  valor_unitario: number | null;
+  valor_total: number | null;
+  peso_bruto_kg: number | null;
+  tara_kg: number | null;
+  peso_liquido_kg: number | null;
+}
+
+export interface LeituraDocumento {
+  tipo: TipoDocumentoLido;
+  data: string | null;              // 'YYYY-MM-DD'
+  valor_total: number | null;
+  fornecedor_nome: string | null;
+  fornecedor_documento: string | null;  // so digitos
+  numero_documento: string | null;
+  vencimento: string | null;
+  metodo: Metodo | null;
+  itens: ItemDocumentoLido[];
+  observacoes: string | null;
+  confianca: ConfiancaLeitura;
+  campos_duvidosos: string[];       // nomes de campos que a leitura nao garante
+}
+
+export interface CandidatoProduto {
+  produto_id: string;
+  nome: string;
+  unidade: string;
+  fator_conversao: number;
+  preco_custo: number;              // por unidade de venda
+  densidade_t_m3: number | null;    // cadastrada ou deduzida do nome
+  tipo_estoque: 'estocavel' | 'sob_demanda';
+  principal_id: string;             // onde o estoque mora
+  pontuacao: number;                // 0..1
+}
+
+export interface CandidatoFornecedor {
+  fornecedor_id: string;
+  nome: string;
+  motivo: 'documento' | 'nome';
+  pontuacao: number;
+  categoria_padrao_id: string | null;
+  metodo_padrao: Metodo | null;
+  conta_padrao_id: string | null;
+}
+
+export interface CalculoPesagem {
+  peso_liquido_kg: number | null;
+  origem_peso: 'liquido' | 'bruto_menos_tara' | 'peso_unico' | 'sem_peso';
+  conferir: boolean;                // so um peso, ou liquido != bruto - tara
+  densidade_t_m3: number | null;
+  m3: number | null;
+  custo_m3: number | null;
+  valor: number | null;
+}
+
+export interface SugestaoItemLido {
+  indice: number;                   // posicao em leitura.itens
+  produtos: CandidatoProduto[];     // melhor primeiro
+  pesagem: CalculoPesagem | null;   // so em ticket_pesagem
+}
+
+export interface RespostaLeitura {
+  leitura: LeituraDocumento;
+  fornecedores: CandidatoFornecedor[];
+  itens: SugestaoItemLido[];
+  valor_calculado: number | null;   // ticket: soma dos itens calculados
+  foto_path: string | null;         // bucket financeiro-comprovantes
+  aviso_foto: string | null;
 }

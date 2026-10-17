@@ -29,7 +29,7 @@ Never import `supabaseAdmin` from a `'use client'` component.
 Área própria em `src/app/financeiro` + `src/components/financeiro/*` + `src/lib/financeiro/*` (contratos em `tipos.ts`). Rotas `src/app/api/financeiro/*` exigem Bearer admin via `exigirPapel` (`receber`: admin/atendente); `caixa`, `dia`, `lancamentos`, `dre` e `extratos` também exigem admin. Regras que não podem ser quebradas e o modelo estão em `docs/financeiro.md` (folha só de `funcionario_pagamentos`; fatura de cartão nunca é despesa; `lancamentos_bancarios.conta_pagar_id` é a única verdade do vínculo; taxas versionadas por vigência). Valores reais (despesas, dívidas, taxas Stone, CNPJs) ficam no seed privado `Financeiro/seed-financeiro-privado.sql`, nunca no repo.
 
 ### The monolith component
-`src/components/OrcamentoApp.tsx` is ~3500 lines and holds the entire app: 8 tabs (`produtos`, `orcamento`, `historico`, `ferragens`, `entregas`, `estoque`, `ia`, `dashboard`), all forms, modals, and ~100 `useState` hooks. New features are typically added inside it rather than extracted. Only `DashboardTab` and `CalculadoraFerroModal` have been split out. When working here, locate state by searching the variable name; don't try to read top-to-bottom.
+`src/components/OrcamentoApp.tsx` is ~7000 lines and holds the operational app: tabs `produtos`, `orcamento`, `historico`, `clientes`, `ferragens`, `entregas`, `financeiro` (attendant view only: clients with open balance), all forms, modals, and ~100 `useState` hooks. New features are typically added inside it rather than extracted. Management (Vendas dashboard, Estoque, Funcionários, finance) lives in `/financeiro` (Gestão), not here. When working here, locate state by searching the variable name; don't try to read top-to-bottom.
 
 ### Data model (key Supabase tables)
 - `clientes` — upserted by `telefone` (unique). Cleaned phone (digits only) is the conflict key.
@@ -60,8 +60,8 @@ After creating/updating an orçamento, the route fires `POST /api/ghl/sync` **wi
 - `/api/endereco` proxies Google Places (autocomplete + details) and Geocoding. `strictbounds` was intentionally removed (commit d1b2d37) so neighboring cities like Cotia/Osasco/Barueri appear in suggestions — don't re-add it.
 - `/api/frete` calculates shipping via Google Distance Matrix from the depot origin (`-23.5376,-46.8375`). The pricing table and `DISTANCIA_MAXIMA_KM` (currently 30km) live at the top of the file — edit there, not in the UI.
 
-### AI assistant tab
-`/api/ai/chat` aggregates last 30 days of orçamentos + full product/client lists into a context block, then calls Anthropic's API directly (model `claude-sonnet-4-5`, no SDK). Predefined `tipo` values (`resumo_dia`, `relatorio_semanal`, `analise_clientes`, `previsao_estoque`) replace the user prompt with a templated one.
+### Claude API
+Only the photo intake (`src/lib/financeiro/leitura-foto.ts`, Gestão › Lançar foto) and the WhatsApp robot routes call Claude. New code uses `@anthropic-ai/sdk`. The old 'IA' tab and `/api/ai/chat` were removed in Oct/2026 (Roger uses Claude Code directly for questions about the business).
 
 ## Required environment variables
 
@@ -69,7 +69,7 @@ See `.env.example`. The non-obvious ones:
 - `SUPABASE_SERVICE_ROLE_KEY` — server-only, bypasses RLS, never expose to client.
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY` — required by `supabase-client.ts` even though `.env.example` only lists the URL.
 - `GOOGLE_MAPS_API_KEY` — needs Distance Matrix + Geocoding + Places enabled in Google Cloud Console; missing it returns 503 from `/api/endereco` (autocomplete) and 500 from `/api/frete`.
-- `ANTHROPIC_API_KEY` — required by `/api/ai/chat`.
+- `ANTHROPIC_API_KEY` — required by `/api/financeiro/leitura` (photo intake) and the WhatsApp robot routes.
 - `GHL_*` — GoHighLevel sync variables; sync is non-blocking, so missing values just disable the sync silently.
 - `BLING_CLIENT_ID` / `BLING_CLIENT_SECRET` — Bling OAuth app credentials; `BLING_REFRESH_TOKEN` is only a fallback once Supabase has the persisted token.
 

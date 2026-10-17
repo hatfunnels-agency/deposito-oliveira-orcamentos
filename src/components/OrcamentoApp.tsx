@@ -5,10 +5,8 @@ import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
-import DashboardTab from './DashboardTab';
 import FinanceiroTab from './FinanceiroTab';
 import { SeletorParcelas } from '@/components/financeiro/Comuns';
-import FuncionariosTab from './FuncionariosTab';
 import ClienteProfile from './ClienteProfile';
 import BuscaEndereco from './BuscaEndereco';
 import MapaEntregas from './MapaEntregas';
@@ -595,7 +593,7 @@ export default function OrcamentoApp() {  // Auth state
       ? ['entregas']
       : papelUsuario === 'atendente'
       ? ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro']
-      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro', 'funcionarios', 'dashboard', 'ia'];
+      : ['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'estoque', 'financeiro'];
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [loading, setLoading] = useState(true);
   
@@ -615,9 +613,6 @@ export default function OrcamentoApp() {  // Auth state
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userProfile, abaAtiva]);
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [mensagensIA, setMensagensIA] = useState<{role: 'user'|'assistant', content: string}[]>([]);
-  const [inputIA, setInputIA] = useState('');
-  const [carregandoIA, setCarregandoIA] = useState(false);
   const [tipoEntrega, setTipoEntrega] = useState<'retirada' | 'entrega'>('retirada');
   const [cepDestino, setCepDestino] = useState('');
   const [nomeCliente, setNomeCliente] = useState('');
@@ -3434,35 +3429,6 @@ export default function OrcamentoApp() {  // Auth state
 
   const todayStr = new Date().toISOString().split('T')[0];
 
-  async function enviarPerguntaIA(pergunta?: string, tipo?: string) {
-    const textoEnviar = pergunta || inputIA;
-    if (!textoEnviar && !tipo) return;
-    setCarregandoIA(true);
-    const labels = {
-      resumo_dia: '📊 Resumo do Dia',
-      relatorio_semanal: '📈 Relatório Semanal',
-      analise_clientes: '👥 Análise de Clientes',
-      previsao_estoque: '📦 Previsão de Estoque',
-    };
-    const msgUsuario = textoEnviar || (tipo ? (labels[tipo as keyof typeof labels] || tipo) : '');
-    setMensagensIA(prev => [...prev, { role: 'user', content: msgUsuario }]);
-    setInputIA('');
-    try {
-      const res = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pergunta: msgUsuario, tipo }),
-      });
-      const json = await res.json();
-      const conteudo = json.resposta || (json.error ? 'Erro: ' + json.error : 'Sem resposta.');
-      setMensagensIA(prev => [...prev, { role: 'assistant', content: conteudo }]);
-    } catch {
-      setMensagensIA(prev => [...prev, { role: 'assistant', content: 'Erro ao conectar com a IA.' }]);
-    } finally {
-      setCarregandoIA(false);
-    }
-  }
-
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -5517,54 +5483,36 @@ export default function OrcamentoApp() {  // Auth state
           </div>
         )}
 
-            {/* ===== DASHBOARD TAB ===== */}
-        {abaAtiva === 'dashboard' && (
-          <div className="px-4 pt-4 pb-8">
-            <DashboardTab />
-          </div>
-        )}
-
         {/* ===== FINANCEIRO TAB ===== */}
-        {/* Extratos, DRE e o resto da gestao vivem em /financeiro (link na
-            sidebar e dentro da aba). Aqui fica so o operacional do balcao. */}
+        {/* So o operacional do balcao (clientes com saldo em aberto). Toda a
+            gestao (extratos, fechamento, funcionarios, dashboard) vive em /financeiro. */}
         {abaAtiva === 'financeiro' && (
-          <FinanceiroTab simples={papelUsuario === 'atendente'} onAbrirPedido={abrirDetalhe} />
+          <FinanceiroTab simples onAbrirPedido={abrirDetalhe} />
         )}
 
-        {/* ===== FUNCIONARIOS TAB ===== */}
-        {/* Salario e so do admin: a API tambem confere o papel. */}
-        {abaAtiva === 'funcionarios' && papelUsuario === 'admin' && (
-          <FuncionariosTab />
-        )}
-
-        {/* ===== ESTOQUE TAB ===== */}
+        {/* ===== CADASTRO DE PRODUTOS (aba 'estoque') ===== */}
+        {/* Saldo, contagem, perda e entrada vivem em /financeiro > Estoque desde
+            out/2026. Aqui fica so o cadastro: preco, custo, margem. */}
       {abaAtiva === 'estoque' && (
         <div className="pb-8">
-          {produtosAbaixoMinimo.length > 0 && (
-            <button onClick={() => setFiltroEstoqueBaixo(!filtroEstoqueBaixo)} className={`w-full mb-4 p-3 rounded-xl text-sm font-medium transition ${filtroEstoqueBaixo ? 'bg-red-100 border-2 border-red-400 text-red-800' : 'bg-yellow-50 border border-yellow-200 text-yellow-800 hover:bg-yellow-100'}`}>
-              ⚠️ {produtosAbaixoMinimo.length} produto(s) abaixo do estoque mínimo {filtroEstoqueBaixo ? '(ver todos)' : '(filtrar)'}
-            </button>
-          )}
           <div className="flex flex-wrap gap-3 mb-6">
             <button onClick={() => setMostrarNovoProduto(true)} className="bg-[#F7941D] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#E8850A] transition">➕ Novo Produto</button>
-            <button onClick={() => { setProdutoSelecionado(null); setMostrarEntrada(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-green-700 transition">📥 Registrar Entrada</button>
-            <button onClick={() => { setProdutoSelecionado(null); setMostrarAjuste(true); }} className="bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-orange-700 transition">📋 Ajuste Inventário</button>
+            <a href="/financeiro?secao=estoque" className="bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition">📦 Estoque e contagem (Gestão)</a>
           </div>
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead><tr className="bg-gray-50 border-b">
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Produto</th>
-                  <th className="text-center px-2 py-3 font-medium text-gray-600">Estoque</th>
+                  <th className="text-center px-2 py-3 font-medium text-gray-600">Tipo</th>
                   <th className="text-right px-2 py-3 font-medium text-gray-600">Venda</th>
                   <th className="text-right px-2 py-3 font-medium text-gray-600">Custo</th>
                   <th className="text-right px-2 py-3 font-medium text-gray-600">Margem</th>
                   <th className="text-center px-2 py-3 font-medium text-gray-600">Ações</th>
                 </tr></thead>
                 <tbody>
-                  {produtosEstoque.map(p => {
+                  {produtos.map(p => {
                     const margem = p.preco > 0 && p.preco_custo > 0 ? ((p.preco - p.preco_custo) / p.preco * 100).toFixed(0) : '-';
-                    const estoqueColor = p.estoque <= 0 ? 'text-red-700 bg-red-50' : p.abaixo_minimo ? 'text-red-600 bg-red-50' : p.estoque <= p.estoque_minimo * 2 ? 'text-yellow-700 bg-yellow-50' : 'text-green-700 bg-green-50';
                     return (
                       <tr key={p.id} className="border-b border-gray-50 hover:bg-gray-50">
                         <td className="px-4 py-3"><p className="font-medium text-gray-800">{p.nome}</p><p className="text-xs text-gray-400">{p.categoria} · {p.codigo || '-'}{p.estoque_compartilhado_com ? ' · 🔗 estoque compartilhado' : ''}{p.baixa_estoque_em_produto_id ? (() => {
@@ -5572,32 +5520,9 @@ export default function OrcamentoApp() {  // Auth state
                           const fator = p.baixa_estoque_fator;
                           return ` · ↓ Baixa estoque de ${proxy?.nome || p.baixa_estoque_em_produto_id}${fator && fator !== 1 ? ` (fator ${fator})` : ''}`;
                         })() : ''}</p></td>
-                        <td className="px-2 py-3 text-center">{p.tipo_ferro ? (() => {
-                          // Batch C: produtos de ferro mostram disponivel/reservado
-                          // e alertam estouro (estoque - reservados < 0).
-                          const reservados = p.metros_reservados ?? 0;
-                          const disponivel = p.estoque - reservados;
-                          const insuficiente = disponivel < 0;
-                          const atencao = !insuficiente && disponivel < p.estoque_minimo;
-                          const corFerro = insuficiente
-                            ? 'text-red-700 bg-red-50'
-                            : atencao
-                              ? 'text-yellow-700 bg-yellow-50'
-                              : 'text-green-700 bg-green-50';
-                          return (
-                            <div>
-                              <span
-                                className={`text-xs font-bold px-2 py-1 rounded-full ${corFerro}`}
-                                title={insuficiente ? 'Estoque insuficiente pros orçamentos rascunho' : ''}
-                              >
-                                {insuficiente && '⚠️ '}{p.estoque}{p.unidade} disponíveis
-                              </span>
-                              <p className="text-xs text-gray-400 mt-0.5">
-                                {reservados}{p.unidade} reservados{p.estoque_minimo > 0 ? ` · min: ${p.estoque_minimo}${p.unidade}` : ''}
-                              </p>
-                            </div>
-                          );
-                        })() : p.tipo_estoque === 'sob_demanda' ? (<><span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>{(p.total_vendido ?? 0) > 0 && <p className="text-xs text-gray-400 mt-0.5">{p.total_vendido} vendidos</p>}</>) : (<><span className={`text-xs font-bold px-2 py-1 rounded-full ${estoqueColor}`}>{p.estoque} {p.unidade}</span><p className="text-xs text-gray-400 mt-0.5">min: {p.estoque_minimo}</p></>)}</td>
+                        <td className="px-2 py-3 text-center">{p.tipo_estoque === 'sob_demanda'
+                          ? <span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>
+                          : <span className="text-xs font-medium px-2 py-1 rounded-full text-gray-600 bg-gray-100">Estocado</span>}</td>
                         <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
                         <td className="px-2 py-3 text-right">
                           {editandoCustoId === p.id ? (
@@ -5636,9 +5561,7 @@ export default function OrcamentoApp() {  // Auth state
                         <td className="px-2 py-3 text-right"><span className={`text-xs font-bold ${Number(margem) >= 30 ? 'text-green-600' : Number(margem) >= 15 ? 'text-yellow-600' : 'text-red-600'}`}>{margem}%</span></td>
                         <td className="px-2 py-3 text-center"><div className="flex gap-1 justify-center flex-wrap">
                           <button onClick={() => abrirEditProduto(p)} title="Editar produto" className="text-xs bg-gray-100 text-gray-700 px-2 py-1 rounded hover:bg-gray-200">✏️</button>
-                          <button onClick={() => { setProdutoSelecionado(p); setEntradaQtd(''); setEntradaObs(''); setMostrarEntrada(true); }} title="Registrar entrada" className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200">📥</button>
                           <button onClick={() => abrirHistoricoCustos(p)} title="Histórico de custos" className="text-xs bg-blue-50 text-blue-700 px-2 py-1 rounded hover:bg-blue-100">📜</button>
-                          <button onClick={() => abrirHistoricoProduto(p)} title="Histórico de movimentações" className="text-xs bg-[#FFF3E0] text-[#F7941D] px-2 py-1 rounded hover:bg-[#FFF3E0]">📊</button>
                         </div></td>
                       </tr>
                     );
@@ -6827,77 +6750,6 @@ export default function OrcamentoApp() {  // Auth state
         </div>
       )}
 
-
-      {/* === ABA IA === */}
-      {abaAtiva === 'ia' && (
-        <div className="pb-8">
-          <div className="bg-white rounded-xl shadow-sm border p-4 mb-4">
-            <h2 className="text-lg font-bold text-gray-800 mb-1">🤖 Assistente IA</h2>
-            <p className="text-sm text-gray-500">Pergunte qualquer coisa sobre o negócio</p>
-          </div>
-          <div className="grid grid-cols-2 gap-3 mb-4">
-            <button onClick={() => enviarPerguntaIA(undefined, 'resumo_dia')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">📊</div>
-              <div className="font-semibold text-gray-800 text-sm">Resumo do Dia</div>
-              <div className="text-xs text-gray-500">Faturamento e pedidos hoje</div>
-            </button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'relatorio_semanal')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">📈</div>
-              <div className="font-semibold text-gray-800 text-sm">Relatório Semanal</div>
-              <div className="text-xs text-gray-500">Performance da semana</div>
-            </button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'analise_clientes')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">👥</div>
-              <div className="font-semibold text-gray-800 text-sm">Análise de Clientes</div>
-              <div className="text-xs text-gray-500">Perfil e comportamento</div>
-            </button>
-            <button onClick={() => enviarPerguntaIA(undefined, 'previsao_estoque')} disabled={carregandoIA} className="bg-white border border-orange-200 rounded-xl p-3 text-left hover:bg-orange-50 transition disabled:opacity-50">
-              <div className="text-xl mb-1">📦</div>
-              <div className="font-semibold text-gray-800 text-sm">Previsão de Estoque</div>
-              <div className="text-xs text-gray-500">Reposição necessária</div>
-            </button>
-          </div>
-          <div className="bg-white rounded-xl shadow-sm border p-4">
-            <div className="h-80 overflow-y-auto mb-4 space-y-3">
-              {mensagensIA.length === 0 && (
-                <p className="text-gray-400 text-sm text-center pt-8">Use os botões acima ou digite uma pergunta</p>
-              )}
-              {mensagensIA.map((msg, idx) => (
-                <div key={idx} className={msg.role === 'user' ? 'flex justify-end' : 'flex justify-start'}>
-                  <div className={msg.role === 'user'
-                    ? 'bg-orange-100 text-gray-800 rounded-2xl rounded-tr-sm px-4 py-2 max-w-xs text-sm'
-                    : 'bg-gray-100 text-gray-800 rounded-2xl rounded-tl-sm px-4 py-2 max-w-sm text-sm'}>
-                    <p className="whitespace-pre-wrap">{msg.content}</p>
-                  </div>
-                </div>
-              ))}
-              {carregandoIA && (
-                <div className="flex justify-start">
-                  <div className="bg-gray-100 rounded-2xl rounded-tl-sm px-4 py-2 text-sm text-gray-500">Pensando...</div>
-                </div>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={inputIA}
-                onChange={e => setInputIA(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && !carregandoIA) enviarPerguntaIA(inputIA, undefined); }}
-                placeholder="Pergunte sobre vendas, estoque, clientes..."
-                className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]"
-                disabled={carregandoIA}
-              />
-              <button
-                onClick={() => enviarPerguntaIA(inputIA, undefined)}
-                disabled={carregandoIA || !inputIA.trim()}
-                className="bg-[#F7941D] text-white px-4 py-2 rounded-lg font-medium hover:bg-[#E8850A] transition disabled:opacity-50"
-              >
-                Enviar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* === MODAL CALCULADORA DE FERRO === */}
       {/* Cobranca ao concluir entrega com saldo em aberto */}

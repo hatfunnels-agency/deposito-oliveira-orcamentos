@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText,
+  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera,
   Menu, LogOut, ArrowLeft, X, type LucideIcon,
 } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
@@ -21,6 +21,10 @@ import Maquininha from './Maquininha';
 import Fechamento from './Fechamento';
 import Simulador from './Simulador';
 import ClientesAReceber from './ClientesAReceber';
+import DashboardTab from '@/components/DashboardTab';
+import FuncionariosTab from '@/components/FuncionariosTab';
+import Estoque from './Estoque';
+import LancarPorFoto from './LancarPorFoto';
 
 // Casca da /financeiro: sessao, papel, menu lateral e a secao ativa em
 // ?secao=. Admin ve tudo; atendente so "Clientes a receber"; motorista
@@ -28,17 +32,20 @@ import ClientesAReceber from './ClientesAReceber';
 
 export type Secao =
   | 'panorama' | 'dia' | 'pagar' | 'despesas' | 'conciliacao' | 'maquininha'
-  | 'fechamento' | 'simulador' | 'receber' | 'extratos';
+  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque';
 
 const SECOES: Array<{ key: Secao; rotulo: string; icone: LucideIcon; titulo: string }> = [
   { key: 'panorama', rotulo: 'Panorama', icone: Gauge, titulo: 'Panorama' },
   { key: 'dia', rotulo: 'Dia', icone: CalendarDays, titulo: 'Dia' },
   { key: 'pagar', rotulo: 'A pagar', icone: Receipt, titulo: 'Contas a pagar' },
+  { key: 'estoque', rotulo: 'Estoque', icone: Package, titulo: 'Estoque' },
   { key: 'despesas', rotulo: 'Despesas fixas', icone: Repeat, titulo: 'Despesas fixas' },
   { key: 'conciliacao', rotulo: 'Conciliação', icone: ArrowLeftRight, titulo: 'Conciliação bancária' },
   { key: 'maquininha', rotulo: 'Maquininha', icone: CreditCard, titulo: 'Maquininha' },
   { key: 'fechamento', rotulo: 'Fechamento', icone: Scale, titulo: 'Fechamento do mês' },
   { key: 'simulador', rotulo: 'Simulador', icone: Calculator, titulo: 'Simulador de cenários' },
+  { key: 'vendas', rotulo: 'Vendas', icone: BarChart3, titulo: 'Vendas (dashboard)' },
+  { key: 'funcionarios', rotulo: 'Funcionários', icone: IdCard, titulo: 'Funcionários' },
   { key: 'receber', rotulo: 'Clientes a receber', icone: Users, titulo: 'Clientes a receber' },
   { key: 'extratos', rotulo: 'Extratos', icone: FileText, titulo: 'Extratos' },
 ];
@@ -53,6 +60,10 @@ export default function FinanceiroApp() {
   const [usuario, setUsuario] = useState<Usuario | null>(null);
   const [sessaoPronta, setSessaoPronta] = useState(false);
   const [menuAberto, setMenuAberto] = useState(false);
+  // Lancar por foto abre por cima de qualquer secao; ao salvar, a secao
+  // atual remonta (key) pra mostrar a conta/estoque novos.
+  const [fotoAberta, setFotoAberta] = useState(false);
+  const [versaoSecao, setVersaoSecao] = useState(0);
 
   const [contexto, setContexto] = useState<ContextoFinanceiro | null>(null);
   const [carregandoCtx, setCarregandoCtx] = useState(false);
@@ -138,6 +149,9 @@ export default function FinanceiroApp() {
     case 'maquininha': conteudo = <Maquininha />; break;
     case 'fechamento': conteudo = <Fechamento />; break;
     case 'simulador': conteudo = <Simulador />; break;
+    case 'estoque': conteudo = <Estoque />; break;
+    case 'vendas': conteudo = <DashboardTab />; break;
+    case 'funcionarios': conteudo = <FuncionariosTab />; break;
     case 'extratos': conteudo = <ExtratosTab vistas={['importar', 'revisar']} />; break;
     case 'receber':
     default:
@@ -158,7 +172,7 @@ export default function FinanceiroApp() {
             <div className="flex-1">
               <p className="text-lg font-bold text-[#F7941D] leading-tight">Depósito</p>
               <p className="text-lg font-bold text-[#F7941D] leading-tight">Oliveira</p>
-              <p className="text-[11px] text-slate-400 mt-0.5">Gestão financeira</p>
+              <p className="text-[11px] text-slate-400 mt-0.5">Gestão</p>
             </div>
             <button type="button" aria-label="Fechar menu" onClick={() => setMenuAberto(false)} className="text-slate-300 hover:text-white md:hidden">
               <X size={20} />
@@ -198,6 +212,12 @@ export default function FinanceiroApp() {
               <h1 className="text-base font-bold text-gray-800 truncate sm:hidden">{atual.titulo}</h1>
             </div>
             <div className="flex items-center gap-2 shrink-0">
+              {usuario.papel === 'admin' && (
+                <button type="button" onClick={() => setFotoAberta(true)} title="Lançar por foto (nota, boleto, ticket de pesagem)"
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#F7941D] px-3 text-sm font-medium text-white hover:bg-[#E8850A] min-h-[44px]">
+                  <Camera size={18} /> <span className="hidden sm:inline">Lançar foto</span>
+                </button>
+              )}
               <span className="text-sm text-slate-600 truncate max-w-[40vw]">
                 {usuario.nome}
                 <span className="text-slate-400"> • </span>
@@ -214,10 +234,13 @@ export default function FinanceiroApp() {
             {usuario.papel === 'admin' && erroCtx && (
               <Erro className="mb-4" mensagem={`Contexto financeiro: ${erroCtx}`} onTentar={carregarContexto} />
             )}
-            {conteudo}
+            <div key={`${secao}-${versaoSecao}`}>{conteudo}</div>
           </main>
         </div>
       </div>
+      {fotoAberta && (
+        <LancarPorFoto onFechar={() => setFotoAberta(false)} onSalvo={() => setVersaoSecao(v => v + 1)} />
+      )}
     </ContextoFinanceiroProvider>
   );
 }
