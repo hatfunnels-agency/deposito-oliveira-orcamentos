@@ -143,10 +143,25 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
 
     if (c.tipo === 'carteira') {
       // Credito junto ao fornecedor: entra 15% das vendas no cartao e o
-      // cashback (arquivo da Vloz); sai o cimento pago com o saldo.
-      const linhas = await lerTudo<Row>(() => supabaseAdmin.from('lancamentos_bancarios').select('valor').eq('conta_id', c.id));
-      const saldo = linhas.reduce((a, l) => a + (Number(l.valor) || 0), 0);
-      saida.push({ ...vazio, origem: 'calculado', movimentos_apos_base: arred2(saldo), saldo_estimado: arred2(saldo) });
+      // cashback (arquivo da Vloz); sai o cimento pago com o saldo. O arquivo
+      // de vendas nao traz o uso do saldo, entao o saldo informado (app da
+      // Vloz) e a base; depois dele somam so as linhas de dias seguintes.
+      const baseCart = bases.get(c.id);
+      const linhas = await lerTudo<Row>(() => {
+        let q = supabaseAdmin.from('lancamentos_bancarios').select('valor, data').eq('conta_id', c.id);
+        if (baseCart) q = q.gt('data', baseCart.data);
+        return q;
+      });
+      const mov = linhas.reduce((a, l) => a + (Number(l.valor) || 0), 0);
+      saida.push({
+        ...vazio,
+        saldo_base: baseCart ? arred2(baseCart.saldo) : null,
+        data_base: baseCart?.data ?? null,
+        origem: baseCart ? baseCart.origem : 'calculado',
+        defasagem_dias: baseCart ? diasEntre(baseCart.data, hoje) : null,
+        movimentos_apos_base: arred2(mov),
+        saldo_estimado: arred2((baseCart?.saldo ?? 0) + mov),
+      });
       continue;
     }
 
