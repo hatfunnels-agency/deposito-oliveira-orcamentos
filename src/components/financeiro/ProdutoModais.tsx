@@ -1,23 +1,19 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { History, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Trash2 } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import { apiFinanceiro } from '@/lib/financeiro/cliente-api';
 import { brl, dataCurta, numero } from '@/lib/financeiro/formato';
-import {
-  Abas, Aviso, BotaoPerigo, BotaoPrimario, BotaoSecundario, Campo, CampoMoeda, CampoNumero, Carregando, Cartao, Erro,
-  INPUT, Modal, Selo, Vazio,
-} from './Comuns';
+import { Aviso, BotaoPerigo, BotaoPrimario, BotaoSecundario, Campo, CampoMoeda, CampoNumero, INPUT, Modal, Vazio } from './Comuns';
 
-// Cadastro de produtos na Gestao (saiu do sistema principal em out/2026):
-// preco, custo, margem, novo produto, editar e historico de custos. Saldo,
-// contagem, sob demanda e prazo de entrega ficam na secao Estoque.
+// Cadastro de produtos (novo, editar, historico de custos), usado pela secao
+// Estoque da Gestao. Saiu do sistema principal em out/2026.
 //
 // Usa as rotas /api/produtos (as mesmas do catalogo). Excluir passa pela
 // Gestao (/api/financeiro/estoque), que arquiva e confere estoque compartilhado.
 
-interface ProdutoApi {
+export interface ProdutoApi {
   id: string;
   nome: string;
   codigo: string | null;
@@ -39,11 +35,6 @@ interface ProdutoApi {
 
 interface HistoricoCusto { id: string; custo_anterior: number; custo_novo: number; criado_em: string; usuario_nome: string | null }
 
-type Filtro = 'todos' | 'estocavel' | 'sob_demanda' | 'so_estoque' | 'sem_custo';
-
-const margemPct = (p: { preco: number; preco_custo: number }) =>
-  p.preco > 0 && p.preco_custo > 0 ? ((p.preco - p.preco_custo) / p.preco) * 100 : null;
-
 async function usuarioId(): Promise<string | null> {
   const { data } = await supabaseBrowser.auth.getSession();
   return data.session?.user.id ?? null;
@@ -58,183 +49,9 @@ async function putProduto(id: string, corpo: Record<string, unknown>) {
   if (!res.ok || data?.error) throw new Error(data?.error || 'Falha ao salvar');
 }
 
-export default function Produtos() {
-  const [lista, setLista] = useState<ProdutoApi[] | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
-  const [aviso, setAviso] = useState<string | null>(null);
-  const [busca, setBusca] = useState('');
-  const [categoria, setCategoria] = useState('');
-  const [filtro, setFiltro] = useState<Filtro>('todos');
-  const [editando, setEditando] = useState<ProdutoApi | 'novo' | null>(null);
-  const [historico, setHistorico] = useState<ProdutoApi | null>(null);
-  const [custoId, setCustoId] = useState<string | null>(null);
-  const [custoValor, setCustoValor] = useState<number | null>(null);
-  const [salvandoCusto, setSalvandoCusto] = useState(false);
-
-  const carregar = useCallback(async () => {
-    setErro(null);
-    try {
-      const res = await fetch('/api/produtos', { cache: 'no-store' });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data?.error || 'Erro ao carregar produtos');
-      setLista((data.produtos ?? []) as ProdutoApi[]);
-    } catch (e) {
-      setErro(e instanceof Error ? e.message : 'Erro ao carregar produtos');
-    }
-  }, []);
-  useEffect(() => { carregar(); }, [carregar]);
-
-  useEffect(() => {
-    if (!aviso) return;
-    const t = setTimeout(() => setAviso(null), 3000);
-    return () => clearTimeout(t);
-  }, [aviso]);
-
-  const todos = useMemo(() => lista ?? [], [lista]);
-  const categorias = useMemo(() => [...new Set(todos.map(p => p.categoria || 'Geral'))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [todos]);
-  const contagem = useMemo(() => ({
-    estocavel: todos.filter(p => p.tipo_estoque !== 'sob_demanda' && p.vendavel !== false).length,
-    sob_demanda: todos.filter(p => p.tipo_estoque === 'sob_demanda').length,
-    so_estoque: todos.filter(p => p.vendavel === false).length,
-    sem_custo: todos.filter(p => !(p.preco_custo > 0)).length,
-  }), [todos]);
-  const filtrados = useMemo(() => {
-    const termo = busca.trim().toLowerCase();
-    return todos
-      .filter(p => {
-        if (categoria && (p.categoria || 'Geral') !== categoria) return false;
-        if (termo && !p.nome.toLowerCase().includes(termo) && !(p.codigo ?? '').toLowerCase().includes(termo)) return false;
-        if (filtro === 'estocavel') return p.tipo_estoque !== 'sob_demanda' && p.vendavel !== false;
-        if (filtro === 'sob_demanda') return p.tipo_estoque === 'sob_demanda';
-        if (filtro === 'so_estoque') return p.vendavel === false;
-        if (filtro === 'sem_custo') return !(p.preco_custo > 0);
-        return true;
-      })
-      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  }, [todos, busca, categoria, filtro]);
-
-  const salvarCusto = async (p: ProdutoApi) => {
-    if (custoValor === null || custoValor < 0) { setAviso('Custo inválido.'); return; }
-    if (Math.abs(custoValor - (p.preco_custo || 0)) < 0.005) { setCustoId(null); return; }
-    setSalvandoCusto(true);
-    try {
-      await putProduto(p.id, { preco_custo: custoValor });
-      setAviso(`Custo de ${p.nome} atualizado.`);
-      setCustoId(null);
-      await carregar();
-    } catch (e) {
-      setAviso(e instanceof Error ? e.message : 'Erro ao salvar o custo');
-    } finally {
-      setSalvandoCusto(false);
-    }
-  };
-
-  if (!lista && !erro) return <Carregando texto="Carregando produtos…" />;
-  if (!lista) return <Erro mensagem={erro!} onTentar={carregar} />;
-
-  return (
-    <div className="space-y-4">
-      <Cartao>
-        <div className="flex flex-col sm:flex-row gap-2">
-          <div className="relative flex-1">
-            <Search className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input value={busca} onChange={e => setBusca(e.target.value)} placeholder="Buscar nome ou código" aria-label="Buscar produto"
-              className={`${INPUT} pl-9 min-h-[44px]`} />
-          </div>
-          <select value={categoria} onChange={e => setCategoria(e.target.value)} aria-label="Categoria" className={`${INPUT} sm:w-56 min-h-[44px]`}>
-            <option value="">Todas as categorias</option>
-            {categorias.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <BotaoPrimario onClick={() => setEditando('novo')} className="min-h-[44px]"><Plus className="w-4 h-4" /> Novo produto</BotaoPrimario>
-        </div>
-        <Abas className="mt-3" valor={filtro} onChange={setFiltro} opcoes={[
-          { key: 'todos', rotulo: 'Todos', contagem: todos.length },
-          { key: 'estocavel', rotulo: 'Estocados', contagem: contagem.estocavel },
-          { key: 'sob_demanda', rotulo: 'Sob demanda', contagem: contagem.sob_demanda },
-          { key: 'so_estoque', rotulo: 'Só estoque', contagem: contagem.so_estoque },
-          { key: 'sem_custo', rotulo: 'Sem custo', contagem: contagem.sem_custo },
-        ]} />
-      </Cartao>
-
-      {aviso && <Aviso tom="info">{aviso}</Aviso>}
-      {erro && <Erro mensagem={erro} onTentar={carregar} />}
-
-      {filtrados.length === 0 ? <Vazio>Nenhum produto com esse filtro.</Vazio> : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 divide-y divide-gray-100">
-          {filtrados.map(p => {
-            const m = margemPct(p);
-            return (
-              <div key={p.id} className="p-3 sm:p-4 flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium text-gray-800 text-sm break-words">{p.nome}</p>
-                  <p className="text-[11px] text-gray-500">
-                    {p.categoria || 'Geral'} · {p.codigo || 'sem código'} · por {p.unidade}
-                    {p.qtd_vendas > 0 && <> · {p.qtd_vendas} vendas</>}
-                  </p>
-                  <div className="flex flex-wrap gap-1 mt-1">
-                    {p.vendavel === false && <Selo tom="amarelo" titulo="Fora do catálogo: só controla estoque">só estoque</Selo>}
-                    {p.tipo_estoque === 'sob_demanda' && <Selo tom="azul">sob demanda</Selo>}
-                    {p.estoque_compartilhado_com && <Selo tom="cinza">estoque compartilhado</Selo>}
-                    {p.baixa_estoque_em_produto_id && (
-                      <Selo tom="cinza">baixa {numero(p.baixa_estoque_fator ?? 1, (p.baixa_estoque_fator ?? 1) % 1 ? 2 : 0)} de {todos.find(x => x.id === p.baixa_estoque_em_produto_id)?.nome ?? 'outro produto'}</Selo>
-                    )}
-                  </div>
-                </div>
-                <div className="grid grid-cols-3 gap-2 sm:w-[340px] shrink-0 text-right text-sm tabular-nums">
-                  <div>
-                    <p className="text-[10px] text-gray-500">Venda</p>
-                    <p className="font-semibold text-gray-900">{brl(p.preco)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-500">Custo</p>
-                    {custoId === p.id ? (
-                      <div onKeyDown={e => { if (e.key === 'Enter') salvarCusto(p); if (e.key === 'Escape') setCustoId(null); }}>
-                        <CampoMoeda value={custoValor} onChange={setCustoValor} autoFocus disabled={salvandoCusto} />
-                        <div className="flex justify-end gap-1 mt-1">
-                          <button type="button" onClick={() => setCustoId(null)} className="text-[11px] text-gray-500 px-1 min-h-[32px]">cancelar</button>
-                          <button type="button" onClick={() => salvarCusto(p)} disabled={salvandoCusto} className="text-[11px] font-semibold text-[#C96F00] px-1 min-h-[32px]">salvar</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <button type="button" onClick={() => { setCustoId(p.id); setCustoValor(p.preco_custo || null); }} title="Toque para editar o custo"
-                        className={`font-medium hover:text-[#C96F00] min-h-[32px] ${p.preco_custo > 0 ? 'text-gray-700' : 'text-red-700'}`}>
-                        {p.preco_custo > 0 ? brl(p.preco_custo) : 'sem custo'}
-                      </button>
-                    )}
-                    {p.ultima_atualizacao_custo && custoId !== p.id && <p className="text-[10px] text-gray-400">em {dataCurta(p.ultima_atualizacao_custo)}</p>}
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-gray-500">Margem</p>
-                    <p className={`font-bold ${m === null ? 'text-gray-400' : m >= 30 ? 'text-emerald-700' : m >= 15 ? 'text-amber-700' : 'text-red-700'}`}>
-                      {m === null ? '—' : `${numero(m, 0)}%`}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex gap-1 sm:flex-col shrink-0">
-                  <BotaoSecundario onClick={() => setEditando(p)} aria-label={`Editar ${p.nome}`}><Pencil className="w-4 h-4" /> <span className="sm:hidden">Editar</span></BotaoSecundario>
-                  <BotaoSecundario onClick={() => setHistorico(p)} aria-label={`Histórico de custos de ${p.nome}`}><History className="w-4 h-4" /> <span className="sm:hidden">Custos</span></BotaoSecundario>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-
-      <p className="text-[11px] text-gray-500">Saldo, contagem, sob demanda e prazo de entrega ficam na seção Estoque. Produto excluído fica em Estoque › Excluídos e pode ser restaurado.</p>
-
-      {editando && (
-        <ModalProduto produto={editando === 'novo' ? null : editando} categorias={categorias}
-          onFechar={() => setEditando(null)}
-          onSalvo={msg => { setEditando(null); setAviso(msg); carregar(); }} />
-      )}
-      {historico && <ModalHistorico produto={historico} onFechar={() => setHistorico(null)} />}
-    </div>
-  );
-}
-
 // ---------------------------------------------------------------- novo / editar
 
-function ModalProduto({ produto, categorias, onFechar, onSalvo }: {
+export function ModalProduto({ produto, categorias, onFechar, onSalvo }: {
   produto: ProdutoApi | null; categorias: string[]; onFechar: () => void; onSalvo: (msg: string) => void;
 }) {
   const novo = produto === null;
@@ -356,7 +173,7 @@ function ModalProduto({ produto, categorias, onFechar, onSalvo }: {
 
 // ---------------------------------------------------------------- historico de custos
 
-function ModalHistorico({ produto, onFechar }: { produto: ProdutoApi; onFechar: () => void }) {
+export function ModalHistorico({ produto, onFechar }: { produto: ProdutoApi; onFechar: () => void }) {
   const [itens, setItens] = useState<HistoricoCusto[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   useEffect(() => {
@@ -393,4 +210,12 @@ function ModalHistorico({ produto, onFechar }: { produto: ProdutoApi; onFechar: 
         )}
     </Modal>
   );
+}
+
+/** Lista do cadastro (mesma rota do catalogo, so ativos). */
+export async function carregarProdutosApi(): Promise<ProdutoApi[]> {
+  const res = await fetch('/api/produtos', { cache: 'no-store' });
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(data?.error || 'Erro ao carregar produtos');
+  return (data?.produtos ?? []) as ProdutoApi[];
 }

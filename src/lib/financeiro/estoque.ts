@@ -50,6 +50,7 @@ interface ProdutoRow {
   unidade_venda: string;
   fator_conversao: number | string | null;
   preco_custo: number | string | null;
+  preco_venda?: number | string | null;
   estoque_atual: number | string | null;
   estoque_minimo: number | string | null;
   ativo: boolean | null;
@@ -129,7 +130,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   const [produtos, pedidos, movs] = await Promise.all([
     lerTudo<ProdutoRow>(() => supabaseAdmin
       .from('produtos')
-      .select('id, nome, categoria, unidade, unidade_venda, fator_conversao, preco_custo, estoque_atual, estoque_minimo, ativo, tipo_estoque, estoque_compartilhado_com, prazo_entrega_dias, baixa_estoque_em_produto_id, baixa_estoque_fator, tipo_ferro')),
+      .select('id, nome, categoria, unidade, unidade_venda, fator_conversao, preco_custo, preco_venda, estoque_atual, estoque_minimo, ativo, tipo_estoque, estoque_compartilhado_com, prazo_entrega_dias, baixa_estoque_em_produto_id, baixa_estoque_fator, tipo_ferro')),
     lerTudo<{ id: string; criado_em: string }>(() => supabaseAdmin
       .from('orcamentos')
       .select('id, criado_em')
@@ -204,6 +205,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   }
 
   const secundarios = new Map<string, string[]>();
+  const vinculados = new Map<string, Array<{ produto_id: string; nome: string }>>();
   for (const p of produtos) {
     if (p.ativo === false) continue;
     const alvo = p.estoque_compartilhado_com || p.baixa_estoque_em_produto_id;
@@ -213,6 +215,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
       ? `${p.nome} (baixa ${String(num(p.baixa_estoque_fator) || 1).replace('.', ',')} ${porId.get(alvo)?.unidade ?? ''})`.replace(/ \)$/, ')')
       : p.nome);
     secundarios.set(alvo, lista);
+    vinculados.set(alvo, [...(vinculados.get(alvo) ?? []), { produto_id: p.id, nome: p.nome }]);
   }
 
   const itens: ItemPainelEstoque[] = [];
@@ -251,6 +254,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
       estoque_atual: estoque,
       estoque_minimo: minimo,
       preco_custo: precoCusto,
+      preco_venda: num(p.preco_venda),
       custo_unitario: Math.round(custoUnit * 10000) / 10000,
       valor_estoque: arred2(Math.max(0, estoque) * custoUnit),
       vendido_30d: v30,
@@ -264,6 +268,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
       zerado: estoque <= 0,
       sem_venda_90d: v90 <= 0,
       secundarios: (secundarios.get(p.id) ?? []).sort((a, b) => a.localeCompare(b, 'pt-BR')),
+      vinculados: (vinculados.get(p.id) ?? []).sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR')),
       // Sem contagem o saldo nao vale, entao nao ha previsao.
       prazo_entrega_dias: p.prazo_entrega_dias == null ? null : Number(p.prazo_entrega_dias),
       reposicao: ultimaContagem.has(p.id) ? calcularReposicao(estoque, minimo, v30, hoje, p.prazo_entrega_dias == null ? null : Number(p.prazo_entrega_dias)) : null,

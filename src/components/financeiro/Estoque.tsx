@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ArrowDownToLine, ClipboardCheck, PackageMinus, Search, SlidersHorizontal, ChevronDown, ChevronUp, Trash2, ShoppingCart } from 'lucide-react';
+import { ArrowDownToLine, ClipboardCheck, PackageMinus, Search, SlidersHorizontal, ChevronDown, ChevronUp, Trash2, ShoppingCart, Pencil, History, Plus } from 'lucide-react';
 import type {
   ItemPainelEstoque, MovimentoEstoque, NovoMovimentoEstoque, PainelEstoque, ResultadoMovimentoEstoque, TipoMovimentoEstoque,
 } from '@/lib/financeiro/tipos';
@@ -11,6 +11,7 @@ import {
   Abas, Aviso, BotaoPrimario, BotaoSecundario, Campo, CampoMoeda, CampoNumero, Carregando, Cartao, Erro, Estatistica,
   INPUT, Modal, Selo, Vazio,
 } from './Comuns';
+import { carregarProdutosApi, ModalHistorico, ModalProduto, type ProdutoApi } from './ProdutoModais';
 
 // Estoque na gestao: quanto dinheiro esta parado na prateleira, o que gira
 // e o que acaba quando. O saldo de um produto so vale depois da primeira
@@ -41,6 +42,25 @@ export default function Estoque() {
   const [acao, setAcao] = useState<{ item: ItemPainelEstoque; tipo: TipoMovimentoEstoque } | null>(null);
   const [versaoHistorico, setVersaoHistorico] = useState(0);
   const [mudandoTipo, setMudandoTipo] = useState<string | null>(null);
+  // Cadastro (novo/editar/historico de custos) usa /api/produtos, carregado so quando abre.
+  const [cadastro, setCadastro] = useState<ProdutoApi[] | null>(null);
+  const [editando, setEditando] = useState<ProdutoApi | 'novo' | null>(null);
+  const [vendoCustos, setVendoCustos] = useState<ProdutoApi | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+  const abrirCadastro = async (produtoId: string | null, acao: 'editar' | 'custos') => {
+    setErro(null);
+    try {
+      const lista = cadastro ?? await carregarProdutosApi();
+      setCadastro(lista);
+      if (produtoId === null) { setEditando('novo'); return; }
+      const p = lista.find(x => x.id === produtoId);
+      if (!p) { setErro('Produto não encontrado no cadastro.'); return; }
+      if (acao === 'editar') setEditando(p); else setVendoCustos(p);
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao abrir o cadastro');
+    }
+  };
+  const categoriasCadastro = useMemo(() => [...new Set((cadastro ?? []).map(p => p.categoria || 'Geral'))].sort((a, b) => a.localeCompare(b, 'pt-BR')), [cadastro]);
 
   // Sob demanda = pedido ao fornecedor so quando vende: sai do painel de
   // saldo e a venda nao baixa estoque.
@@ -143,6 +163,7 @@ export default function Estoque() {
             <option value="">Todas as categorias</option>
             {dados.categorias.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
+          <BotaoPrimario onClick={() => abrirCadastro(null, 'editar')} className="min-h-[44px]"><Plus className="w-4 h-4" /> Novo produto</BotaoPrimario>
         </div>
         <Abas className="mt-3" valor={filtro} onChange={setFiltro} opcoes={[
           { key: 'todos', rotulo: 'Todos', contagem: itens.length },
@@ -157,6 +178,7 @@ export default function Estoque() {
       </Cartao>
 
       {erro && <Erro mensagem={erro} onTentar={carregar} />}
+      {aviso && <Aviso tom="ok">{aviso}</Aviso>}
 
       {filtro === 'excluidos' ? (
         <Cartao titulo="Excluídos" selo={<Selo tom="cinza">{excluidosFiltrados.length}</Selo>}>
@@ -192,6 +214,8 @@ export default function Estoque() {
                   </label>
                   <span className="flex items-center gap-2 shrink-0">
                     <span className="text-xs text-gray-500 tabular-nums">{numero(i.vendido_90d, 1)} {i.unidade} em 90d</span>
+                    <button type="button" onClick={() => abrirCadastro(i.produto_id, 'editar')} aria-label={`Editar ${i.nome}`} title="Editar produto"
+                      className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-gray-500 hover:text-[#C96F00] hover:bg-orange-50"><Pencil className="w-4 h-4" /></button>
                     <button type="button" onClick={() => excluir(i.produto_id, i.nome)} disabled={mudandoTipo === i.produto_id}
                       aria-label={`Excluir ${i.nome}`} title="Excluir produto"
                       className="min-h-[44px] min-w-[44px] inline-flex items-center justify-center rounded-lg text-gray-400 hover:text-red-700 hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
@@ -210,7 +234,9 @@ export default function Estoque() {
               onAlternar={() => setAberto(a => (a === i.produto_id ? null : i.produto_id))}
               onAcao={tipo => setAcao({ item: i, tipo })}
               mudandoTipo={mudandoTipo === i.produto_id} onSobDemanda={() => alternarTipo(i.produto_id, true)}
-              onExcluir={() => excluir(i.produto_id, i.nome)} onPrazo={d => salvarPrazo(i.produto_id, d)} />
+              onExcluir={() => excluir(i.produto_id, i.nome)} onPrazo={d => salvarPrazo(i.produto_id, d)}
+              onEditar={() => abrirCadastro(i.produto_id, 'editar')} onCustos={() => abrirCadastro(i.produto_id, 'custos')}
+              onEditarVinculado={id => abrirCadastro(id, 'editar')} />
           ))}
         </div>
       )}
@@ -222,6 +248,13 @@ export default function Estoque() {
         Reposição (só produtos já contados): pedir quando o saldo cobrir 2× o prazo de entrega no ritmo atual (ferro: 1 semana de prazo → pedir com 2 semanas de estoque), ou 3 dias de venda se a entrega é rápida; o estoque mínimo cadastrado vale se for maior. A sugestão cobre o que vende até chegar mais 2 semanas (seg a sáb), no ritmo dos últimos 30 dias. Ferro conta a barra (12 m) e a calculadora de ferragem.
       </p>
 
+      {editando && (
+        <ModalProduto produto={editando === 'novo' ? null : editando} categorias={categoriasCadastro}
+          onFechar={() => setEditando(null)}
+          onSalvo={msg => { setEditando(null); setCadastro(null); setAviso(msg); carregar(); }} />
+      )}
+      {vendoCustos && <ModalHistorico produto={vendoCustos} onFechar={() => setVendoCustos(null)} />}
+
       {acao && (
         <ModalMovimento item={acao.item} tipoInicial={acao.tipo} onFechar={() => setAcao(null)}
           onSalvo={() => { setAcao(null); setAberto(acao.item.produto_id); setVersaoHistorico(v => v + 1); carregar(); }} />
@@ -232,10 +265,11 @@ export default function Estoque() {
 
 // ---------------------------------------------------------------- cartao
 
-function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda, onExcluir, onPrazo }: {
+function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda, onExcluir, onPrazo, onEditar, onCustos, onEditarVinculado }: {
   item: ItemPainelEstoque; aberto: boolean; versaoHistorico: number;
   onAlternar: () => void; onAcao: (t: TipoMovimentoEstoque) => void;
   mudandoTipo: boolean; onSobDemanda: () => void; onExcluir: () => void; onPrazo: (dias: number | null) => void;
+  onEditar: () => void; onCustos: () => void; onEditarVinculado: (produtoId: string) => void;
 }) {
   const cobertura = i.cobertura_dias === null ? (i.zerado ? '—' : 'sem venda') : `${numero(i.cobertura_dias, i.cobertura_dias < 10 ? 1 : 0)} dias`;
   return (
@@ -246,7 +280,6 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, m
           <p className="font-semibold text-gray-800 text-sm break-words">{i.nome}</p>
           <p className="text-[11px] text-gray-500 mt-0.5">
             {i.categoria || 'Geral'}
-            {i.secundarios.length > 0 && <> · também: {i.secundarios.join(', ')}</>}
           </p>
           <div className="flex flex-wrap gap-1 mt-2">
             {!i.ultima_contagem && <Selo tom="amarelo">nunca contado</Selo>}
@@ -267,11 +300,25 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, m
         </div>
       </button>
 
+      {i.vinculados.length > 0 && (
+        <div className="px-4 pb-2 flex flex-wrap items-center gap-1 text-[11px] text-gray-500">
+          <span>Vendidos como:</span>
+          {i.vinculados.map(v => (
+            <button key={v.produto_id} type="button" onClick={() => onEditarVinculado(v.produto_id)} title={`Editar ${v.nome}`}
+              className="inline-flex items-center gap-1 rounded-full border border-gray-200 px-2 min-h-[32px] text-gray-700 hover:border-[#F7941D] hover:text-[#C96F00]">
+              <Pencil className="w-3 h-3" /> {v.nome}
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="px-4 pb-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
         <Dado rotulo="Cobertura" valor={cobertura} />
         <Dado rotulo="Giro 90d" valor={i.giro_90d === null ? '—' : `${numero(i.giro_90d, 1)}x`} />
         <Dado rotulo="Vendido 30d / 90d" valor={`${numero(i.vendido_30d, 1)} / ${numero(i.vendido_90d, 1)}`} />
         <Dado rotulo="Custo / última entrada" valor={`${brl(i.custo_unitario)} · ${i.ultima_entrada ? dataCurta(i.ultima_entrada) : '—'}`} />
+        <Dado rotulo={`Venda por ${i.unidade_venda}`} valor={brl(i.preco_venda)} />
+        <Dado rotulo="Margem" valor={i.preco_venda > 0 && i.preco_custo > 0 ? `${numero(((i.preco_venda - i.preco_custo) / i.preco_venda) * 100, 0)}%` : '—'} />
       </div>
 
       <div className="px-4 pb-4 grid grid-cols-2 sm:grid-cols-4 gap-2">
@@ -307,10 +354,20 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, m
           <input type="checkbox" checked={false} disabled={mudandoTipo} onChange={onSobDemanda} className="w-5 h-5 accent-[#F7941D]" />
           Sob demanda <span className="text-gray-400 hidden sm:inline">(vem do fornecedor quando vende)</span>
         </label>
-        <button type="button" onClick={onExcluir} disabled={mudandoTipo}
-          className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-700 hover:bg-red-50 rounded-lg px-2 min-h-[44px]">
-          <Trash2 className="w-4 h-4" /> Excluir
-        </button>
+        <div className="flex items-center">
+          <button type="button" onClick={onEditar}
+            className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-[#C96F00] hover:bg-orange-50 rounded-lg px-2 min-h-[44px]">
+            <Pencil className="w-4 h-4" /> Editar
+          </button>
+          <button type="button" onClick={onCustos}
+            className="inline-flex items-center gap-1 text-xs text-gray-600 hover:text-[#C96F00] hover:bg-orange-50 rounded-lg px-2 min-h-[44px]">
+            <History className="w-4 h-4" /> Custos
+          </button>
+          <button type="button" onClick={onExcluir} disabled={mudandoTipo}
+            className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-red-700 hover:bg-red-50 rounded-lg px-2 min-h-[44px]">
+            <Trash2 className="w-4 h-4" /> Excluir
+          </button>
+        </div>
       </div>
 
       {aberto && <Historico produtoId={i.produto_id} unidade={i.unidade} versao={versaoHistorico} />}
