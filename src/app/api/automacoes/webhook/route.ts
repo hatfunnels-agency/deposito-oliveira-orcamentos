@@ -1,4 +1,5 @@
 import { registrarContato } from '@/lib/contatos';
+import { abrirVendaIA } from '@/lib/venda-ia';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import {
@@ -212,6 +213,9 @@ async function executar(acao: AcaoRobo, ctx: {
       ? 'sem cadastro — nao perturbe gravado no GHL'
       : 'sem cadastro e sem contato no GHL — nao perturbe nao pode ser gravado';
   }
+  // Venda fechada vale tambem sem cadastro (lead): o caso fica pelo telefone
+  // e a atendente cadastra na hora de lancar.
+  if (acao.tipo === 'venda_fechada') return abrirVendaIA(acao, ctx);
   if (!ctx.clienteId) return 'sem cliente no banco — acao ignorada';
   switch (acao.tipo) {
     case 'marcar_retorno': {

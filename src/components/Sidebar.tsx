@@ -1,5 +1,6 @@
 'use client';
 
+import { SeloVendasIA } from './AlertaVendasIA';
 import {
   Package,
   ShoppingCart,
@@ -127,6 +128,7 @@ export default function Sidebar({
                 >
                   <Icone size={20} />
                   <span className="flex-1 text-left">{p.label}</span>
+                  {p.href === '/atendimento' && <SeloVendasIA />}
                 </a>
               );
             })}

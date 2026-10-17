@@ -678,6 +678,11 @@ export default function OrcamentoApp() {  // Auth state
   const [enderecosDoCliente, setEnderecosDoCliente] = useState<EnderecoClienteUI[]>([]);
   // Editar nome/endereco do cliente: 'form' (aba Orcamento) ou 'detalhe' (pedido aberto).
   const [editandoCliente, setEditandoCliente] = useState<'form' | 'detalhe' | null>(null);
+  // Venda fechada pela IA (/?lancar=<caso>): o orcamento abre preenchido e,
+  // ao salvar, o caso do kanban e marcado como lancado.
+  const [casoLancarId, setCasoLancarId] = useState<string | null>(null);
+  const [casoLancarAviso, setCasoLancarAviso] = useState<string | null>(null);
+  const casoLancarLido = useRef(false);
   const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
   const [modoEndereco, setModoEndereco] = useState<'existente' | 'novo'>('existente');
   const [enderecoNovoForm, setEnderecoNovoForm] = useState<EnderecoNovoForm>(ENDERECO_NOVO_VAZIO);
@@ -1066,6 +1071,54 @@ export default function OrcamentoApp() {  // Auth state
     const matchCategoria = categoriaSelecionada === 'Todas' || p.categoria === categoriaSelecionada;
     return matchBusca && matchCategoria;
   });
+
+  useEffect(() => {
+    if (casoLancarLido.current || loading || produtos.length === 0) return;
+    const id = new URLSearchParams(window.location.search).get('lancar');
+    if (!id) return;
+    casoLancarLido.current = true;
+    (async () => {
+      try {
+        const r = await fetch(`/api/atendimento?caso=${encodeURIComponent(id)}`, { cache: 'no-store' });
+        const d = await r.json();
+        const caso = d?.caso;
+        if (!caso) { setCasoLancarAviso('Venda da IA não encontrada.'); return; }
+        const dados = (caso.dados || {}) as { itens?: Array<{ produto_id: string | null; quantidade: number; descricao: string; produto_nome: string | null }>; entrega?: string | null; endereco?: string | null; pagamento?: string | null; observacao?: string | null };
+        const telefone = String(caso.telefone || caso.clientes?.telefone || '');
+        const cli = telefone ? await buscarClientePorTelefoneExato(telefone) : null;
+        if (cli) await aplicarClienteEncontrado(cli);
+        else { setWhatsappCliente(telefone); setNomeCliente(String(caso.clientes?.nome || '')); }
+        const faltando: string[] = [];
+        const novos: ItemOrcamento[] = [];
+        for (const it of dados.itens || []) {
+          const p = it.produto_id ? produtos.find(x => x.id === it.produto_id) : null;
+          if (p) novos.push({ produto: p, quantidade: Number(it.quantidade) || 1 });
+          else faltando.push(`${it.quantidade}x ${it.descricao}`);
+        }
+        setItens(novos);
+        if (dados.entrega === 'entrega' || dados.entrega === 'retirada') setTipoEntrega(dados.entrega);
+        const pag = (dados.pagamento || '').toLowerCase();
+        if (/pix/.test(pag)) setFormaPagamentoForm('pix'); else if (/dinheiro/.test(pag)) setFormaPagamentoForm('dinheiro');
+        else if (/cart/.test(pag)) setFormaPagamentoForm('credito');
+        setObservacoes([
+          'Venda fechada pela IA no WhatsApp.',
+          dados.observacao || '',
+          dados.endereco ? `Endereço informado na conversa: ${dados.endereco}` : '',
+          faltando.length ? `CONFERIR (não achei no catálogo): ${faltando.join('; ')}` : '',
+        ].filter(Boolean).join(' '));
+        setCasoLancarId(String(caso.id));
+        setCasoLancarAviso(faltando.length
+          ? `Venda da IA carregada. ${faltando.length} item(ns) não bateram com o catálogo — adicione à mão: ${faltando.join('; ')}.`
+          : (caso.status !== 'aberto' ? 'Esta venda da IA já foi marcada como lançada/resolvida. Confira antes de salvar de novo.' : null));
+        setAbaAtiva('orcamento');
+        window.history.replaceState(null, '', window.location.pathname);
+      } catch (e) {
+        console.error('Erro ao carregar venda da IA', e);
+        setCasoLancarAviso('Erro ao carregar a venda da IA.');
+      }
+    })();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, produtos]);
 
   const adicionarItem = (produto: Produto) => {
     setItens(prev => {
@@ -1712,6 +1765,13 @@ export default function OrcamentoApp() {  // Auth state
       }
       setSalvandoOrcamento(false);
       if (savedId) {
+        // Venda da IA: marca o caso do kanban como lancado (some da coluna).
+        if (casoLancarId) {
+          fetch('/api/atendimento', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: casoLancarId, orcamento_id: savedId }) })
+            .catch(e => console.error('Erro ao marcar venda da IA como lancada', e));
+          setCasoLancarId(null);
+          setCasoLancarAviso(null);
+        }
         // Criacao OU edicao: abre o modal de detalhe pra os atalhos de
         // gestao (WhatsApp, imprimir, status). Fluxo unificado pedido
         // pelo Roger — o atalho de WhatsApp pos-edicao economiza um
@@ -3758,6 +3818,12 @@ export default function OrcamentoApp() {  // Auth state
           <div className="min-w-0">
             {(
               <div className="space-y-4">
+                {(casoLancarId || casoLancarAviso) && (
+                  <div className="bg-emerald-50 border border-emerald-300 rounded-xl p-3">
+                    <p className="text-sm text-emerald-900 font-medium">🤖 Venda fechada pela IA no WhatsApp</p>
+                    <p className="text-xs text-emerald-800 mt-0.5">{casoLancarAviso || 'Confira cliente, itens e entrega. Se estiver tudo certo, use "Confirmar venda". Ao salvar, o caso sai do Atendimento.'}</p>
+                  </div>
+                )}
                 {editandoId && (
                   <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-3 flex items-center justify-between">
                     <p className="text-sm text-yellow-800 font-medium">✏️ Editando orçamento existente</p>
