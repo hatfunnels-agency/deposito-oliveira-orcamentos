@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera, BookOpen,
+  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera, BookOpen, Zap,
   Menu, LogOut, ArrowLeft, X, type LucideIcon,
 } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
@@ -25,6 +25,7 @@ import DashboardTab from '@/components/DashboardTab';
 import FuncionariosTab from '@/components/FuncionariosTab';
 import Estoque from './Estoque';
 import BaseConhecimento from './BaseConhecimento';
+import Rapido from './Rapido';
 import LancarPorFoto from './LancarPorFoto';
 
 // Casca da /financeiro: sessao, papel, menu lateral e a secao ativa em
@@ -33,9 +34,10 @@ import LancarPorFoto from './LancarPorFoto';
 
 export type Secao =
   | 'panorama' | 'dia' | 'pagar' | 'despesas' | 'conciliacao' | 'maquininha'
-  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque' | 'conhecimento';
+  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque' | 'conhecimento' | 'rapido';
 
 const SECOES: Array<{ key: Secao; rotulo: string; icone: LucideIcon; titulo: string }> = [
+  { key: 'rapido', rotulo: 'Rápido', icone: Zap, titulo: 'Rápido' },
   { key: 'panorama', rotulo: 'Panorama', icone: Gauge, titulo: 'Panorama' },
   { key: 'dia', rotulo: 'Dia', icone: CalendarDays, titulo: 'Dia' },
   { key: 'pagar', rotulo: 'A pagar', icone: Receipt, titulo: 'Contas a pagar' },
@@ -94,7 +96,10 @@ export default function FinanceiroApp() {
 
   const papel = usuario?.papel ?? null;
   const secaoUrl = params.get('secao');
-  const secao: Secao = papel === 'atendente' ? 'receber' : ehSecao(secaoUrl) ? secaoUrl : 'panorama';
+  // No celular a Gestao abre no "Rapido" (vale, mercadoria, entregas); no
+  // computador, no Panorama.
+  const [celular] = useState(() => typeof window !== 'undefined' && window.innerWidth < 768);
+  const secao: Secao = papel === 'atendente' ? 'receber' : ehSecao(secaoUrl) ? secaoUrl : celular ? 'rapido' : 'panorama';
 
   const irPara = useCallback((s: Secao) => {
     router.replace(`/financeiro?secao=${s}`);
@@ -138,7 +143,8 @@ export default function FinanceiroApp() {
     return <div className="min-h-screen bg-gray-50"><Carregando texto="Abrindo a gestão financeira…" /></div>;
   }
 
-  const secoesVisiveis = usuario.papel === 'admin' ? SECOES : SECOES.filter(s => s.key === 'receber');
+  // 'rapido' e a tela do gerente no celular: no computador nem aparece no menu.
+  const secoesVisiveis = usuario.papel === 'admin' ? SECOES.filter(s => s.key !== 'rapido' || celular) : SECOES.filter(s => s.key === 'receber');
   const atual = SECOES.find(s => s.key === secao) ?? SECOES[0];
 
   let conteudo: ReactNode;
@@ -155,6 +161,7 @@ export default function FinanceiroApp() {
     case 'vendas': conteudo = <DashboardTab />; break;
     case 'funcionarios': conteudo = <FuncionariosTab />; break;
     case 'conhecimento': conteudo = <BaseConhecimento />; break;
+    case 'rapido': conteudo = <Rapido onLancar={() => setFotoAberta(true)} />; break;
     case 'extratos': conteudo = <ExtratosTab vistas={['importar', 'revisar']} />; break;
     case 'receber':
     default:

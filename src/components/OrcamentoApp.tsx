@@ -15,6 +15,7 @@ import EditarClienteEndereco from './EditarClienteEndereco';
 import TipoProfissional from './TipoProfissional';
 import ContatosCliente from './ContatosCliente';
 import AssistenteTecnico from './AssistenteTecnico';
+import { montarAvisoEntrega } from '@/lib/aviso-entrega';
 import { Menu, LogOut } from 'lucide-react';
 import { TAGS_VALIDAS } from '@/lib/tags';
 
@@ -277,6 +278,7 @@ interface EntregaRota {
   data_entrega: string | null;
   observacoes: string;
   motorista_id?: string | null;
+  aviso_rota_em?: string | null;
   leva_id?: string | null;
   leva_numero?: number | null;
   distancia_km?: number | null;
@@ -684,6 +686,9 @@ export default function OrcamentoApp() {  // Auth state
   // Venda fechada pela IA (/?lancar=<caso>): o orcamento abre preenchido e,
   // ao salvar, o caso do kanban e marcado como lancado.
   const [casoLancarId, setCasoLancarId] = useState<string | null>(null);
+  // Aviso "saiu para entrega" pelo sistema (GHL), sem abrir o WhatsApp.
+  const [avisando, setAvisando] = useState<Set<string>>(new Set());
+  const [avisados, setAvisados] = useState<Set<string>>(new Set());
   // Pedreiro/empreiteiro: o orcamento aplica sozinho o desconto profissional
   // (configuracoes.desconto_profissional_pct). A atendente pode tirar.
   const [clienteProfissional, setClienteProfissional] = useState<'pedreiro' | 'empreiteiro' | null>(null);
@@ -1082,6 +1087,11 @@ export default function OrcamentoApp() {  // Auth state
     return matchBusca && matchCategoria;
   });
 
+  // /?aba=entregas (atalho da Gestao > Rapido no celular).
+  useEffect(() => {
+    const aba = new URLSearchParams(window.location.search).get('aba');
+    if (aba && (['produtos', 'orcamento', 'historico', 'clientes', 'ferragens', 'entregas', 'financeiro'] as string[]).includes(aba)) setAbaAtiva(aba as AbaKey);
+  }, []);
   useEffect(() => {
     if (casoLancarLido.current || loading || produtos.length === 0) return;
     const id = new URLSearchParams(window.location.search).get('lancar');
@@ -2078,38 +2088,32 @@ export default function OrcamentoApp() {  // Auth state
 
   // Aviso "caminhao a caminho" pra entregas em rota. Nao promete horario
   // (mesma regra do robo de atendimento).
-  const avisarCaminhaoACaminho = (e: EntregaRota) => {
-    const numero = telefoneWhatsApp(e.cliente_telefone);
-    if (!numero) return;
-    const primeiroNome = (e.cliente_nome || '').trim().split(/\s+/)[0] || '';
-    const endereco = [
-      [e.endereco, e.numero].filter(Boolean).join(', '),
-      e.bairro,
-    ].filter(Boolean).join(' - ');
-    const aCobrar = e.a_cobrar ?? 0;
-    const formaLabel: Record<string, string> = {
-      pix: 'Pix', dinheiro: 'dinheiro', debito: 'cartão de débito', credito: 'cartão de crédito',
-      cartao: 'cartão', boleto: 'boleto',
-    };
-    const forma = e.forma_pagamento && e.forma_pagamento !== 'pagamento_na_entrega'
-      ? (formaLabel[e.forma_pagamento] || e.forma_pagamento)
-      : '';
-    const linhas = [
-      primeiroNome ? `Olá, ${primeiroNome}! 🚚` : 'Olá! 🚚',
-      '',
-      `Aqui é do *Depósito Oliveira*. Seu pedido *${e.codigo}* já saiu para entrega e o caminhão está a caminho.`,
-      endereco ? `📍 ${endereco}` : null,
-      aCobrar > 0.01
-        ? `💰 Valor a pagar na entrega: *${aCobrar.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}*${forma ? ` (${forma})` : ''}`
-        : null,
-      '',
-      `Por favor, deixe alguém no local para receber${e.recebedor ? ` (${e.recebedor})` : ''}.`,
-      'Qualquer dúvida, é só chamar aqui!',
-    ].filter((l): l is string => l !== null);
-    // wa.me NAO: o redirect dele pro api.whatsapp.com troca emoji por "\uFFFD"
-    // (testado: 🚚 %F0%9F%9A%9A virava %EF%BF%BD). O link direto preserva.
-    window.open(`https://api.whatsapp.com/send?phone=${numero}&text=${encodeURIComponent(linhas.join('\n'))}`, '_blank');
+  // Manda o aviso pelo sistema (GHL). Se nao der (cliente fora do GHL, conversa
+  // fechada e sem template), abre o WhatsApp com o texto pronto, como antes.
+  const avisarPeloSistema = async (lista: EntregaRota[]) => {
+    const ids = lista.map(e => e.id);
+    if (!ids.length) return;
+    setAvisando(prev => new Set([...prev, ...ids]));
+    try {
+      const res = await fetch('/api/entregas/avisar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }), cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.resultados) throw new Error(data?.error || 'Erro ao avisar');
+      const rs = data.resultados as Array<{ id: string; codigo: string; ok: boolean; via: string | null; motivo: string | null; link: string | null }>;
+      setAvisados(prev => new Set([...prev, ...rs.filter(r => r.ok).map(r => r.id)]));
+      // Falhou (fora do GHL, conversa fechada e sem template): abre o WhatsApp com o texto.
+      for (const r of rs) if (!r.ok && r.link) window.open(r.link, '_blank');
+    } catch (err) {
+      console.error('Erro ao avisar pelo sistema', err);
+      // Sem servidor: cai no WhatsApp com o texto pronto.
+      for (const e of lista) {
+        const numero = telefoneWhatsApp(e.cliente_telefone);
+        if (numero) window.open(`https://api.whatsapp.com/send?phone=55${numero}&text=${encodeURIComponent(montarAvisoEntrega(e))}`, '_blank');
+      }
+    } finally {
+      setAvisando(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n; });
+    }
   };
+  const avisarCaminhaoACaminho = (e: EntregaRota) => { avisarPeloSistema([e]); };
 
   const imprimirOrcamento = (detalhe?: OrcamentoDetalhe | null) => {
     const d = detalhe || null;
@@ -5325,11 +5329,11 @@ export default function OrcamentoApp() {  // Auth state
                           {/* Avisa o cliente no WhatsApp que o caminhao saiu. */}
                           <button
                             onClick={() => avisarCaminhaoACaminho(e)}
-                            disabled={!telefoneWhatsApp(e.cliente_telefone)}
-                            className="text-xs bg-[#25D366] text-white px-2 py-1 rounded hover:bg-[#1EBE57] disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap font-medium"
-                            title={telefoneWhatsApp(e.cliente_telefone) ? 'Avisar no WhatsApp que o caminhão está a caminho' : 'Cliente sem telefone válido'}
+                            disabled={!telefoneWhatsApp(e.cliente_telefone) || avisando.has(e.id)}
+                            className={`text-xs px-2 py-1 rounded whitespace-nowrap font-medium disabled:opacity-40 disabled:cursor-not-allowed ${avisados.has(e.id) || e.aviso_rota_em ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-[#25D366] text-white hover:bg-[#1EBE57]'}`}
+                            title={telefoneWhatsApp(e.cliente_telefone) ? 'Avisa pelo sistema que o caminhão está a caminho (sem abrir o WhatsApp)' : 'Cliente sem telefone válido'}
                           >
-                            📲 Avisar
+                            {avisando.has(e.id) ? '…' : avisados.has(e.id) || e.aviso_rota_em ? '✓ Avisado' : '📲 Avisar'}
                           </button>
                           {/* Volta pra Pendentes sem precisar caçar o pedido. */}
                           <button
