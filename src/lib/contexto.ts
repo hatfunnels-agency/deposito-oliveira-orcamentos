@@ -7,6 +7,7 @@
 // sync-cliente espelha pro custom field do GHL.
 //
 // NAO envia mensagem nenhuma: so le a conversa e grava no banco.
+import { registrarUltimaConversa } from './contatos';
 import { supabaseAdmin } from '@/lib/supabase';
 import { buscarContatoId } from '@/lib/ghl';
 import { filtroTelefoneCliente } from './telefones';
@@ -165,6 +166,9 @@ export async function gerarContextoCliente(entrada: {
 
   const resumo = ((await response.json())?.content?.[0]?.text || '').trim();
   if (!resumo) return { ...base, contactId, motivo: 'IA nao retornou resumo' };
+
+  // Contato do dia (data + do que se falou naquela conversa). Nao bloqueia.
+  await registrarUltimaConversa(cliente.id, conversa);
 
   // ---- grava no cliente ----
   const { error: upErr } = await supabaseAdmin

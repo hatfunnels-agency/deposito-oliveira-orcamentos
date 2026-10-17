@@ -1,3 +1,4 @@
+import { registrarContato } from '@/lib/contatos';
 import { NextRequest, NextResponse, after } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import {
@@ -615,4 +616,10 @@ async function responderDepoisDoBuffer({
     status: envio === 'enviado' ? 'enviado' : 'simulado',
     motivo: `${envio} | acao: ${pensado.acao.tipo} -> ${resultadoAcao}${notaTranscricao}`.slice(0, 300),
   });
+  // Historico de contatos: 1 linha por dia de conversa respondida pela IA
+  // (o resumo do assunto entra no job diario do contexto).
+  if (envio === 'enviado' && cliente?.id) {
+    const dia = new Date(Date.now() - 3 * 3600_000).toISOString().slice(0, 10);
+    await registrarContato({ clienteId: cliente.id, origem: 'robo', canal: 'whatsapp', resumo: 'IA respondeu o cliente no WhatsApp', chave: `ia:${dia}` });
+  }
 }

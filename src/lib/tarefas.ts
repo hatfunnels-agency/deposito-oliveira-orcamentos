@@ -8,6 +8,7 @@
 // As tarefas sao calculadas na hora. O que a atendente FAZ com cada uma vai
 // pra tarefas_atendente, e e isso que tira a tarefa da lista por um tempo,
 // cala as reguas e o robo com o cliente, e alimenta o placar.
+import { ultimosContatos } from './contatos';
 import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo } from '@/lib/ler-tudo';
 import { hojeBrasilia, clientesNaoPerturbe, ultimaCompraFechadaPorCliente } from '@/lib/automacoes';
@@ -27,6 +28,8 @@ export type Tarefa = {
   selo?: string;           // "hoje", "atrasado 3 dias", "novo", "robo ja mandou"
   seloForte?: boolean;     // selo que pede atencao (atraso)
   mensagem: string;        // rascunho do WhatsApp — a atendente edita la
+  ultimoContato?: { data: string; resumo: string } | null; // cliente_contatos
+  contexto?: string | null;                                 // clientes.notas_contexto
 };
 
 // Quantos dias a tarefa some depois de cada resultado. Retorno tem a data na
@@ -115,8 +118,10 @@ async function retornos(dnd: Set<string>): Promise<Tarefa[]> {
   for (const o of abertos || []) if (!orcDe.has(o.cliente_id)) orcDe.set(o.cliente_id, o);
   const roboMandou = new Set((enviados || []).map(e => e.chave_dedup));
 
+  // Retorno que o robo/IA ja fez (envio registrado para essa data) sai da
+  // lista: so fica o que esta pendente de verdade pra atendente (out/2026).
   return lista
-    .filter(c => !escondidas.has(chave(c)))
+    .filter(c => !escondidas.has(chave(c)) && !roboMandou.has(chave(c)))
     .map(c => {
       const atraso = Math.round((Date.parse(hoje) - Date.parse(c.data_followup)) / DIA_MS);
       const orc = orcDe.get(c.id);
@@ -131,7 +136,7 @@ async function retornos(dnd: Set<string>): Promise<Tarefa[]> {
         detalhe: orc ? `Orçamento ${orc.codigo || ''} em aberto · ${brl(orc.total)}` : 'Sem orçamento em aberto',
         selo: atraso > 0
           ? `atrasado ${atraso} dia${atraso > 1 ? 's' : ''}`
-          : (roboMandou.has(chave(c)) ? 'hoje · robô já mandou mensagem' : 'hoje'),
+          : 'hoje',
         seloForte: atraso > 0,
         mensagem: `${ola(c.nome)} Combinamos de conversar ${atraso > 0 ? 'nesses dias' : 'hoje'}${orc ? ` sobre o seu orçamento ${orc.codigo}` : ''}. Como posso te ajudar?`,
       };
@@ -279,6 +284,23 @@ export async function tarefasDoDia(): Promise<{ retornos: Tarefa[]; orcamentos: 
     .filter(t => !ret.some(r => r.clienteId === t.clienteId)); // um cliente, uma tarefa
   const jaNaLista = new Set([...ret, ...orc].map(t => t.clienteId));
   const reat = await reativacao(dnd, jaNaLista);
+
+  // Ultimo contato + nota de contexto em cada cartao: a atendente escreve
+  // continuando o assunto, sem abrir o perfil.
+  const todas = [...ret, ...orc, ...reat];
+  const ids = [...new Set(todas.map(t => t.clienteId))];
+  if (ids.length) {
+    const [ultimos, { data: notas }] = await Promise.all([
+      ultimosContatos(ids),
+      supabaseAdmin.from('clientes').select('id, notas_contexto').in('id', ids),
+    ]);
+    const notaDe = new Map((notas || []).map(n => [String(n.id), n.notas_contexto as string | null]));
+    for (const t of todas) {
+      const u = ultimos.get(t.clienteId);
+      t.ultimoContato = u ? { data: u.data, resumo: u.resumo } : null;
+      t.contexto = notaDe.get(t.clienteId) ?? null;
+    }
+  }
   return { retornos: ret, orcamentos: orc, reativacao: reat };
 }
 
