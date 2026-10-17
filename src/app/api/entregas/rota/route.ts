@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     let query = supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, status, total, valor_pago, forma_pagamento,
+        id, codigo, tipo_entrega, status, total, valor_pago, forma_pagamento, aviso_rota_em,
         data_entrega, observacoes, motorista_id, leva_id,
         levas_entrega ( numero_leva ),
         clientes!inner (
@@ -178,6 +178,7 @@ export async function GET(request: NextRequest) {
           status: String(e.status), total: Number(e.total),
           a_cobrar: Math.max(0, Number(e.total) - (Number(e.valor_pago) || 0)),
           forma_pagamento: e.forma_pagamento ? String(e.forma_pagamento) : '',
+          aviso_rota_em: e.aviso_rota_em ? String(e.aviso_rota_em) : null,
           itens_resumo: itensResumo,
           falta_resumo: faltaResumo,
           carga_tipo: carga.tipo,
@@ -249,7 +250,7 @@ export async function POST(request: NextRequest) {
     const { data: entregas, error } = await supabaseAdmin
       .from('orcamentos')
       .select(`
-        id, codigo, tipo_entrega, status, total, data_entrega, observacoes, endereco_id,
+        id, codigo, tipo_entrega, status, total, aviso_rota_em, data_entrega, observacoes, endereco_id,
         clientes (
           nome, telefone, recebedor
         ),
@@ -291,6 +292,7 @@ export async function POST(request: NextRequest) {
         id: String(e.id), codigo: String(e.codigo),
         cliente_nome: cliente?.nome ? String(cliente.nome) : 'Sem nome',
         cliente_telefone: cliente?.telefone ? String(cliente.telefone) : '',
+        aviso_rota_em: e.aviso_rota_em ? String(e.aviso_rota_em) : null,
         endereco: end?.rua ? String(end.rua) : '',
         cep: end?.cep ? String(end.cep) : '',
         numero: end?.numero ? String(end.numero) : '',

@@ -297,6 +297,23 @@ function isoComOffsetBrasilia(d = new Date()): string {
   return local.toISOString().replace(/\.\d{3}Z$/, '') + '-03:00';
 }
 
+// Manda um texto livre de WhatsApp pelo GHL. So funciona com a janela de 24h
+// aberta (cliente falou ha menos de 24h) — fora dela a Meta exige template.
+export async function enviarWhatsAppTexto(contactId: string, telefone: string, texto: string): Promise<{ ok: boolean; motivo?: string }> {
+  if (!GHL_API_KEY) return { ok: false, motivo: 'GHL_API_KEY ausente' };
+  const resp = await fetch(`${GHL_API_BASE}/conversations/messages`, {
+    method: 'POST',
+    headers: ghlHeaders(),
+    body: JSON.stringify({ type: 'WhatsApp', contactId, toNumber: formatPhoneBR(telefone), message: texto }),
+    cache: 'no-store',
+  });
+  if (!resp.ok) {
+    const txt = await resp.text().catch(() => '');
+    return { ok: false, motivo: `GHL ${resp.status}: ${txt.slice(0, 200)}` };
+  }
+  return { ok: true };
+}
+
 // Coloca o contato no workflow — o workflow e quem dispara o template.
 // Atencao: este endpoint exige Version: v3, diferente do resto da API (2021-07-28).
 export async function adicionarAoWorkflow(
