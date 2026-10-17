@@ -24,7 +24,7 @@ async function registrar(formData: FormData) {
   const resultado = String(formData.get('resultado') || '');
   const clienteId = String(formData.get('cliente_id') || '') || null;
   const orcamentoId = String(formData.get('orcamento_id') || '') || null;
-  if (!chave || !['retorno', 'orcamento', 'reativacao'].includes(tipo)) return;
+  if (!chave || !['retorno', 'orcamento', 'reativacao', 'perdido'].includes(tipo)) return;
   if (!['feito', 'sem_resposta', 'perdido'].includes(resultado)) return;
 
   const { data: registro } = await supabaseAdmin.from('tarefas_atendente').insert({
@@ -33,7 +33,7 @@ async function registrar(formData: FormData) {
 
   // Historico de contatos do cliente (data do ultimo contato + do que foi).
   if (clienteId) {
-    const assunto = tipo === 'retorno' ? 'retorno combinado' : tipo === 'orcamento' ? 'orçamento em aberto' : 'reativação';
+    const assunto = tipo === 'retorno' ? 'retorno combinado' : tipo === 'orcamento' ? 'orçamento em aberto' : tipo === 'perdido' ? 'orçamento perdido (recuperação)' : 'reativação';
     const como = resultado === 'feito' ? 'Atendente falou com o cliente' : resultado === 'sem_resposta' ? 'Atendente tentou contato, sem resposta' : 'Cliente não quer / perdido';
     const obs = String(formData.get('observacao') || '').trim();
     await registrarContato({
@@ -112,7 +112,7 @@ function Cartao({ t }: { t: Tarefa }) {
         <Acao t={t} resultado="sem_resposta" texto="Sem resposta" titulo="Mandei mensagem e não respondeu"
           classe="border border-gray-300 text-gray-600 hover:bg-gray-100" />
         {t.tipo !== 'orcamento' && (
-          <Acao t={t} resultado="perdido" texto={t.tipo === 'retorno' ? 'Não quer' : 'Não volta'}
+          <Acao t={t} resultado="perdido" texto={t.tipo === 'retorno' ? 'Não quer' : t.tipo === 'perdido' ? 'Não vai fechar' : 'Não volta'}
             titulo="Tirar da lista" classe="border border-red-200 text-red-700 hover:bg-red-50" />
         )}
       </div>
@@ -144,7 +144,7 @@ const RESULTADO: Record<string, { rotulo: string; classe: string }> = {
   sem_resposta: { rotulo: 'Sem resposta', classe: 'bg-gray-100 text-gray-600 border-gray-200' },
   perdido: { rotulo: 'Perdido', classe: 'bg-red-50 text-red-700 border-red-200' },
 };
-const TIPO_ROTULO: Record<string, string> = { retorno: 'Retorno', orcamento: 'Orçamento', reativacao: 'Reativação' };
+const TIPO_ROTULO: Record<string, string> = { retorno: 'Retorno', orcamento: 'Orçamento', reativacao: 'Reativação', perdido: 'Recuperação' };
 
 function CartaoFeito({ f }: { f: TarefaFeita }) {
   const r = RESULTADO[f.resultado] || RESULTADO.feito;
@@ -201,7 +201,7 @@ export default async function TarefasPage() {
           </div>
         )}
 
-        <Quadro colunas={4}>
+        <Quadro colunas={5}>
           <Coluna titulo="Retornos combinados" cor="amarelo" quantidade={listas.retornos.length}
             dica="O cliente pediu pra ser chamado hoje. É promessa — atrasados primeiro."
             vazio="Nenhum retorno pra hoje.">
@@ -211,6 +211,11 @@ export default async function TarefasPage() {
             dica="Acima de R$ 1.000, últimos 30 dias. Os de hoje primeiro."
             vazio="Nenhum orçamento grande esperando.">
             {listas.orcamentos.map(t => <Cartao key={t.chave} t={t} />)}
+          </Coluna>
+          <Coluna titulo="Recuperar perdidos" cor="vermelho" quantidade={listas.perdidos.length}
+            dica="Orçamentos de R$ 2.000+ dados como perdidos nos últimos 90 dias, cliente não comprou depois. Maiores primeiro; obra ativa na frente."
+            vazio="Nenhum orçamento perdido pra recuperar.">
+            {listas.perdidos.map(t => <Cartao key={t.chave} t={t} />)}
           </Coluna>
           <Coluna titulo="Reativação" cor="azul" quantidade={listas.reativacao.length}
             dica="Obra ativa que parou de comprar e clientes de gasto alto parados."

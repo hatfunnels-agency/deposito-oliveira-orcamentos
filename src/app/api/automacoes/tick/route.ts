@@ -13,6 +13,7 @@ import {
   candidatosFollowup,
   candidatosPosvenda,
   candidatosReativacao,
+  candidatosRecuperacao,
   dentroHorarioComercial,
   horaBrasilia,
   resolverWorkflow,
@@ -156,7 +157,7 @@ export async function GET(request: NextRequest) {
   // isso que criava a rajada das 09:01. Agora as tres rodam a cada hora, com
   // o teto baixo fazendo o espalhamento. Reativacao e pos-venda nao dependem
   // de hora exata, entao nada se perde ao distribuir.
-  const tiposPadrao = 'retorno,followup,posvenda,reativacao';
+  const tiposPadrao = 'retorno,followup,posvenda,recuperacao,reativacao';
   const tipos = (url.searchParams.get('tipos') || tiposPadrao)
     .split(',')
     .map(t => t.trim())
@@ -169,6 +170,7 @@ export async function GET(request: NextRequest) {
     if (tipos.includes('retorno')) candidatos.push(...(await candidatosRetorno()));
     if (tipos.includes('followup')) candidatos.push(...(await candidatosFollowup()));
     if (tipos.includes('posvenda')) candidatos.push(...(await candidatosPosvenda()));
+    if (tipos.includes('recuperacao')) candidatos.push(...(await candidatosRecuperacao()));
     if (tipos.includes('reativacao')) candidatos.push(...(await candidatosReativacao()));
 
     if (soTelefone) {

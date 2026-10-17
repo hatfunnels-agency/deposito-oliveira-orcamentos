@@ -16,7 +16,7 @@ const CORES: Record<CorColuna, { faixa: string; bolinha: string; contador: strin
 // Quadro: no celular as colunas correm de lado (uma por tela, com encaixe);
 // no computador ficam lado a lado.
 export function Quadro({ colunas, children }: { colunas: number; children: ReactNode }) {
-  const grade = colunas >= 4 ? 'lg:grid-cols-4' : colunas === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2';
+  const grade = colunas >= 5 ? 'lg:grid-cols-5' : colunas === 4 ? 'lg:grid-cols-4' : colunas === 3 ? 'lg:grid-cols-3' : 'lg:grid-cols-2';
   return (
     <div className={`-mx-4 px-4 flex gap-4 overflow-x-auto snap-x snap-mandatory pb-4 lg:mx-0 lg:px-0 lg:grid ${grade} lg:overflow-visible`}>
       {children}
