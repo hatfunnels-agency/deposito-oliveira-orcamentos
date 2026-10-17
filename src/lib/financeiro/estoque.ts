@@ -210,7 +210,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
     if (!alvo) continue;
     const lista = secundarios.get(alvo) ?? [];
     lista.push(p.baixa_estoque_em_produto_id && !p.estoque_compartilhado_com
-      ? `${p.nome} (baixa ${num(p.baixa_estoque_fator) || 1} ${porId.get(alvo)?.unidade ?? ''})`.replace(/ \)$/, ')')
+      ? `${p.nome} (baixa ${String(num(p.baixa_estoque_fator) || 1).replace('.', ',')} ${porId.get(alvo)?.unidade ?? ''})`.replace(/ \)$/, ')')
       : p.nome);
     secundarios.set(alvo, lista);
   }
@@ -396,7 +396,7 @@ function normalizarMovimento(r: Record<string, unknown>): MovimentoEstoque {
 // ------------------------------------------------------------ movimento
 
 async function resolverPrincipal(produtoId: string): Promise<{ informado: ProdutoRow; principal: ProdutoRow }> {
-  const campos = 'id, nome, categoria, unidade, unidade_venda, fator_conversao, preco_custo, estoque_atual, estoque_minimo, ativo, tipo_estoque, estoque_compartilhado_com';
+  const campos = 'id, nome, categoria, unidade, unidade_venda, fator_conversao, preco_custo, estoque_atual, estoque_minimo, ativo, tipo_estoque, estoque_compartilhado_com, baixa_estoque_em_produto_id, baixa_estoque_fator';
   const { data: informado } = await supabaseAdmin.from('produtos').select(campos).eq('id', produtoId).maybeSingle();
   if (!informado) throw new ErroFinanceiro(404, 'Produto não encontrado.');
   const p = informado as ProdutoRow;
@@ -441,6 +441,13 @@ export async function registrarMovimento(
   if (refId && !UUID.test(refId)) throw new ErroFinanceiro(400, 'referencia_id inválido.');
 
   const { informado, principal } = await resolverPrincipal(String(entrada.produto_id));
+  // Barra/estribo pronto baixam de outro produto (ferro em metro): o saldo
+  // so existe la. Entrada, perda e contagem vao direto no produto em metro.
+  if (informado.baixa_estoque_em_produto_id) {
+    const { data: alvo } = await supabaseAdmin.from('produtos').select('nome, unidade').eq('id', informado.baixa_estoque_em_produto_id).maybeSingle();
+    const fator = num(informado.baixa_estoque_fator) || 1;
+    throw new ErroFinanceiro(400, `O estoque de "${informado.nome}" é controlado em ${alvo?.nome ?? 'outro produto'} (1 ${informado.unidade} = ${String(fator).replace('.', ',')} ${alvo?.unidade ?? ''}). Lance lá, convertendo a quantidade.`);
+  }
   if ((principal.tipo_estoque ?? 'estocavel') !== 'estocavel') {
     throw new ErroFinanceiro(400, `"${principal.nome}" é sob demanda e não controla estoque. Mude para estocável no cadastro do produto.`);
   }

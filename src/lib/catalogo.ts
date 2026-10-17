@@ -23,6 +23,7 @@ export async function catalogoParaPrompt(): Promise<string> {
     .from('produtos')
     .select('nome, preco_venda, unidade_venda, categoria')
     .eq('ativo', true)
+    .neq('vendavel', false)             // ferro em metro: so estoque
     .order('categoria', { ascending: true })
     .order('nome', { ascending: true });
 

@@ -17,6 +17,7 @@ import { TAGS_VALIDAS } from '@/lib/tags';
 interface Produto {
   id: string;
   nome: string;
+  vendavel?: boolean;          // false = so estoque (ferro em metro)
   preco: number;
   preco_custo: number;
   estoque: number;
@@ -1048,11 +1049,14 @@ export default function OrcamentoApp() {  // Auth state
   // pertencem ao segmento de laje e tem seu proprio lugar (Batch D).
   const ehProdutoCalculadoraMadeira = (p: Produto) =>
     p.unidade === 'metro' && p.categoria !== 'Ferro' && p.categoria !== 'Laje';
+  // Ferro em metro (Ferro 10mm, Ferro 4,2mm) e so estoque: vende-se a barra,
+  // o estribo pronto ou a calculadora de ferragem.
+  const ehSoEstoque = (p: Produto) => p.vendavel === false;
 
-  const categorias = ['Todas', ...Array.from(new Set(produtos.filter(p => !ehProdutoCalculadoraMadeira(p)).map(p => p.categoria)))];
+  const categorias = ['Todas', ...Array.from(new Set(produtos.filter(p => !ehProdutoCalculadoraMadeira(p) && !ehSoEstoque(p)).map(p => p.categoria)))];
 
   const produtosFiltrados = produtos.filter(p => {
-    if (ehProdutoCalculadoraMadeira(p)) return false;
+    if (ehProdutoCalculadoraMadeira(p) || ehSoEstoque(p)) return false;
     const matchBusca = p.nome.toLowerCase().includes(busca.toLowerCase());
     const matchCategoria = categoriaSelecionada === 'Todas' || p.categoria === categoriaSelecionada;
     return matchBusca && matchCategoria;
@@ -5520,7 +5524,9 @@ export default function OrcamentoApp() {  // Auth state
                           const fator = p.baixa_estoque_fator;
                           return ` · ↓ Baixa estoque de ${proxy?.nome || p.baixa_estoque_em_produto_id}${fator && fator !== 1 ? ` (fator ${fator})` : ''}`;
                         })() : ''}</p></td>
-                        <td className="px-2 py-3 text-center">{p.tipo_estoque === 'sob_demanda'
+                        <td className="px-2 py-3 text-center">{p.vendavel === false
+                          ? <span className="text-xs font-medium px-2 py-1 rounded-full text-amber-800 bg-amber-50" title="Fora do catálogo: só controla estoque (vende-se a barra, o estribo ou a calculadora)">Só estoque</span>
+                          : p.tipo_estoque === 'sob_demanda'
                           ? <span className="text-xs font-bold px-2 py-1 rounded-full text-blue-700 bg-blue-50">Sob demanda</span>
                           : <span className="text-xs font-medium px-2 py-1 rounded-full text-gray-600 bg-gray-100">Estocado</span>}</td>
                         <td className="px-2 py-3 text-right font-medium">R$ {formatBRL(p.preco)}</td>
@@ -6203,7 +6209,7 @@ export default function OrcamentoApp() {  // Auth state
       {/* Modal PDV — Venda Rápida (balcão) */}
       {mostrarPDV && (() => {
         const pdvSubtotal = pdvItens.reduce((s, i) => s + (i.preco_custom ?? i.produto.preco) * i.quantidade, 0);
-        const pdvFiltrados = produtos.filter(p => p.nome.toLowerCase().includes(pdvBusca.toLowerCase()));
+        const pdvFiltrados = produtos.filter(p => p.vendavel !== false && p.nome.toLowerCase().includes(pdvBusca.toLowerCase()));
         const ajustarQtd = (produtoId: string, delta: number) => {
           setPdvItens(prev => {
             const ex = prev.find(i => i.produto.id === produtoId);

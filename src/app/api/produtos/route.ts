@@ -202,6 +202,8 @@ export async function GET() {
         baixa_estoque_em_produto_id: (p.baixa_estoque_em_produto_id as string | null) || null,
         baixa_estoque_fator: p.baixa_estoque_fator != null ? Number(p.baixa_estoque_fator) : null,
         metros_reservados: metrosReservadosPorProduto.get(p.id as string) || 0,
+        // false = so estoque (ferro em metro): fora do catalogo e da venda rapida.
+        vendavel: p.vendavel !== false,
       };
     });
 
