@@ -198,6 +198,7 @@ function LinhaConta({ c }: { c: SaldoConta }) {
   let detalhe = '';
   if (c.tipo === 'cartao_credito') detalhe = c.fatura_aberta > 0 ? `fatura aberta ${brl(c.fatura_aberta)}` : 'sem compras em aberto';
   else if (c.tipo === 'caixa') detalhe = c.data_base ? `contado ${dataCurta(c.data_base)} + lançamentos` : 'soma dos lançamentos';
+  else if (c.tipo === 'carteira') detalhe = 'crédito só para cimento · fora do total';
   else if (semBase) detalhe = 'nenhum saldo informado';
   else detalhe = `${c.origem === 'extrato' ? 'extrato' : c.origem === 'conector' ? 'banco' : 'informado'} ${dataCurta(c.data_base)}${defasada ? ' · ≈ estimado hoje' : ''}`;
   const ajustes = c.pagos_apos_base + c.folha_apos_base;
@@ -211,7 +212,7 @@ function LinhaConta({ c }: { c: SaldoConta }) {
         </p>
       </div>
       <div className="text-right shrink-0">
-        {semBase && c.tipo !== 'cartao_credito'
+        {semBase && c.tipo !== 'cartao_credito' && c.tipo !== 'carteira'
           ? <span className="text-xs text-amber-700">informe o saldo</span>
           : <span className={`tabular-nums font-semibold ${(c.saldo_estimado ?? 0) < 0 ? 'text-red-700' : 'text-gray-900'}`}>{brl(c.saldo_estimado ?? 0)}</span>}
         {defasada && !semBase && c.tipo !== 'caixa' && <div><Selo tom="amarelo">estimado</Selo></div>}

@@ -541,7 +541,7 @@ export async function pagarConta(
       if (ehConflitoUnico(error)) throw new ErroFinanceiro(409, 'Essa linha do extrato já está vinculada a outra conta.');
       throw new Error(error.message);
     }
-  } else if (conta && (conta.tipo === 'caixa' || conta.tipo === 'cartao_credito')) {
+  } else if (conta && (conta.tipo === 'caixa' || conta.tipo === 'cartao_credito' || conta.tipo === 'carteira')) {
     let documento: string | null = null;
     if (atual.fornecedor_id) {
       const { data: f } = await supabaseAdmin.from('fornecedores').select('documentos').eq('id', atual.fornecedor_id).maybeSingle();

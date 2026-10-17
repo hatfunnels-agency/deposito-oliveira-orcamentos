@@ -37,7 +37,7 @@ export interface ResultadoParse {
 // 'ofx' e 'manual' existem em contas_financeiras.layout. OFX e detectado
 // pelo conteudo (vale pra qualquer conta); conta manual (caixa/cartao) nao
 // importa arquivo e recusa com mensagem clara em vez de importar lixo.
-export type Layout = 'itau_xlsx' | 'stone_csv' | 'generico' | 'ofx' | 'manual';
+export type Layout = 'itau_xlsx' | 'stone_csv' | 'generico' | 'ofx' | 'manual' | 'vloz_csv';
 
 // Stone: linha com Situacao fora deste conjunto (ex.: 'Cancelada', 'Em
 // processamento', 'Recusada') nao mexeu no saldo e nao pode virar lancamento.
@@ -102,7 +102,7 @@ function hashLinha(contaId: string, data: string, valor: number, descricao: stri
 }
 
 /** CSV com aspas, virgula dentro de campo e quebra de linha em campo. */
-export function parseCsv(texto: string): string[][] {
+export function parseCsv(texto: string, separadores: string = ',;'): string[][] {
   const linhas: string[][] = [];
   let campo = '';
   let linha: string[] = [];
@@ -118,7 +118,7 @@ export function parseCsv(texto: string): string[][] {
       } else campo += c;
     } else if (c === '"') {
       dentroAspas = true;
-    } else if (c === ',' || c === ';') {
+    } else if (separadores.includes(c)) {
       linha.push(campo); campo = '';
     } else if (c === '\n') {
       linha.push(campo); campo = '';
@@ -525,6 +525,66 @@ function montarResultado(
   };
 }
 
+// ------------------------------------------------------------
+// Vloz (Votorantim) — .csv "vendasvloz_<data>.csv"
+// Data;Forma de pagamento;Bandeira;Parcelas;Venda Bruta;Taxas;Venda Líquida;
+// Conta Bancária Bruto;Conta Bancária Líquido;Vloz Bruto;Vloz Líquido;Cashback;
+// Adquirente;Código da Transação
+//
+// Cada venda na maquininha e dividida: 85% vai pra conta Stone e 15% pra
+// carteira Vloz, que so serve pra comprar cimento da Votorantim. O cashback
+// (a taxa reembolsada) tambem cai na Vloz. Cada linha do arquivo vira ate
+// duas entradas na conta Vloz: a parte da venda e o cashback.
+// ------------------------------------------------------------
+export function ehVlozCsv(texto: string): boolean {
+  const cabeca = texto.replace(/^\uFEFF/, '').slice(0, 400).toLowerCase();
+  return cabeca.includes('vloz bruto') && cabeca.includes('cashback');
+}
+
+function parseVlozCsv(texto: string, contaId: string): ResultadoParse {
+  // So ';': os valores usam virgula decimal ("129,02").
+  const linhas = parseCsv(texto, ';');
+  if (linhas.length < 2) throw new Error('CSV da Vloz vazio ou sem cabecalho');
+  const titulo = linhas[0].map(t => limpar(t).toLowerCase());
+  const col = (re: RegExp) => titulo.findIndex(t => re.test(t));
+  const cData = col(/^data$/), cForma = col(/forma/), cBand = col(/bandeira/), cParc = col(/parcelas/);
+  const cBruta = col(/^venda bruta$/), cVlozLiq = col(/^vloz l[ií]quido$/), cCash = col(/cashback/), cCod = col(/c[oó]digo/);
+  if (cData < 0 || cVlozLiq < 0 || cCash < 0 || cCod < 0) {
+    throw new Error('CSV da Vloz sem as colunas Data, Vloz Líquido, Cashback ou Código da Transação');
+  }
+
+  const lancamentos: LancamentoBruto[] = [];
+  const ignoradas: ResultadoParse['ignoradas'] = [];
+  for (let i = 1; i < linhas.length; i++) {
+    const l = linhas[i];
+    const get = (idx: number) => (idx >= 0 ? limpar(l[idx]) : '');
+    const data = paraDataIso(get(cData));
+    const codigo = get(cCod);
+    if (!data || !codigo) { ignoradas.push({ linha: i + 1, motivo: 'data ou codigo ilegivel', conteudo: l.join(' | ').slice(0, 90) }); continue; }
+    const forma = get(cForma) || 'Venda';
+    const venda = [forma, get(cParc), get(cBand)].filter(Boolean).join(' ');
+    const bruta = paraNumero(get(cBruta));
+    const sufixo = Number.isNaN(bruta) ? '' : ` (venda R$ ${bruta.toFixed(2).replace('.', ',')})`;
+    const vloz = paraNumero(get(cVlozLiq));
+    const cash = paraNumero(get(cCash));
+    // Codigo da transacao e unico por venda: reimportar o mesmo periodo nao duplica.
+    const hash = (tipo: string) => createHash('sha256').update([contaId, 'vloz', codigo, tipo].join('|')).digest('hex').slice(0, 32);
+    if (!Number.isNaN(vloz) && vloz > 0) {
+      lancamentos.push({
+        data, descricao: `Vloz 15% — ${venda}${sufixo}`, contraparte: 'Votorantim (Vloz)', documento: null,
+        valor: vloz, saldo: null, tarifa: 0, hash_linha: hash('split'),
+      });
+    }
+    if (!Number.isNaN(cash) && cash > 0) {
+      lancamentos.push({
+        data, descricao: `Cashback Votoran — ${venda}${sufixo}`, contraparte: 'Votorantim (Vloz)', documento: null,
+        valor: cash, saldo: null, tarifa: 0, hash_linha: hash('cashback'),
+      });
+    }
+  }
+  return montarResultado(lancamentos, ignoradas);
+}
+
 /** Ponto de entrada. `layout` vem de contas_financeiras.layout. */
 export function parseExtrato(
   buffer: Buffer,
@@ -546,6 +606,9 @@ export function parseExtrato(
     return parseItauXlsx(buffer, contaId);
   }
   const texto = buffer.toString('utf8');
+  // Vloz pelo conteudo: o arquivo tem cabecalho proprio e so serve pra conta Vloz.
+  if (ehVlozCsv(texto)) return parseVlozCsv(texto, contaId);
+  if (layout === 'vloz_csv') throw new Error('O arquivo não parece o CSV de vendas da Vloz (sem as colunas Vloz Bruto e Cashback).');
   if (layout === 'stone_csv') return parseStoneCsv(texto, contaId);
   return parseGenericoCsv(texto, contaId);
 }

@@ -11,8 +11,9 @@ import type { LancamentoBruto, ResultadoParse } from '@/lib/extrato-parser';
 // ------------------------------------------------------------
 export type Metodo = 'pix' | 'dinheiro' | 'credito' | 'debito' | 'boleto' | 'transferencia' | 'outro';
 export type Papel = 'admin' | 'atendente' | 'motorista';
-export type TipoConta = 'banco' | 'adquirente' | 'caixa' | 'cartao_credito';
-export type LayoutConta = 'itau_xlsx' | 'stone_csv' | 'generico' | 'manual' | 'ofx';
+// 'carteira' = credito que so serve pra comprar de um fornecedor (Vloz da Votorantim).
+export type TipoConta = 'banco' | 'adquirente' | 'caixa' | 'cartao_credito' | 'carteira';
+export type LayoutConta = 'itau_xlsx' | 'stone_csv' | 'generico' | 'manual' | 'ofx' | 'vloz_csv';
 export type GrupoCategoria =
   | 'receita' | 'cmv' | 'custo_variavel' | 'custo_fixo' | 'imposto'
   | 'taxa_financeira' | 'servico_divida' | 'socio' | 'transferencia' | 'nao_operacional';
@@ -616,6 +617,10 @@ export interface FechamentoMensal {
     saldo_final_informado: number | null;
     diferenca: number | null;
     saidas_por_tipo: Record<string, number>;
+    // Entradas vem do extrato. Quanto delas e venda (PIX) sem pedido/pagamento
+    // ligado no sistema, e quanto o sistema registrou como recebido no banco.
+    entradas_sem_pedido?: number;
+    recebido_no_sistema?: number;
   };
   comparativo: { mes: string; faturamento: number; lucro_bruto: number; despesas_realizadas: number; caixa_livre_realizado: number } | null;
   qualidade: {

@@ -141,6 +141,15 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
       continue;
     }
 
+    if (c.tipo === 'carteira') {
+      // Credito junto ao fornecedor: entra 15% das vendas no cartao e o
+      // cashback (arquivo da Vloz); sai o cimento pago com o saldo.
+      const linhas = await lerTudo<Row>(() => supabaseAdmin.from('lancamentos_bancarios').select('valor').eq('conta_id', c.id));
+      const saldo = linhas.reduce((a, l) => a + (Number(l.valor) || 0), 0);
+      saida.push({ ...vazio, origem: 'calculado', movimentos_apos_base: arred2(saldo), saldo_estimado: arred2(saldo) });
+      continue;
+    }
+
     if (c.tipo === 'cartao_credito') {
       // Negativo = devedor. Fatura aberta = compras ainda sem fatura gerada.
       const linhas = await lerTudo<Row>(() => supabaseAdmin
@@ -181,10 +190,13 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
         .gt('data', base.data)),
     ]);
 
-    // Linha do mesmo dia do saldo so conta se foi importada DEPOIS dele
-    // (o saldo do extrato ja a inclui quando veio no mesmo arquivo).
+    // Saldo digitado vale pro fim do dia: linha do mesmo dia nunca soma (o
+    // de 16/10/2026 ja incluia os PIX do dia e eles entraram de novo).
+    // Saldo de extrato pode ser do meio do dia: linha do mesmo dia so soma
+    // se veio depois, num arquivo posterior.
     const mov = linhas
-      .filter(l => String(l.data) > base.data || (String(l.data) === base.data && String(l.criado_em ?? '') > base.criado_em))
+      .filter(l => String(l.data) > base.data
+        || (base.origem !== 'manual' && String(l.data) === base.data && String(l.criado_em ?? '') > base.criado_em))
       .reduce((a, l) => a + (Number(l.valor) || 0) - (Number(l.tarifa) || 0), 0);
     const pagos = contasPagas
       .filter(x => !vinculados.contas.has(String(x.id)))
@@ -219,7 +231,8 @@ export async function saldosAtuais(contasCache?: ContaFinanceira[]): Promise<Sal
 export function totalDisponivel(saldos: SaldoConta[]): number | null {
   let total = 0;
   for (const s of saldos) {
-    if (s.tipo === 'cartao_credito') continue;
+    // Carteira (Vloz) nao e dinheiro disponivel: so compra cimento.
+    if (s.tipo === 'cartao_credito' || s.tipo === 'carteira') continue;
     if (s.saldo_estimado === null) {
       if (s.tipo === 'caixa') continue;
       return null;

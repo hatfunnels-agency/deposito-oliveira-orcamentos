@@ -188,3 +188,14 @@ Para adicionar uma despesa fixa ou um fornecedor depois, use a tela (ou `POST /a
 - `atualizado_em` de `fornecedores`, `despesas_fixas`, `contas_pagar` e `cenarios_financeiros` é mantido por trigger (`financeiro_marcar_atualizado_em`); não precisa setar na app.
 - **Projeto no Next 16**: `params` de rota dinâmica é `Promise` (`await params`); o "middleware" é `src/proxy.ts`.
 - Decisões ainda abertas no negócio, todas rotuladas na tela: dias de vencimento das despesas, condição do financiamento do caminhão, escopo/teto/forma do reembolso do fornecedor de cimento, banco emissor e ciclo do cartão da empresa.
+
+## 12. Carteira Vloz (Votorantim)
+
+Descoberto em out/2026: a Stone divide cada venda no **cartão** em 85% para a conta Stone e 15% para a carteira **Vloz** da Votorantim. O cashback da Votoran (a taxa reembolsada) também cai na Vloz. Esse crédito só serve para comprar cimento da Votorantim; quando o saldo cobre o boleto, ele é pago inteiro com a Vloz. Pix não tem divisão.
+
+- Conta `Vloz (Votorantim)`, tipo `carteira`, layout `vloz_csv`. Saldo = soma dos lançamentos; fica **fora** do "total disponível".
+- Importação: o CSV "vendasvloz_<data>.csv" (Extratos › conta Vloz). Cada venda vira "Vloz 15% — …" (categoria venda no cartão) e "Cashback Votoran — …" (categoria reembolso de taxa). O código da transação dá idempotência. O CSV usa `;` com vírgula decimal.
+- Cimento pago com saldo Vloz: "Paguei" na conta a pagar escolhendo a conta Vloz; o lançamento sai da carteira, como no caixa.
+- O cashback da carteira conta como **reembolso recebido** na Maquininha e no Fechamento.
+- A conferência do cartão Stone compara a liquidação só com os 85% (`configuracoes.financeiro_split_carteira_pct`).
+- No bloco "Caixa do mês", as entradas vêm do extrato; os 15% da Vloz nunca entram no banco.

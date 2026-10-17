@@ -132,7 +132,13 @@ export default function Fechamento() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Cartao titulo="Caixa do mês" descricao="Tudo pela data em que o dinheiro se moveu (contas, faturas, dívida, folha, caixa, extrato).">
           <LinhaValor rotulo="Saldo inicial (contas de banco)" valor={caixa.saldo_inicial === null ? 'sem saldo informado' : brl(caixa.saldo_inicial)} tom={caixa.saldo_inicial === null ? 'cinza' : undefined} />
-          <LinhaValor rotulo="(+) Entradas (recebido − custos do cartão)" valor={brl(caixa.entradas)} tom="verde" />
+          <LinhaValor rotulo="(+) Entradas no banco (extrato)" valor={brl(caixa.entradas)} tom="verde" />
+          {(caixa.entradas_sem_pedido ?? 0) > 0 && (
+            <p className="text-[11px] text-amber-700 -mt-1 mb-1">
+              {brl(caixa.entradas_sem_pedido ?? 0)} entraram como venda sem pedido ligado no sistema (veja Conciliação).
+              {caixa.recebido_no_sistema != null && ` O sistema registrou ${brl(caixa.recebido_no_sistema)} para o banco.`}
+            </p>
+          )}
           <LinhaValor rotulo="(−) Saídas" valor={brl(-caixa.saidas)} tom="vermelho" />
           <LinhaValor destaque rotulo="= Saldo final calculado" valor={caixa.saldo_final_calculado === null ? '—' : brl(caixa.saldo_final_calculado)} />
           <LinhaValor rotulo="Saldo final informado / extrato" valor={caixa.saldo_final_informado === null ? '—' : brl(caixa.saldo_final_informado)} />

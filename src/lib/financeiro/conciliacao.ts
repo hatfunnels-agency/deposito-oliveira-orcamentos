@@ -170,11 +170,15 @@ export async function cartaoAgregado(
     if (l.valor <= 0 || !ehLinhaCartao(l.descricao) || !adquirentes.includes(l.conta_id)) continue;
     const x = dia(l.data); x.liquidado += l.valor; x.qtd_linhas++;
   }
+  // Parte da venda no cartao nao cai na conta: vai pra carteira do
+  // fornecedor (Vloz = 15%). Compara so com o que a conta deveria receber.
+  const { data: cfg } = await supabaseAdmin.from('configuracoes').select('valor').eq('chave', 'financeiro_split_carteira_pct').maybeSingle();
+  const fatorConta = 1 - Math.min(Math.max(Number(cfg?.valor) || 0, 0), 100) / 100;
   for (const p of pagamentos) {
     if (p.metodo !== 'debito' && p.metodo !== 'credito') continue;
     const c = calcularCusto(p, taxas);
     if (c.data_liquidacao < de || c.data_liquidacao > ate) continue;
-    const x = dia(c.data_liquidacao); x.bruto_estimado += p.valor; x.liquido_estimado += c.liquido_recebido; x.qtd_pagamentos++;
+    const x = dia(c.data_liquidacao); x.bruto_estimado += p.valor * fatorConta; x.liquido_estimado += c.liquido_recebido * fatorConta; x.qtd_pagamentos++;
   }
   let liquidado = 0, bruto = 0, liquido = 0;
   const dias = [...porDia.values()].sort((a, b) => a.data.localeCompare(b.data)).map(x => {
@@ -506,6 +510,8 @@ export async function conciliar(op: { conta_id: string; de: string; ate: string;
     }
     if (l.valor === 0) continue;
     if (l.valor > 0 && conta.tipo === 'adquirente' && ehLinhaCartao(l.descricao)) continue;   // cartao: agregado por dia
+    // Carteira Vloz: entrada e split/cashback da propria venda, nao pagamento de cliente.
+    if (l.valor > 0 && conta.tipo === 'carteira') continue;
 
     let cands: CandidatoConciliacao[] = [];
     if (l.valor > 0) {
