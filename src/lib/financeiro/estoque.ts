@@ -20,7 +20,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { lerTudo, lerTudoEmLotes } from '@/lib/ler-tudo';
 import type {
   ItemPainelEstoque, MovimentoEstoque, NovoMovimentoEstoque, PainelEstoque, ResultadoMovimentoEstoque,
-  TipoMovimentoEstoque, TotaisEstoque,
+  TipoMovimentoEstoque, TotaisEstoque, ProdutoSobDemanda,
 } from './tipos';
 import { arred2 } from './datas';
 import { ErroFinanceiro, registrarEvento } from './eventos';
@@ -120,10 +120,17 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   }
 
   const itens: ItemPainelEstoque[] = [];
+  const sobDemanda: ProdutoSobDemanda[] = [];
   for (const p of produtos) {
     if (p.ativo === false) continue;
     if (p.estoque_compartilhado_com) continue;          // secundario: aparece no principal
-    if ((p.tipo_estoque ?? 'estocavel') !== 'estocavel') continue;
+    if ((p.tipo_estoque ?? 'estocavel') !== 'estocavel') {
+      sobDemanda.push({
+        produto_id: p.id, nome: p.nome, categoria: p.categoria ?? null, unidade: p.unidade,
+        vendido_90d: arred3((vendido90.get(p.id) ?? 0) * (num(p.fator_conversao) || 1)),
+      });
+      continue;
+    }
     const fator = num(p.fator_conversao) || 1;
     const estoque = arred3(num(p.estoque_atual));
     const precoCusto = num(p.preco_custo);
@@ -170,7 +177,41 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   };
   const categorias = [...new Set(itens.map(i => i.categoria || 'Geral'))].sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
-  return { gerado_em: new Date(agora).toISOString(), itens, totais, categorias };
+  sobDemanda.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+
+  return { gerado_em: new Date(agora).toISOString(), itens, sob_demanda: sobDemanda, totais, categorias };
+}
+
+// ------------------------------------------------------------ sob demanda
+
+/**
+ * Marca o produto como estocavel ou sob demanda (pedido ao fornecedor so
+ * quando vende: a venda soma em total_vendido e nao baixa estoque). Vale
+ * para o principal e todos os secundarios que compartilham o estoque, que
+ * herdam o tipo. Para virar sob demanda o saldo tem que estar em zero, senao
+ * o estoque some do painel sem baixa registrada.
+ */
+export async function definirTipoEstoque(
+  produtoId: string, tipo: 'estocavel' | 'sob_demanda', usuarioId: string | null,
+): Promise<{ produto_id: string; tipo_estoque: 'estocavel' | 'sob_demanda'; afetados: number }> {
+  const { principal } = await resolverPrincipal(produtoId);
+  const anterior = (principal.tipo_estoque ?? 'estocavel') as 'estocavel' | 'sob_demanda';
+  if (anterior === tipo) return { produto_id: principal.id, tipo_estoque: tipo, afetados: 0 };
+  if (tipo === 'sob_demanda' && num(principal.estoque_atual) !== 0) {
+    throw new ErroFinanceiro(409, `${principal.nome} tem ${num(principal.estoque_atual)} ${principal.unidade} em estoque. Faça uma contagem zerando antes de marcar como sob demanda.`);
+  }
+  const { data, error } = await supabaseAdmin
+    .from('produtos')
+    .update({ tipo_estoque: tipo })
+    .or(`id.eq.${principal.id},estoque_compartilhado_com.eq.${principal.id}`)
+    .select('id');
+  if (error) throw new Error(error.message);
+  await registrarEvento({
+    entidade: 'estoque', entidade_id: principal.id, acao: 'tipo_estoque',
+    antes: { tipo_estoque: anterior }, depois: { tipo_estoque: tipo, produtos: (data ?? []).map(r => r.id) },
+    usuario_id: usuarioId,
+  });
+  return { produto_id: principal.id, tipo_estoque: tipo, afetados: (data ?? []).length };
 }
 
 // ------------------------------------------------------------ historico

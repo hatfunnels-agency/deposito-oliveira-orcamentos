@@ -33,7 +33,7 @@ interface SidebarItem {
   icon: LucideIcon;
 }
 
-// Ordem definitiva dos items. Funcionarios, Dashboard e o assistente
+// Ordem definitiva dos items. Funcionarios, Dashboard e a IA antiga
 // moraram aqui ate out/2026; agora vivem em /financeiro (Gestao). abasVisiveis (no parent) filtra por role.
 const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'produtos', label: 'Catálogo', icon: Package },
@@ -42,7 +42,7 @@ const SIDEBAR_ITEMS: SidebarItem[] = [
   { key: 'clientes', label: 'Clientes', icon: Users },
   { key: 'ferragens', label: 'Ferragens', icon: Wrench },
   { key: 'entregas', label: 'Entregas', icon: Truck },
-  { key: 'estoque', label: 'Estoque', icon: Warehouse },
+  { key: 'estoque', label: 'Cadastro de produtos', icon: Warehouse },
   { key: 'financeiro', label: 'Financeiro', icon: Wallet },
 ];
 

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera, MessageCircle,
+  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera,
   Menu, LogOut, ArrowLeft, X, type LucideIcon,
 } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
@@ -24,7 +24,6 @@ import ClientesAReceber from './ClientesAReceber';
 import DashboardTab from '@/components/DashboardTab';
 import FuncionariosTab from '@/components/FuncionariosTab';
 import Estoque from './Estoque';
-import Assistente from './Assistente';
 import LancarPorFoto from './LancarPorFoto';
 
 // Casca da /financeiro: sessao, papel, menu lateral e a secao ativa em
@@ -33,11 +32,10 @@ import LancarPorFoto from './LancarPorFoto';
 
 export type Secao =
   | 'panorama' | 'dia' | 'pagar' | 'despesas' | 'conciliacao' | 'maquininha'
-  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque' | 'assistente';
+  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque';
 
 const SECOES: Array<{ key: Secao; rotulo: string; icone: LucideIcon; titulo: string }> = [
   { key: 'panorama', rotulo: 'Panorama', icone: Gauge, titulo: 'Panorama' },
-  { key: 'assistente', rotulo: 'Assistente', icone: MessageCircle, titulo: 'Assistente' },
   { key: 'dia', rotulo: 'Dia', icone: CalendarDays, titulo: 'Dia' },
   { key: 'pagar', rotulo: 'A pagar', icone: Receipt, titulo: 'Contas a pagar' },
   { key: 'estoque', rotulo: 'Estoque', icone: Package, titulo: 'Estoque' },
@@ -151,7 +149,6 @@ export default function FinanceiroApp() {
     case 'maquininha': conteudo = <Maquininha />; break;
     case 'fechamento': conteudo = <Fechamento />; break;
     case 'simulador': conteudo = <Simulador />; break;
-    case 'assistente': conteudo = <Assistente />; break;
     case 'estoque': conteudo = <Estoque />; break;
     case 'vendas': conteudo = <DashboardTab />; break;
     case 'funcionarios': conteudo = <FuncionariosTab />; break;

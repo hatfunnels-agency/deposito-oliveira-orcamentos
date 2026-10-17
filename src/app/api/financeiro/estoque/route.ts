@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exigirPapel } from '@/lib/auth-admin';
 import type { NovoMovimentoEstoque, TipoMovimentoEstoque } from '@/lib/financeiro/tipos';
-import { historicoMovimentos, painelEstoque, registrarMovimento, TIPOS_MOVIMENTO } from '@/lib/financeiro/estoque';
+import { definirTipoEstoque, historicoMovimentos, painelEstoque, registrarMovimento, TIPOS_MOVIMENTO } from '@/lib/financeiro/estoque';
 import { ErroFinanceiro } from '@/lib/financeiro/eventos';
 
 export const dynamic = 'force-dynamic';
@@ -62,5 +62,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(resultado, { status: 201 });
   } catch (e) {
     return responderErro(e, 'POST /api/financeiro/estoque');
+  }
+}
+
+// PATCH /api/financeiro/estoque  { produto_id, tipo_estoque: 'estocavel' | 'sob_demanda' }
+export async function PATCH(request: NextRequest) {
+  const { negado, usuario } = await exigirPapel(request, ['admin'], RECURSO);
+  if (negado) return negado;
+  try {
+    const body = (await request.json().catch(() => null)) as { produto_id?: string; tipo_estoque?: string } | null;
+    if (!body?.produto_id) return NextResponse.json({ error: 'Escolha o produto.' }, { status: 400 });
+    if (body.tipo_estoque !== 'estocavel' && body.tipo_estoque !== 'sob_demanda') {
+      return NextResponse.json({ error: 'Tipo deve ser estocavel ou sob_demanda.' }, { status: 400 });
+    }
+    return NextResponse.json(await definirTipoEstoque(String(body.produto_id), body.tipo_estoque, usuario?.id ?? null));
+  } catch (e) {
+    return responderErro(e, 'PATCH /api/financeiro/estoque');
   }
 }

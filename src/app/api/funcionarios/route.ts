@@ -84,7 +84,12 @@ export async function GET(request: NextRequest) {
         vales_abertos: valesAbertos,
         ultimo_pagamento: ultimo ? { pago_em: ultimo.pago_em, valor_liquido: Number(ultimo.valor_liquido) } : null,
         documentos: resumoDocumentos((docs || []).filter(d => d.funcionario_id === f.id), hoje),
-        tempo_casa: tempoDeCasa(f.data_admissao, hoje),
+        // Tempo de casa conta da admissao; o proximo vencimento de ferias, do
+        // inicio do periodo aquisitivo (direitos_desde, quando ja houve acerto).
+        tempo_casa: {
+          ...tempoDeCasa(f.data_admissao, hoje),
+          proximo_aniversario: tempoDeCasa(f.direitos_desde || f.data_admissao, hoje).proximo_aniversario,
+        },
         encargos: encargosMensais(base.salario_mensal),
       };
     });

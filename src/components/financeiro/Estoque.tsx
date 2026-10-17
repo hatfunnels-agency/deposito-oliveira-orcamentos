@@ -17,7 +17,7 @@ import {
 // contagem — antes disso quase tudo esta em zero porque o deposito nunca
 // contou; a venda so dava baixa.
 
-type Filtro = 'todos' | 'nao_contados' | 'zerados' | 'abaixo_minimo' | 'sem_venda';
+type Filtro = 'todos' | 'nao_contados' | 'zerados' | 'abaixo_minimo' | 'sem_venda' | 'sob_demanda';
 
 const ROTULO_TIPO: Record<string, string> = {
   entrada: 'Entrada', saida: 'Venda', cancelamento: 'Cancelamento', ajuste: 'Ajuste', perda: 'Perda', contagem: 'Contagem',
@@ -35,6 +35,25 @@ export default function Estoque() {
   const [aberto, setAberto] = useState<string | null>(null);
   const [acao, setAcao] = useState<{ item: ItemPainelEstoque; tipo: TipoMovimentoEstoque } | null>(null);
   const [versaoHistorico, setVersaoHistorico] = useState(0);
+  const [mudandoTipo, setMudandoTipo] = useState<string | null>(null);
+
+  // Sob demanda = pedido ao fornecedor so quando vende: sai do painel de
+  // saldo e a venda nao baixa estoque.
+  const alternarTipo = async (produtoId: string, sobDemanda: boolean) => {
+    setMudandoTipo(produtoId);
+    setErro(null);
+    try {
+      await apiFinanceiro('/api/financeiro/estoque', {
+        method: 'PATCH',
+        body: JSON.stringify({ produto_id: produtoId, tipo_estoque: sobDemanda ? 'sob_demanda' : 'estocavel' }),
+      });
+      await carregar();
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Erro ao mudar o tipo do produto');
+    } finally {
+      setMudandoTipo(null);
+    }
+  };
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -62,6 +81,11 @@ export default function Estoque() {
       return true;
     });
   }, [itens, busca, categoria, filtro]);
+  const sobDemanda = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    return (dados?.sob_demanda ?? []).filter(i =>
+      (!categoria || (i.categoria || 'Geral') === categoria) && (!termo || i.nome.toLowerCase().includes(termo)));
+  }, [dados, busca, categoria]);
 
   if (carregando && !dados) return <Carregando texto="Carregando estoque…" />;
   if (erro && !dados) return <Erro mensagem={erro} onTentar={carregar} />;
@@ -106,19 +130,42 @@ export default function Estoque() {
           { key: 'zerados', rotulo: 'Zerados', contagem: t.zerados },
           { key: 'abaixo_minimo', rotulo: 'Abaixo do mínimo', contagem: t.abaixo_minimo },
           { key: 'sem_venda', rotulo: 'Sem venda 90d', contagem: t.sem_venda_90d },
+          { key: 'sob_demanda', rotulo: 'Sob demanda', contagem: dados.sob_demanda.length },
         ]} />
       </Cartao>
 
       {erro && <Erro mensagem={erro} onTentar={carregar} />}
 
-      {filtrados.length === 0 ? (
+      {filtro === 'sob_demanda' ? (
+        <Cartao titulo="Sob demanda" selo={<Selo tom="azul">{sobDemanda.length}</Selo>}>
+          <p className="text-xs text-gray-600 mb-3">Produtos que vêm direto do fornecedor quando vendem: não têm saldo nem contagem, e a venda não baixa estoque. Desmarque para voltar a controlar o estoque.</p>
+          {sobDemanda.length === 0 ? <Vazio>Nenhum produto sob demanda com esse filtro.</Vazio> : (
+            <ul className="divide-y divide-gray-100">
+              {sobDemanda.map(i => (
+                <li key={i.produto_id} className="py-2 flex items-center justify-between gap-3">
+                  <label className="flex items-center gap-3 min-h-[44px] min-w-0 cursor-pointer">
+                    <input type="checkbox" checked disabled={mudandoTipo === i.produto_id}
+                      onChange={() => alternarTipo(i.produto_id, false)} className="w-5 h-5 accent-[#F7941D] shrink-0" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-gray-800 break-words">{i.nome}</span>
+                      <span className="block text-[11px] text-gray-500">{i.categoria || 'Geral'}</span>
+                    </span>
+                  </label>
+                  <span className="text-xs text-gray-500 tabular-nums shrink-0">{numero(i.vendido_90d, 1)} {i.unidade} em 90d</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Cartao>
+      ) : filtrados.length === 0 ? (
         <Vazio>Nenhum produto com esse filtro.</Vazio>
       ) : (
         <div className="space-y-3">
           {filtrados.map(i => (
             <CartaoProduto key={i.produto_id} item={i} aberto={aberto === i.produto_id} versaoHistorico={versaoHistorico}
               onAlternar={() => setAberto(a => (a === i.produto_id ? null : i.produto_id))}
-              onAcao={tipo => setAcao({ item: i, tipo })} />
+              onAcao={tipo => setAcao({ item: i, tipo })}
+              mudandoTipo={mudandoTipo === i.produto_id} onSobDemanda={() => alternarTipo(i.produto_id, true)} />
           ))}
         </div>
       )}
@@ -139,9 +186,10 @@ export default function Estoque() {
 
 // ---------------------------------------------------------------- cartao
 
-function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao }: {
+function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda }: {
   item: ItemPainelEstoque; aberto: boolean; versaoHistorico: number;
   onAlternar: () => void; onAcao: (t: TipoMovimentoEstoque) => void;
+  mudandoTipo: boolean; onSobDemanda: () => void;
 }) {
   const cobertura = i.cobertura_dias === null ? (i.zerado ? '—' : 'sem venda') : `${numero(i.cobertura_dias, i.cobertura_dias < 10 ? 1 : 0)} dias`;
   return (
@@ -181,6 +229,11 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao }:
         <BotaoSecundario onClick={() => onAcao('ajuste')}><SlidersHorizontal className="w-4 h-4" /> Ajuste</BotaoSecundario>
         <BotaoSecundario onClick={() => onAcao('contagem')}><ClipboardCheck className="w-4 h-4" /> Contagem</BotaoSecundario>
       </div>
+
+      <label className="px-4 pb-3 -mt-1 flex items-center gap-2 text-xs text-gray-600 min-h-[44px] cursor-pointer w-fit">
+        <input type="checkbox" checked={false} disabled={mudandoTipo} onChange={onSobDemanda} className="w-5 h-5 accent-[#F7941D]" />
+        Sob demanda <span className="text-gray-400">(vem do fornecedor quando vende)</span>
+      </label>
 
       {aberto && <Historico produtoId={i.produto_id} unidade={i.unidade} versao={versaoHistorico} />}
     </section>

@@ -944,9 +944,19 @@ export interface TotaisEstoque {
   nunca_contados: number;
 }
 
+export interface ProdutoSobDemanda {
+  produto_id: string;
+  nome: string;
+  categoria: string | null;
+  unidade: string;
+  vendido_90d: number;              // unidade de estoque, somando secundarios
+}
+
 export interface PainelEstoque {
   gerado_em: string;
   itens: ItemPainelEstoque[];
+  // Pedido ao fornecedor so quando vende: nao tem saldo nem contagem.
+  sob_demanda: ProdutoSobDemanda[];
   totais: TotaisEstoque;
   categorias: string[];
 }

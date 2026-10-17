@@ -6,7 +6,7 @@
 // com JSON Schema) garante JSON valido; mesmo assim tudo e saneado aqui
 // (data invalida vira null, numero negativo vira null).
 //
-// Chamada pelo SDK oficial (@anthropic-ai/sdk), como o assistente.
+// Chamada pelo SDK oficial (@anthropic-ai/sdk).
 
 import Anthropic from '@anthropic-ai/sdk';
 import { supabaseAdmin } from '@/lib/supabase';

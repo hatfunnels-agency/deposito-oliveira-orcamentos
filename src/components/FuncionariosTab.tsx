@@ -27,6 +27,7 @@ interface Funcionario {
   salario_mensal: number;
   registrado: boolean;
   controle_desde: string;
+  direitos_desde: string | null;
   observacoes: string | null;
   proximo: {
     inicio: string;
@@ -133,6 +134,7 @@ const FORM_VAZIO = {
   salario_mensal: '',
   registrado: false,
   controle_desde: '',
+  direitos_desde: '',
   observacoes: '',
   ativo: true,
   data_desligamento: '',
@@ -266,6 +268,7 @@ export default function FuncionariosTab() {
       salario_mensal: String(f.salario_mensal),
       registrado: f.registrado,
       controle_desde: f.controle_desde,
+      direitos_desde: f.direitos_desde ?? '',
       observacoes: f.observacoes ?? '',
       ativo: f.ativo,
       data_desligamento: f.data_desligamento ?? '',
@@ -558,7 +561,7 @@ export default function FuncionariosTab() {
                     <td className="px-3 py-2">{dataBR(f.data_admissao)}</td>
                     <td className="px-3 py-2">
                       {f.tempo_casa.anos > 0 && `${f.tempo_casa.anos}a `}{f.tempo_casa.meses}m
-                      <p className="text-xs text-gray-500">faz {f.tempo_casa.anos + 1} ano(s) em {dataBR(f.tempo_casa.proximo_aniversario)}</p>
+                      <p className="text-xs text-gray-500">{f.direitos_desde ? 'férias vencem' : `faz ${f.tempo_casa.anos + 1} ano(s)`} em {dataBR(f.tempo_casa.proximo_aniversario)}</p>
                     </td>
                     <td className="px-3 py-2"><span className={`text-[11px] px-2 py-0.5 rounded-full ${FREQ_COR[f.frequencia]}`}>{FREQ_CURTA[f.frequencia]}</span></td>
                     <td className="px-3 py-2 text-right">{brl(f.salario_mensal)}</td>
@@ -879,6 +882,11 @@ export default function FuncionariosTab() {
                   <label className={label}>Controlar pagamentos a partir de</label>
                   <input type="date" className={input} value={form.controle_desde} onChange={e => set({ controle_desde: e.target.value })} />
                   <p className="text-xs text-gray-500 mt-1">O primeiro pagamento que aparece é o primeiro com dia de pagar a partir desta data.</p>
+                </div>
+                <div className="col-span-2">
+                  <label className={label}>Férias e 13º contam desde (opcional)</label>
+                  <input type="date" className={input} value={form.direitos_desde} onChange={e => set({ direitos_desde: e.target.value })} />
+                  <p className="text-xs text-gray-500 mt-1">Use quando os direitos já foram acertados depois da admissão. Vazio = conta da admissão.</p>
                 </div>
                 <label className="col-span-2 flex items-center gap-2 text-sm">
                   <input type="checkbox" checked={form.registrado} onChange={e => set({ registrado: e.target.checked })} />
