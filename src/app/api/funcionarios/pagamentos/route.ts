@@ -2,8 +2,49 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exigirAdmin } from '@/lib/auth-admin';
 import { brutoDoPeriodo, hojeSP, proximoPeriodo } from '@/lib/folha';
+import { CATEGORIA_FOLHA, METODOS, carregarCategorias, categoriaPorNome, hashInterno } from '@/lib/financeiro/contas-pagar';
+import { carregarContasFinanceiras, contaPorTipo } from '@/lib/financeiro/saldos';
+import { dataBR } from '@/lib/financeiro/datas';
 
 export const dynamic = 'force-dynamic';
+
+/**
+ * Por onde saiu o dinheiro da folha (secao 3.16 da espec do financeiro).
+ * Caixa ou cartao nao tem extrato: o lancamento nasce aqui, ja vinculado,
+ * pra aparecer no Dia e no Fechamento uma vez so. Banco fica sem linha —
+ * o extrato importado concilia depois. 'dinheiro' sem conta cai no caixa.
+ */
+async function resolverContaFolha(body: Record<string, unknown>): Promise<{ metodo: string | null; conta_id: string | null; lancar: boolean } | { erro: string }> {
+  const metodo = body.metodo == null || body.metodo === '' ? null : String(body.metodo);
+  if (metodo && !METODOS.includes(metodo as (typeof METODOS)[number])) return { erro: 'Método de pagamento inválido.' };
+  const contas = await carregarContasFinanceiras();
+  let conta = body.conta_id ? contas.find(c => c.id === String(body.conta_id)) ?? null : null;
+  if (body.conta_id && !conta) return { erro: 'Conta financeira não encontrada.' };
+  if (!conta && metodo === 'dinheiro') conta = await contaPorTipo('caixa', contas);
+  const lancar = !!conta && (conta.tipo === 'caixa' || conta.tipo === 'cartao_credito' || metodo === 'dinheiro');
+  return { metodo, conta_id: conta?.id ?? null, lancar };
+}
+
+async function lancarFolha(l: { conta_id: string; data: string; descricao: string; nome: string; valor: number; funcionario_pagamento_id: string }) {
+  const cat = categoriaPorNome(await carregarCategorias(), CATEGORIA_FOLHA);
+  const { error } = await supabaseAdmin.from('lancamentos_bancarios').upsert({
+    conta_id: l.conta_id,
+    data: l.data,
+    descricao: l.descricao,
+    contraparte: l.nome,
+    valor: -Math.abs(l.valor),
+    hash_linha: hashInterno(l.conta_id, 'folha', l.funcionario_pagamento_id),
+    categoria_id: cat?.id ?? null,
+    categoria_origem: 'manual',
+    categoria_confianca: 1,
+    revisado: true,
+    origem_lancamento: 'folha',
+    funcionario_pagamento_id: l.funcionario_pagamento_id,
+    conciliado_em: new Date().toISOString(),
+    conciliacao_origem: 'auto',
+  }, { onConflict: 'hash_linha', ignoreDuplicates: true });
+  if (error) throw new Error(error.message);
+}
 
 /**
  * GET /api/funcionarios/pagamentos?funcionario_id=&de=&ate=
@@ -34,7 +75,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes? }
+ * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id? }
  *
  * Paga o PROXIMO periodo em aberto. O calculo e refeito aqui (nao confia
  * no numero da tela) e desconta todos os vales em aberto ate pago_em.
@@ -50,6 +91,9 @@ export async function POST(request: NextRequest) {
     const { data: f, error: eF } = await supabaseAdmin
       .from('funcionarios').select('*').eq('id', body.funcionario_id).single();
     if (eF || !f) return NextResponse.json({ error: 'Funcionário não encontrado.' }, { status: 404 });
+
+    const saida = await resolverContaFolha(body);
+    if ('erro' in saida) return NextResponse.json({ error: saida.erro }, { status: 400 });
 
     const { data: ult } = await supabaseAdmin
       .from('funcionario_pagamentos')
@@ -84,6 +128,8 @@ export async function POST(request: NextRequest) {
         ajuste,
         valor_liquido: Math.round((bruto.valor - totalVales + ajuste) * 100) / 100,
         observacoes: String(body.observacoes ?? '').trim() || null,
+        metodo: saida.metodo,
+        conta_id: saida.conta_id,
       })
       .select()
       .single();
@@ -102,6 +148,23 @@ export async function POST(request: NextRequest) {
         // Sem os vales marcados o pagamento ficaria errado: desfaz.
         await supabaseAdmin.from('funcionario_pagamentos').delete().eq('id', pag.id);
         throw eV;
+      }
+    }
+
+    // Lancamento e espelho do pagamento: se falhar, o pagamento fica (o
+    // salario foi pago) e a conciliacao manual cobre depois.
+    if (saida.lancar && saida.conta_id && Number(pag.valor_liquido) > 0) {
+      try {
+        await lancarFolha({
+          conta_id: saida.conta_id,
+          data: pagoEm,
+          descricao: `Salário — ${f.nome} (${dataBR(periodo.inicio)} a ${dataBR(periodo.fim)})`,
+          nome: String(f.nome),
+          valor: Number(pag.valor_liquido),
+          funcionario_pagamento_id: String(pag.id),
+        });
+      } catch (e) {
+        console.error('[funcionarios/pagamentos] falha ao lancar folha no caixa/cartao:', e);
       }
     }
     return NextResponse.json(pag);
@@ -135,6 +198,14 @@ export async function DELETE(request: NextRequest) {
     if (ult?.id !== id) {
       return NextResponse.json({ error: 'Só dá para desfazer o último pagamento deste funcionário.' }, { status: 409 });
     }
+    // A linha de caixa/cartao criada no POST vai junto. Linha de extrato
+    // vinculada so perde o ponteiro (FK ON DELETE SET NULL) — o dinheiro saiu.
+    const { error: eL } = await supabaseAdmin
+      .from('lancamentos_bancarios')
+      .delete()
+      .eq('funcionario_pagamento_id', id)
+      .eq('origem_lancamento', 'folha');
+    if (eL) throw eL;
     const { error } = await supabaseAdmin.from('funcionario_pagamentos').delete().eq('id', id);
     if (error) throw error;
     return NextResponse.json({ ok: true });

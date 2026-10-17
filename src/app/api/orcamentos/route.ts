@@ -182,6 +182,8 @@ export async function POST(request: NextRequest) {
                       valor: Number(pagamento_inicial.valor),
                       metodo: pagamento_inicial.metodo || 'outro',
                       parcelas: Number(pagamento_inicial.parcelas) || 1,
+                      // So quando a tela pediu as parcelas de fato (SeletorParcelas); o resto segue 1x "chutado".
+                      parcelas_informadas: pagamento_inicial.parcelas_informadas === true,
                       origem: pagamento_inicial.origem || 'manual',
                       gateway_id: pagamento_inicial.gateway_id || null,
               });
