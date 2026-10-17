@@ -55,13 +55,17 @@ interface ProdutoRow {
   ativo: boolean | null;
   tipo_estoque: string | null;
   estoque_compartilhado_com: string | null;
+  prazo_entrega_dias?: number | null;
+  baixa_estoque_em_produto_id?: string | null;
+  baixa_estoque_fator?: number | string | null;
+  tipo_ferro?: string | null;
 }
 
 // ------------------------------------------------------------ reposicao
 
 // Previsao de compra pelo ritmo de venda. O deposito funciona de segunda a
 // sabado: o consumo e por dia de funcionamento e as datas pulam domingo.
-const DIAS_SEGURANCA = 3;        // pedir quando sobrar o equivalente a 3 dias de venda (ou o minimo, se maior)
+const DIAS_SEGURANCA = 3;        // entrega rapida: pedir quando sobrar o equivalente a 3 dias de venda (ou o minimo, se maior)
 const DIAS_COBERTURA_PEDIDO = 12; // o pedido cobre 2 semanas de funcionamento
 const DIAS_UTEIS_30 = 26;         // dias de funcionamento em 30 corridos (aprox.)
 
@@ -76,22 +80,42 @@ function somarDiasUteis(data: string, n: number): string {
   return diaSemana(d) === 0 ? somarDias(d, 1) : d;
 }
 
-function calcularReposicao(estoque: number, minimo: number, vendido30: number, hoje: string): ReposicaoEstoque | null {
+/** Prazo em dias corridos -> dias de funcionamento (seg-sab). */
+const prazoUteis = (dias: number) => Math.ceil((dias * 6) / 7);
+
+/**
+ * Com prazo de entrega P, pede quando o saldo cobre 2 x P (o que vende
+ * enquanto o pedido nao chega, mais a mesma folga). Ferro: 1 semana de prazo
+ * -> pedir com 2 semanas de estoque. Sem prazo: 3 dias de venda. O minimo
+ * cadastrado vale se for maior.
+ */
+export function calcularReposicao(
+  estoque: number, minimo: number, vendido30: number, hoje: string, prazoDias: number | null,
+): ReposicaoEstoque | null {
   const consumo = vendido30 / DIAS_UTEIS_30;
   if (consumo <= 0) return null;
-  const pontoPedido = Math.max(minimo, consumo * DIAS_SEGURANCA);
+  const prazo = prazoDias && prazoDias > 0 ? prazoUteis(prazoDias) : 0;
+  const cobertura = prazo > 0 ? Math.max(DIAS_SEGURANCA, 2 * prazo) : DIAS_SEGURANCA;
+  const minimoSugerido = consumo * cobertura;
+  const pontoPedido = Math.max(minimo, minimoSugerido);
   const saldo = Math.max(0, estoque);
   const diasAtePedido = (saldo - pontoPedido) / consumo;
   const diasAteAcabar = saldo / consumo;
   const pedirEm = diasAtePedido <= 0 ? hoje : somarDiasUteis(hoje, diasAtePedido);
   const saldoNoPedido = Math.max(0, Math.min(saldo, pontoPedido));
+  // Quantidade: o que vende ate chegar + 2 semanas depois, menos o que ainda tem.
+  const sugerido = consumo * (prazo + DIAS_COBERTURA_PEDIDO) - saldoNoPedido + (pontoPedido - consumo * prazo);
   return {
     consumo_dia: arred3(consumo),
+    cobertura_pedido_dias: cobertura,
     ponto_pedido: arred3(pontoPedido),
+    minimo_sugerido: arred3(minimoSugerido),
     pedir_em: pedirEm,
     acaba_em: somarDiasUteis(hoje, diasAteAcabar),
+    chega_em: prazo > 0 ? somarDiasUteis(pedirEm, prazo) : null,
+    falta_antes_de_chegar: prazo > 0 && diasAteAcabar < prazo,
     dias_ate_pedido: Math.round(diasAtePedido * 10) / 10,
-    sugerido: Math.ceil(Math.max(0, consumo * DIAS_COBERTURA_PEDIDO - saldoNoPedido + pontoPedido) * 10) / 10,
+    sugerido: Math.ceil(Math.max(0, sugerido) * 10) / 10,
   };
 }
 
@@ -105,7 +129,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   const [produtos, pedidos, movs] = await Promise.all([
     lerTudo<ProdutoRow>(() => supabaseAdmin
       .from('produtos')
-      .select('id, nome, categoria, unidade, unidade_venda, fator_conversao, preco_custo, estoque_atual, estoque_minimo, ativo, tipo_estoque, estoque_compartilhado_com')),
+      .select('id, nome, categoria, unidade, unidade_venda, fator_conversao, preco_custo, estoque_atual, estoque_minimo, ativo, tipo_estoque, estoque_compartilhado_com, prazo_entrega_dias, baixa_estoque_em_produto_id, baixa_estoque_fator, tipo_ferro')),
     lerTudo<{ id: string; criado_em: string }>(() => supabaseAdmin
       .from('orcamentos')
       .select('id, criado_em')
@@ -117,14 +141,39 @@ export async function painelEstoque(): Promise<PainelEstoque> {
       .in('tipo', ['entrada', 'contagem'])),
   ]);
 
-  const itensVenda = await lerTudoEmLotes<{ orcamento_id: string; produto_id: string | null; quantidade: number | string }>(
+  const itensVenda = await lerTudoEmLotes<{ id: string; orcamento_id: string; produto_id: string | null; quantidade: number | string }>(
     pedidos.map(p => String(p.id)),
     lote => supabaseAdmin.from('orcamento_itens').select('id, orcamento_id, produto_id, quantidade').in('orcamento_id', lote),
+  );
+
+  // Ferro feito na calculadora: item sem produto, consumo em metros por tipo de ferro.
+  const itensAvulsos = itensVenda.filter(i => !i.produto_id).map(i => String(i.id));
+  const consumoFerro = await lerTudoEmLotes<{ orcamento_item_id: string; tipo_ferro: string; metros: number | string }>(
+    itensAvulsos,
+    lote => supabaseAdmin.from('ferragem_consumo').select('orcamento_item_id, tipo_ferro, metros').in('orcamento_item_id', lote),
   );
 
   const porId = new Map(produtos.map(p => [p.id, p]));
   const principalDe = (id: string): string => porId.get(id)?.estoque_compartilhado_com || id;
   const criadoPedido = new Map(pedidos.map(p => [String(p.id), p.criado_em]));
+  const pedidoDoItem = new Map(itensVenda.map(i => [String(i.id), String(i.orcamento_id)]));
+  const produtoDoTipoFerro = new Map(produtos.filter(p => p.tipo_ferro).map(p => [String(p.tipo_ferro), p.id]));
+
+  // Vendido que ja chega em unidade de ESTOQUE do produto que baixa (mesma
+  // regra de src/lib/baixa-ferro.ts): barra -> metro (x baixa_estoque_fator)
+  // e metros da calculadora de ferragem.
+  const direto30 = new Map<string, number>();
+  const direto90 = new Map<string, number>();
+  const somarDireto = (pid: string, qtd: number, orcamentoId: string | undefined) => {
+    direto90.set(pid, (direto90.get(pid) ?? 0) + qtd);
+    const criado = orcamentoId ? criadoPedido.get(orcamentoId) : undefined;
+    if (criado && criado >= desde30) direto30.set(pid, (direto30.get(pid) ?? 0) + qtd);
+  };
+  for (const c of consumoFerro) {
+    const pid = produtoDoTipoFerro.get(String(c.tipo_ferro));
+    const m = num(c.metros);
+    if (pid && m > 0) somarDireto(principalDe(pid), m, pedidoDoItem.get(String(c.orcamento_item_id)));
+  }
 
   // Vendido em unidade de VENDA, ja no principal; converte no fim com o
   // fator do principal (o mesmo que a baixa usa).
@@ -134,6 +183,11 @@ export async function painelEstoque(): Promise<PainelEstoque> {
     if (!it.produto_id) continue;
     const qtd = num(it.quantidade);
     if (qtd <= 0) continue;
+    const prod = porId.get(it.produto_id);
+    if (prod?.baixa_estoque_em_produto_id) {
+      somarDireto(principalDe(prod.baixa_estoque_em_produto_id), qtd * (num(prod.baixa_estoque_fator) || 1), String(it.orcamento_id));
+      continue;
+    }
     const pid = principalDe(it.produto_id);
     vendido90.set(pid, (vendido90.get(pid) ?? 0) + qtd);
     const criado = criadoPedido.get(String(it.orcamento_id));
@@ -151,10 +205,14 @@ export async function painelEstoque(): Promise<PainelEstoque> {
 
   const secundarios = new Map<string, string[]>();
   for (const p of produtos) {
-    if (!p.estoque_compartilhado_com) continue;
-    const lista = secundarios.get(p.estoque_compartilhado_com) ?? [];
-    lista.push(p.nome);
-    secundarios.set(p.estoque_compartilhado_com, lista);
+    if (p.ativo === false) continue;
+    const alvo = p.estoque_compartilhado_com || p.baixa_estoque_em_produto_id;
+    if (!alvo) continue;
+    const lista = secundarios.get(alvo) ?? [];
+    lista.push(p.baixa_estoque_em_produto_id && !p.estoque_compartilhado_com
+      ? `${p.nome} (baixa ${num(p.baixa_estoque_fator) || 1} ${porId.get(alvo)?.unidade ?? ''})`.replace(/ \)$/, ')')
+      : p.nome);
+    secundarios.set(alvo, lista);
   }
 
   const itens: ItemPainelEstoque[] = [];
@@ -163,6 +221,7 @@ export async function painelEstoque(): Promise<PainelEstoque> {
   const hoje = hojeSP();
   for (const p of produtos) {
     if (p.estoque_compartilhado_com) continue;          // secundario: aparece no principal
+    if (p.baixa_estoque_em_produto_id) continue;        // baixa de outro produto (ex.: barra -> metro de ferro)
     if (p.ativo === false) {
       excluidos.push({ produto_id: p.id, nome: p.nome, categoria: p.categoria ?? null, unidade: p.unidade, vendido_90d: 0 });
       continue;
@@ -178,8 +237,8 @@ export async function painelEstoque(): Promise<PainelEstoque> {
     const estoque = arred3(num(p.estoque_atual));
     const precoCusto = num(p.preco_custo);
     const custoUnit = precoCusto / fator;
-    const v30 = arred3((vendido30.get(p.id) ?? 0) * fator);
-    const v90 = arred3((vendido90.get(p.id) ?? 0) * fator);
+    const v30 = arred3((vendido30.get(p.id) ?? 0) * fator + (direto30.get(p.id) ?? 0));
+    const v90 = arred3((vendido90.get(p.id) ?? 0) * fator + (direto90.get(p.id) ?? 0));
     const mediaDia = v30 / 30;
     const minimo = num(p.estoque_minimo);
     itens.push({
@@ -206,7 +265,8 @@ export async function painelEstoque(): Promise<PainelEstoque> {
       sem_venda_90d: v90 <= 0,
       secundarios: (secundarios.get(p.id) ?? []).sort((a, b) => a.localeCompare(b, 'pt-BR')),
       // Sem contagem o saldo nao vale, entao nao ha previsao.
-      reposicao: ultimaContagem.has(p.id) ? calcularReposicao(estoque, minimo, v30, hoje) : null,
+      prazo_entrega_dias: p.prazo_entrega_dias == null ? null : Number(p.prazo_entrega_dias),
+      reposicao: ultimaContagem.has(p.id) ? calcularReposicao(estoque, minimo, v30, hoje, p.prazo_entrega_dias == null ? null : Number(p.prazo_entrega_dias)) : null,
     });
   }
   itens.sort((a, b) => b.valor_estoque - a.valor_estoque || b.vendido_90d - a.vendido_90d || a.nome.localeCompare(b.nome, 'pt-BR'));
@@ -254,6 +314,22 @@ export async function definirAtivo(produtoId: string, ativo: boolean, usuarioId:
     antes: { ativo: !ativo }, depois: { ativo, nome: p.nome }, usuario_id: usuarioId,
   });
   return { produto_id: p.id, ativo };
+}
+
+// ------------------------------------------------------------ prazo de entrega
+
+/** Prazo de entrega do fornecedor (dias corridos). null/0 = entrega rapida. */
+export async function definirPrazoEntrega(produtoId: string, dias: number | null, usuarioId: string | null): Promise<{ produto_id: string; prazo_entrega_dias: number | null }> {
+  const { principal } = await resolverPrincipal(produtoId);
+  const valor = dias === null || !Number.isFinite(dias) || dias <= 0 ? null : Math.min(120, Math.round(dias));
+  const { data: antes } = await supabaseAdmin.from('produtos').select('prazo_entrega_dias').eq('id', principal.id).maybeSingle();
+  const { error } = await supabaseAdmin.from('produtos').update({ prazo_entrega_dias: valor }).eq('id', principal.id);
+  if (error) throw new Error(error.message);
+  await registrarEvento({
+    entidade: 'estoque', entidade_id: principal.id, acao: 'prazo_entrega',
+    antes: { prazo_entrega_dias: antes?.prazo_entrega_dias ?? null }, depois: { prazo_entrega_dias: valor }, usuario_id: usuarioId,
+  });
+  return { produto_id: principal.id, prazo_entrega_dias: valor };
 }
 
 // ------------------------------------------------------------ sob demanda

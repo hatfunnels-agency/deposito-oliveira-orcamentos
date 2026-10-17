@@ -63,6 +63,7 @@ export default function Estoque() {
     patch(produtoId, { ativo: false });
   };
   const restaurar = (produtoId: string) => patch(produtoId, { ativo: true });
+  const salvarPrazo = (produtoId: string, dias: number | null) => patch(produtoId, { prazo_entrega_dias: dias });
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -209,7 +210,7 @@ export default function Estoque() {
               onAlternar={() => setAberto(a => (a === i.produto_id ? null : i.produto_id))}
               onAcao={tipo => setAcao({ item: i, tipo })}
               mudandoTipo={mudandoTipo === i.produto_id} onSobDemanda={() => alternarTipo(i.produto_id, true)}
-              onExcluir={() => excluir(i.produto_id, i.nome)} />
+              onExcluir={() => excluir(i.produto_id, i.nome)} onPrazo={d => salvarPrazo(i.produto_id, d)} />
           ))}
         </div>
       )}
@@ -218,7 +219,7 @@ export default function Estoque() {
         Vendido = pedidos confirmados (fora orçamento e cancelado) dos últimos 30/90 dias, convertidos para a unidade de estoque e somando os produtos que compartilham o estoque.
         Giro 90d ≈ vendido em 90 dias ÷ estoque atual (o estoque médio ainda não existe: só passa a haver histórico de saldo depois da primeira contagem).
         Cobertura = estoque ÷ venda média diária dos últimos 30 dias.
-        Reposição (só produtos já contados): pedir quando o saldo chegar ao mínimo ou a 3 dias de venda, o que for maior; a sugestão cobre 2 semanas de venda (seg a sáb) no ritmo dos últimos 30 dias.
+        Reposição (só produtos já contados): pedir quando o saldo cobrir 2× o prazo de entrega no ritmo atual (ferro: 1 semana de prazo → pedir com 2 semanas de estoque), ou 3 dias de venda se a entrega é rápida; o estoque mínimo cadastrado vale se for maior. A sugestão cobre o que vende até chegar mais 2 semanas (seg a sáb), no ritmo dos últimos 30 dias. Ferro conta a barra (12 m) e a calculadora de ferragem.
       </p>
 
       {acao && (
@@ -231,10 +232,10 @@ export default function Estoque() {
 
 // ---------------------------------------------------------------- cartao
 
-function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda, onExcluir }: {
+function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, mudandoTipo, onSobDemanda, onExcluir, onPrazo }: {
   item: ItemPainelEstoque; aberto: boolean; versaoHistorico: number;
   onAlternar: () => void; onAcao: (t: TipoMovimentoEstoque) => void;
-  mudandoTipo: boolean; onSobDemanda: () => void; onExcluir: () => void;
+  mudandoTipo: boolean; onSobDemanda: () => void; onExcluir: () => void; onPrazo: (dias: number | null) => void;
 }) {
   const cobertura = i.cobertura_dias === null ? (i.zerado ? '—' : 'sem venda') : `${numero(i.cobertura_dias, i.cobertura_dias < 10 ? 1 : 0)} dias`;
   return (
@@ -280,7 +281,28 @@ function CartaoProduto({ item: i, aberto, versaoHistorico, onAlternar, onAcao, m
         <BotaoSecundario onClick={() => onAcao('contagem')}><ClipboardCheck className="w-4 h-4" /> Contagem</BotaoSecundario>
       </div>
 
-      <div className="px-4 pb-3 -mt-1 flex items-center justify-between gap-2">
+      <div className="px-4 pb-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-600">
+        <label className="flex items-center gap-2 min-h-[44px]">
+          Prazo de entrega
+          <input type="number" inputMode="numeric" min={0} max={120} defaultValue={i.prazo_entrega_dias ?? ''} placeholder="rápida"
+            key={`${i.produto_id}-${i.prazo_entrega_dias ?? ''}`} disabled={mudandoTipo}
+            onBlur={e => {
+              const v = e.target.value.trim() === '' ? null : Number(e.target.value);
+              if ((v ?? null) !== (i.prazo_entrega_dias ?? null)) onPrazo(v && v > 0 ? v : null);
+            }}
+            onKeyDown={e => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur(); }}
+            className="w-16 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-right" aria-label={`Prazo de entrega de ${i.nome} em dias`} />
+          dias
+        </label>
+        {i.reposicao && (
+          <span className="text-gray-500">
+            pedir com {qtd(i.reposicao.ponto_pedido, i.unidade)}
+            {i.reposicao.ponto_pedido > i.estoque_minimo && i.reposicao.minimo_sugerido > i.estoque_minimo
+              ? ` (${i.reposicao.cobertura_pedido_dias} dias de venda${i.prazo_entrega_dias ? `: 2× o prazo` : ''})` : ' (mínimo cadastrado)'}
+          </span>
+        )}
+      </div>
+      <div className="px-4 pb-3 flex items-center justify-between gap-2">
         <label className="flex items-center gap-2 text-xs text-gray-600 min-h-[44px] cursor-pointer">
           <input type="checkbox" checked={false} disabled={mudandoTipo} onChange={onSobDemanda} className="w-5 h-5 accent-[#F7941D]" />
           Sob demanda <span className="text-gray-400 hidden sm:inline">(vem do fornecedor quando vende)</span>
@@ -497,7 +519,9 @@ function ComprarEmBreve({ itens, hoje, contados, onVerTodos }: {
                     <p className="font-medium text-gray-800 break-words">{i.nome}</p>
                     <p className="text-[11px] text-gray-500">
                       tem {qtd(i.estoque_atual, i.unidade)} · vende {numero(i.reposicao!.consumo_dia, i.reposicao!.consumo_dia < 10 ? 1 : 0)}/dia · acaba {diaSemanaCurto(i.reposicao!.acaba_em)} {dataCurta(i.reposicao!.acaba_em)}
+                      {i.reposicao!.chega_em && <> · chega {diaSemanaCurto(i.reposicao!.chega_em)} {dataCurta(i.reposicao!.chega_em)} ({i.prazo_entrega_dias} dias)</>}
                     </p>
+                    {i.reposicao!.falta_antes_de_chegar && <p className="text-[11px] font-medium text-red-700">Vai faltar antes do pedido chegar.</p>}
                   </div>
                   <div className="text-right shrink-0">
                     <p className="text-[10px] text-gray-500">sugerido</p>

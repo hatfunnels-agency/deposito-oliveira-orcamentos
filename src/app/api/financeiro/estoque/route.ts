@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { exigirPapel } from '@/lib/auth-admin';
 import type { NovoMovimentoEstoque, TipoMovimentoEstoque } from '@/lib/financeiro/tipos';
-import { definirAtivo, definirTipoEstoque, historicoMovimentos, painelEstoque, registrarMovimento, TIPOS_MOVIMENTO } from '@/lib/financeiro/estoque';
+import { definirAtivo, definirPrazoEntrega, definirTipoEstoque, historicoMovimentos, painelEstoque, registrarMovimento, TIPOS_MOVIMENTO } from '@/lib/financeiro/estoque';
 import { ErroFinanceiro } from '@/lib/financeiro/eventos';
 
 export const dynamic = 'force-dynamic';
@@ -70,9 +70,15 @@ export async function PATCH(request: NextRequest) {
   const { negado, usuario } = await exigirPapel(request, ['admin'], RECURSO);
   if (negado) return negado;
   try {
-    const body = (await request.json().catch(() => null)) as { produto_id?: string; tipo_estoque?: string; ativo?: boolean } | null;
+    const body = (await request.json().catch(() => null)) as { produto_id?: string; tipo_estoque?: string; ativo?: boolean; prazo_entrega_dias?: number | null } | null;
     if (!body?.produto_id) return NextResponse.json({ error: 'Escolha o produto.' }, { status: 400 });
     // { produto_id, ativo: false } = excluir (arquiva); ativo: true = restaurar.
+    // { produto_id, prazo_entrega_dias } = prazo do fornecedor (null = entrega rapida).
+    if ('prazo_entrega_dias' in body) {
+      const d = body.prazo_entrega_dias;
+      if (d !== null && (typeof d !== 'number' || !Number.isFinite(d) || d < 0)) return NextResponse.json({ error: 'Prazo inválido.' }, { status: 400 });
+      return NextResponse.json(await definirPrazoEntrega(String(body.produto_id), d, usuario?.id ?? null));
+    }
     if (typeof body.ativo === 'boolean') {
       return NextResponse.json(await definirAtivo(String(body.produto_id), body.ativo, usuario?.id ?? null));
     }

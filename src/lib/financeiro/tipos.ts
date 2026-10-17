@@ -932,7 +932,8 @@ export interface ItemPainelEstoque {
   abaixo_minimo: boolean;
   zerado: boolean;
   sem_venda_90d: boolean;
-  secundarios: string[];            // nomes que compartilham este estoque
+  secundarios: string[];            // nomes que compartilham este estoque (ou que baixam dele)
+  prazo_entrega_dias: number | null; // dias corridos do pedido a chegada; null = entrega rapida
   // Previsao de reposicao pelo ritmo de venda dos ultimos 30 dias. null =
   // sem base (nunca contado ou sem venda).
   reposicao: ReposicaoEstoque | null;
@@ -940,7 +941,13 @@ export interface ItemPainelEstoque {
 
 export interface ReposicaoEstoque {
   consumo_dia: number;              // unidade de estoque por dia de funcionamento (seg-sab)
-  ponto_pedido: number;             // saldo em que tem que pedir (minimo ou 3 dias de venda)
+  // Pedir quando o saldo cobrir `cobertura_pedido_dias` (dias de funcionamento):
+  // 2 x o prazo de entrega, ou 3 dias se a entrega e rapida.
+  cobertura_pedido_dias: number;
+  ponto_pedido: number;             // saldo em que tem que pedir: max(minimo cadastrado, cobertura x consumo)
+  minimo_sugerido: number;          // cobertura x consumo (o minimo que o prazo pede)
+  chega_em: string | null;          // se pedir na data sugerida
+  falta_antes_de_chegar: boolean;   // pedindo hoje, acaba antes de chegar
   pedir_em: string;                 // 'YYYY-MM-DD' (seg-sab); hoje ou antes = pedir ja
   acaba_em: string;                 // quando zera no ritmo atual
   dias_ate_pedido: number;          // dias de funcionamento; <= 0 = atrasado
