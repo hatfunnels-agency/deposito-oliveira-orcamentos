@@ -4432,115 +4432,63 @@ export default function OrcamentoApp() {  // Auth state
                 const margemAtual = total > 0 ? (total - custoTotal) / total : 0;
                 const totalMinimo = custoTotal > 0 ? custoTotal / (1 - MARGEM_MINIMA) : 0;
                 const descontoMaxReais = Math.max(0, total - totalMinimo);
-                const descontoMaxPct = total > 0 ? (descontoMaxReais / total) * 100 : 0;
                 const totalComDesconto = descontoCustom > 0 ? total * (1 - descontoCustom / 100) : total;
                 const margemComDesconto = totalComDesconto > 0 ? (totalComDesconto - custoTotal) / totalComDesconto : 0;
-                const simulacoes = [5, 10, 15, 20].map(pct => {
-                  const novoTotal = total * (1 - pct / 100);
-                  const novaMargem = novoTotal > 0 ? (novoTotal - custoTotal) / novoTotal : 0;
-                  return { pct, novoTotal, novaMargem, ok: novaMargem >= MARGEM_MINIMA };
-                });
                 const getMargemColor = (m: number) => m >= 0.30 ? 'text-green-600' : m >= 0.20 ? 'text-yellow-600' : 'text-red-600';
-                const getMargemIcon = (m: number, ok?: boolean) => ok !== undefined ? (ok ? '✅' : '❌') : (m >= 0.30 ? '✅' : m >= 0.20 ? '⚠️' : '❌');
 
+                // Duas sugestoes (5% e 10%), travadas no maximo que mantem 20% de
+                // margem, em reais inteiros. A atendente oferece a menor primeiro.
+                const arred = (v: number) => Math.floor(v);
+                const sugestoes = [0.05, 0.10]
+                  .map(f => arred(Math.min(total * f, descontoMaxReais)))
+                  .filter((v, k, arr) => v > 0 && arr.indexOf(v) === k)
+                  .map(v => { const nt = total - v; return { valor: v, pct: (v / total) * 100, margem: nt > 0 ? (nt - custoTotal) / nt : 0 }; });
+                const fmt = (v: number) => v.toLocaleString('pt-BR', { minimumFractionDigits: 2 });
+                const aplicarValor = (v: number) => {
+                  setDescontoModo('valor');
+                  setDescontoValorInput(v);
+                  setDescontoCustom(total > 0 ? Math.min(100, (v / total) * 100) : 0);
+                };
                 return custoTotal > 0 ? (
-                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-4">
-                    <button onClick={() => setMostrarSimulador(!mostrarSimulador)} className="w-full flex items-center justify-between text-sm font-bold text-blue-800 mb-2">
-                      <span>💰 Simulador de Desconto</span>
-                      <span className="text-xs font-normal text-blue-600">Margem atual: <span className={getMargemColor(margemAtual)}>{(margemAtual * 100).toFixed(1)}%</span> | Máx: {descontoMaxPct.toFixed(1)}%</span>
-                    </button>
-                    {mostrarSimulador && (
-                      <div className="space-y-3">
-                        <div className="text-xs text-blue-600">
-                          <span>Custo total: R$ {custoTotal.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
-                          <span className="mx-2">•</span>
-                          <span>Desconto máx (margem ≥ 20%): {descontoMaxPct.toFixed(1)}% = R$ {descontoMaxReais.toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
-                        </div>
-                        <div className="grid grid-cols-4 gap-1">
-                          {simulacoes.map(s => {
-                            const isSelected = descontoCustom === s.pct;
-                            const baseClasses = 'text-center p-2 rounded-lg border text-xs transition-all';
-                            const colorClasses = s.ok
-                              ? (isSelected ? 'border-green-600 bg-green-100 ring-2 ring-green-500 shadow-md' : 'border-green-300 bg-green-50 hover:border-green-500 hover:bg-green-100 cursor-pointer')
-                              : 'border-red-200 bg-red-50 opacity-60 cursor-not-allowed';
-                            return (
-                              <button
-                                type="button"
-                                key={s.pct}
-                                disabled={!s.ok}
-                                onClick={() => {
-                                  if (!s.ok) return;
-                                  const novoPct = isSelected ? 0 : s.pct;
-                                  setDescontoCustom(novoPct);
-                                  setDescontoValorInput(total > 0 ? (total * novoPct) / 100 : 0);
-                                }}
-                                className={`${baseClasses} ${colorClasses}`}
-                                title={s.ok ? (isSelected ? 'Clique para remover este desconto' : `Aplicar ${s.pct}% de desconto`) : 'Margem ficaria abaixo de 20%'}
-                              >
-                                <div className="font-bold">{s.pct}%</div>
-                                <div className="text-gray-600">R$ {s.novoTotal.toLocaleString('pt-BR', {minimumFractionDigits:0})}</div>
-                                <div className={getMargemColor(s.novaMargem)}>{(s.novaMargem * 100).toFixed(1)}%</div>
-                                <div>{getMargemIcon(s.novaMargem, s.ok)}</div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                        <div className="space-y-2">
-                          <div className="flex gap-1">
-                            <button
-                              type="button"
-                              onClick={() => setDescontoModo('pct')}
-                              className={`flex-1 text-xs font-medium py-1.5 rounded ${descontoModo === 'pct' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-300'}`}
-                            >Porcentagem %</button>
-                            <button
-                              type="button"
-                              onClick={() => setDescontoModo('valor')}
-                              className={`flex-1 text-xs font-medium py-1.5 rounded ${descontoModo === 'valor' ? 'bg-blue-600 text-white' : 'bg-white text-blue-700 border border-blue-300'}`}
-                            >Valor R$</button>
-                          </div>
-                          {descontoModo === 'pct' ? (
-                            <div className="flex items-center gap-2">
-                              <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Desconto:</label>
-                              <input type="number" min="0" max={descontoMaxPct.toFixed(1)} step="0.5"
-                                value={descontoCustom || ''}
-                                onChange={e => {
-                                  const pct = parseFloat(e.target.value) || 0;
-                                  setDescontoCustom(pct);
-                                  setDescontoValorInput(total > 0 ? (total * pct) / 100 : 0);
-                                }}
-                                className="w-24 border border-blue-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                placeholder="0"
-                              />
-                              <span className="text-xs text-blue-600">%</span>
-                              <span className="text-xs text-gray-500">= R$ {(total > 0 ? (total * descontoCustom) / 100 : 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-2">
-                              <label className="text-xs text-blue-700 font-medium whitespace-nowrap">Desconto R$:</label>
-                              <input type="number" min="0" max={total} step="1"
-                                value={descontoValorInput || ''}
-                                onChange={e => {
-                                  const v = parseFloat(e.target.value) || 0;
-                                  setDescontoValorInput(v);
-                                  setDescontoCustom(total > 0 ? Math.min(100, (v / total) * 100) : 0);
-                                }}
-                                className="w-28 border border-blue-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                placeholder="0"
-                              />
-                              <span className="text-xs text-gray-500">= {(total > 0 ? (descontoValorInput / total) * 100 : 0).toFixed(1)}%</span>
-                            </div>
-                          )}
-                          {descontoCustom > 0 && (
-                            <p className={`text-xs font-medium ${getMargemColor(margemComDesconto)}`}>
-                              Novo total: R$ {totalComDesconto.toLocaleString('pt-BR', {minimumFractionDigits:2})} | Margem: {(margemComDesconto * 100).toFixed(1)}% {getMargemIcon(margemComDesconto)}
-                            </p>
-                          )}
-                        </div>
-                        {margemComDesconto < MARGEM_MINIMA && descontoCustom > 0 && (
-                          <div className="text-xs text-red-600 font-medium">⚠️ Margem ficaria abaixo de 20%! Reduza o desconto.</div>
-                        )}
+                  <div className="bg-blue-50 border border-blue-200 rounded-xl p-3">
+                    <div className="flex items-center justify-between gap-2 text-sm font-bold text-blue-800">
+                      <span>💰 Desconto</span>
+                      <span className="text-xs font-normal text-blue-600">Margem <b className={getMargemColor(margemAtual)}>{(margemAtual * 100).toFixed(1)}%</b> · máx R$ {fmt(descontoMaxReais)}</span>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2">
+                      <span className="text-sm text-blue-700">R$</span>
+                      <input type="number" min="0" max={total} step="1" inputMode="decimal"
+                        value={descontoValorInput || ''}
+                        onChange={e => aplicarValor(parseFloat(e.target.value) || 0)}
+                        className="w-28 border border-blue-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        placeholder="0" aria-label="Desconto em reais" />
+                      {descontoCustom > 0 ? (
+                        <span className={`text-xs ${getMargemColor(margemComDesconto)}`}>
+                          = {descontoCustom.toFixed(1)}% · fica R$ {fmt(totalComDesconto)} · margem {(margemComDesconto * 100).toFixed(1)}%
+                        </span>
+                      ) : <span className="text-xs text-gray-500">sem desconto</span>}
+                      {descontoCustom > 0 && (
+                        <button type="button" onClick={() => aplicarValor(0)} className="ml-auto text-xs text-blue-700 underline">tirar</button>
+                      )}
+                    </div>
+                    {margemComDesconto < MARGEM_MINIMA && descontoCustom > 0 && (
+                      <p className="mt-1 text-xs text-red-600 font-medium">⚠️ Margem abaixo de 20%. Reduza o desconto.</p>
+                    )}
+                    {sugestoes.length > 0 && (
+                      <div className="mt-2 grid grid-cols-2 gap-1.5">
+                        {sugestoes.map(sg => {
+                          const ativo = Math.abs(descontoValorInput - sg.valor) < 0.5 && descontoCustom > 0;
+                          return (
+                            <button type="button" key={sg.valor} onClick={() => aplicarValor(ativo ? 0 : sg.valor)}
+                              className={`rounded-lg border px-2 py-1.5 text-left text-xs transition ${ativo ? 'border-green-600 bg-green-100 ring-2 ring-green-400' : 'border-green-300 bg-white hover:bg-green-50'}`}>
+                              <span className="block font-bold text-gray-800">− R$ {sg.valor.toLocaleString('pt-BR')}</span>
+                              <span className={getMargemColor(sg.margem)}>margem {(sg.margem * 100).toFixed(1)}%</span>
+                            </button>
+                          );
+                        })}
                       </div>
                     )}
+                    <p className="mt-1.5 text-[11px] text-blue-700">Ofereça o menor primeiro. Máximo mantém 20% de margem.</p>
                   </div>
                 ) : null;
               })()}
