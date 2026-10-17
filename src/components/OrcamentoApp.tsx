@@ -681,6 +681,13 @@ export default function OrcamentoApp() {  // Auth state
   // Venda fechada pela IA (/?lancar=<caso>): o orcamento abre preenchido e,
   // ao salvar, o caso do kanban e marcado como lancado.
   const [casoLancarId, setCasoLancarId] = useState<string | null>(null);
+  // Pedreiro/empreiteiro: o orcamento aplica sozinho o desconto profissional
+  // (configuracoes.desconto_profissional_pct). A atendente pode tirar.
+  const [clienteProfissional, setClienteProfissional] = useState<'pedreiro' | 'empreiteiro' | null>(null);
+  const [descontoProfissionalPct, setDescontoProfissionalPct] = useState(0);
+  const [descontoProfAplicado, setDescontoProfAplicado] = useState(false);
+  const [profissionaisVista, setProfissionaisVista] = useState(false);
+  const [copiouLista, setCopiouLista] = useState(false);
   const [casoLancarAviso, setCasoLancarAviso] = useState<string | null>(null);
   const casoLancarLido = useRef(false);
   const [enderecoIdSelecionado, setEnderecoIdSelecionado] = useState<string | null>(null);
@@ -1119,6 +1126,40 @@ export default function OrcamentoApp() {  // Auth state
     })();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, produtos]);
+
+  useEffect(() => {
+    fetch('/api/configuracoes?chave=desconto_profissional_pct', { cache: 'no-store' })
+      .then(r => r.json()).then(d => setDescontoProfissionalPct(Number(String(d?.valor ?? '0').replace(',', '.')) || 0))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    const id = clienteEncontrado?.id;
+    if (!id) { setClienteProfissional(null); return; }
+    let vivo = true;
+    fetch(`/api/clientes/${id}/tags`, { cache: 'no-store' }).then(r => r.json()).then(d => {
+      if (!vivo) return;
+      const tags = ((d?.tags ?? []) as Array<{ tag: string }>).map(t => t.tag);
+      setClienteProfissional(tags.includes('empreiteiro') ? 'empreiteiro' : tags.includes('pedreiro') ? 'pedreiro' : null);
+    }).catch(() => { if (vivo) setClienteProfissional(null); });
+    return () => { vivo = false; };
+  }, [clienteEncontrado?.id]);
+  useEffect(() => {
+    if (clienteProfissional && !editandoId && descontoProfissionalPct > 0 && descontoCustom === 0 && !descontoProfAplicado) {
+      setDescontoModo('pct');
+      setDescontoCustom(descontoProfissionalPct);
+      setDescontoProfAplicado(true);
+    }
+    if (!clienteProfissional && descontoProfAplicado) {
+      setDescontoCustom(0);
+      setDescontoProfAplicado(false);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clienteProfissional, editandoId, descontoProfissionalPct]);
+
+  const copiarListaProfissionais = async () => {
+    const linhas = clientesLista.map(c => `${c.nome || 'Cliente'} — ${formatarTelefoneBR(c.telefone)}`);
+    try { await navigator.clipboard.writeText(linhas.join('\n')); setCopiouLista(true); setTimeout(() => setCopiouLista(false), 2000); } catch { /* sem clipboard */ }
+  };
 
   const adicionarItem = (produto: Produto) => {
     setItens(prev => {
@@ -3839,6 +3880,15 @@ export default function OrcamentoApp() {  // Auth state
                         <div className="min-w-0">
                           <p className="font-bold text-gray-900">{clienteEncontrado?.nome || nomeCliente}</p>
                           {clienteEncontrado?.id && <div className="mt-1"><TipoProfissional clienteId={clienteEncontrado.id} /></div>}
+                          {clienteProfissional && descontoProfissionalPct > 0 && (
+                            <p className="mt-1 text-xs text-amber-900">
+                              👷 {clienteProfissional === 'empreiteiro' ? 'Empreiteiro' : 'Pedreiro'} · desconto profissional de {descontoProfissionalPct}%
+                              {descontoProfAplicado && descontoCustom > 0 ? ' aplicado' : ' (tirado)'}
+                              {descontoProfAplicado && descontoCustom > 0 && (
+                                <button type="button" onClick={() => { setDescontoCustom(0); setDescontoProfAplicado(false); }} className="ml-2 underline text-amber-700">tirar</button>
+                              )}
+                            </p>
+                          )}
                           {clienteEncontrado?.id && <ContatosCliente clienteId={clienteEncontrado.id} compacto />}
                           <p className="text-sm text-gray-700">{formatarTelefoneBR(clienteEncontrado?.telefone || whatsappCliente)}</p>
                           {clienteEncontrado?.id && (
@@ -5457,6 +5507,43 @@ export default function OrcamentoApp() {  // Auth state
                 <option value="ticket">Maior ticket médio</option>
                 <option value="nome">Ordem alfabética</option>
               </select>
+            </div>
+            {/* Pedreiros e empreiteiros: relacionamento proximo (brinde, desconto,
+                mensagens). Vista rapida = filtro pelas duas tags + lista copiavel. */}
+            <div className="mb-3 flex flex-wrap items-center gap-2">
+              <button type="button"
+                onClick={() => {
+                  const ativar = !profissionaisVista;
+                  setProfissionaisVista(ativar);
+                  setClientesTagsFiltro(ativar ? new Set(['pedreiro', 'empreiteiro']) : new Set());
+                  setClientesPagina(1);
+                }}
+                className={`rounded-lg border px-3 py-1.5 text-sm font-semibold transition ${profissionaisVista ? 'border-amber-400 bg-amber-100 text-amber-900' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'}`}>
+                👷 Pedreiros e empreiteiros{profissionaisVista ? ` (${clientesTotal})` : ''}
+              </button>
+              {profissionaisVista && (
+                <>
+                  <button type="button" onClick={copiarListaProfissionais}
+                    className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50">
+                    {copiouLista ? '✓ Copiado' : '📋 Copiar nomes e telefones'}
+                  </button>
+                  {papelUsuario === 'admin' && (
+                    <label className="flex items-center gap-1.5 text-sm text-gray-700">
+                      Desconto profissional
+                      <input type="number" inputMode="decimal" min={0} max={30} step={0.5} defaultValue={descontoProfissionalPct}
+                        onBlur={async e => {
+                          const v = Number(e.target.value.replace(',', '.'));
+                          if (!Number.isFinite(v) || v === descontoProfissionalPct) return;
+                          const r = await fetch('/api/configuracoes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chave: 'desconto_profissional_pct', valor: v }) });
+                          if (r.ok) setDescontoProfissionalPct(v); else alert('Valor inválido (0 a 30%).');
+                        }}
+                        className="w-16 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right" />
+                      <span className="text-gray-500">% no orçamento</span>
+                    </label>
+                  )}
+                  <span className="text-xs text-gray-500">Marque o tipo no cadastro do cliente, no orçamento ou no pedido (ao lado do nome).</span>
+                </>
+              )}
             </div>
             {/* Feature 2: chips de tags + min/max valor */}
             <div className="mb-2 flex flex-wrap items-center gap-1.5">

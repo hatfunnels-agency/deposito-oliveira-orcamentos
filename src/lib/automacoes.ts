@@ -541,6 +541,11 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
   if (errAndamento) throw new Error(`reativacao: ${errAndamento.message}`);
   const temPedidoEmAndamento = new Set((andamento || []).map((r: any) => String(r.cliente_id)));
 
+  // Pedreiro/empreiteiro: relacionamento proximo — toque semanal ate 60 dias
+  // sem compra (os demais so ate 30).
+  const { data: profRows } = await supabaseAdmin.from('cliente_tags').select('cliente_id').in('tag', ['pedreiro', 'empreiteiro']);
+  const profissionais = new Set((profRows || []).map((r: any) => String(r.cliente_id)));
+
   // Dia da ultima compra (AAAA-MM-DD, Brasilia) — ver comentario do topo.
   const ultimaCompra = new Map<string, { dia: string; cli: any }>();
   const temOrcamentoAberto = new Set<string>();
@@ -591,7 +596,8 @@ export async function candidatosReativacao(limite = 120): Promise<Candidato[]> {
     const diasSemComprar = diasEntre(dia, hojeDia);
     if (diasSemComprar < REATIVACAO_MIN_DIAS) continue;
 
-    const cadenciaDias = isObraAtivaActive(`${dia}T12:00:00-03:00`) ? 7 : diasSemComprar <= 60 ? 15 : 30;
+    const cadenciaDias = isObraAtivaActive(`${dia}T12:00:00-03:00`) || (profissionais.has(clienteId) && diasSemComprar <= 60) ? 7
+      : diasSemComprar <= 60 ? 15 : 30;
     const momento = cadenciaDias === 7 ? 'semanal' : cadenciaDias === 15 ? 'quinzenal' : 'mensal';
 
     const anterior = ultimoEnvio.get(clienteId);
