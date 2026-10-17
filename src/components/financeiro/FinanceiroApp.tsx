@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
-  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera,
+  Gauge, CalendarDays, Receipt, Repeat, ArrowLeftRight, CreditCard, Scale, Calculator, Users, FileText, IdCard, BarChart3, Package, Camera, BookOpen,
   Menu, LogOut, ArrowLeft, X, type LucideIcon,
 } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
@@ -24,6 +24,7 @@ import ClientesAReceber from './ClientesAReceber';
 import DashboardTab from '@/components/DashboardTab';
 import FuncionariosTab from '@/components/FuncionariosTab';
 import Estoque from './Estoque';
+import BaseConhecimento from './BaseConhecimento';
 import LancarPorFoto from './LancarPorFoto';
 
 // Casca da /financeiro: sessao, papel, menu lateral e a secao ativa em
@@ -32,7 +33,7 @@ import LancarPorFoto from './LancarPorFoto';
 
 export type Secao =
   | 'panorama' | 'dia' | 'pagar' | 'despesas' | 'conciliacao' | 'maquininha'
-  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque';
+  | 'fechamento' | 'simulador' | 'receber' | 'extratos' | 'funcionarios' | 'vendas' | 'estoque' | 'conhecimento';
 
 const SECOES: Array<{ key: Secao; rotulo: string; icone: LucideIcon; titulo: string }> = [
   { key: 'panorama', rotulo: 'Panorama', icone: Gauge, titulo: 'Panorama' },
@@ -46,6 +47,7 @@ const SECOES: Array<{ key: Secao; rotulo: string; icone: LucideIcon; titulo: str
   { key: 'simulador', rotulo: 'Simulador', icone: Calculator, titulo: 'Simulador de cenários' },
   { key: 'vendas', rotulo: 'Vendas', icone: BarChart3, titulo: 'Vendas (dashboard)' },
   { key: 'funcionarios', rotulo: 'Funcionários', icone: IdCard, titulo: 'Funcionários' },
+  { key: 'conhecimento', rotulo: 'Base de conhecimento', icone: BookOpen, titulo: 'Base de conhecimento' },
   { key: 'receber', rotulo: 'Clientes a receber', icone: Users, titulo: 'Clientes a receber' },
   { key: 'extratos', rotulo: 'Extratos', icone: FileText, titulo: 'Extratos' },
 ];
@@ -152,6 +154,7 @@ export default function FinanceiroApp() {
     case 'estoque': conteudo = <Estoque />; break;
     case 'vendas': conteudo = <DashboardTab />; break;
     case 'funcionarios': conteudo = <FuncionariosTab />; break;
+    case 'conhecimento': conteudo = <BaseConhecimento />; break;
     case 'extratos': conteudo = <ExtratosTab vistas={['importar', 'revisar']} />; break;
     case 'receber':
     default:

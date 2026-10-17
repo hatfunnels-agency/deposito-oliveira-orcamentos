@@ -14,6 +14,7 @@ import Sidebar, { type AbaKey } from './Sidebar';
 import EditarClienteEndereco from './EditarClienteEndereco';
 import TipoProfissional from './TipoProfissional';
 import ContatosCliente from './ContatosCliente';
+import AssistenteTecnico from './AssistenteTecnico';
 import { Menu, LogOut } from 'lucide-react';
 import { TAGS_VALIDAS } from '@/lib/tags';
 
@@ -6588,6 +6589,9 @@ export default function OrcamentoApp() {  // Auth state
       )}
 
       {/* Modal Perfil do Cliente */}
+      {/* Duvidas de produto/obra/sistema: atendente e admin (motorista nao). */}
+      {papelUsuario !== 'motorista' && <AssistenteTecnico />}
+
       {clienteProfileId && (
         <ClienteProfile
           clienteId={clienteProfileId}
