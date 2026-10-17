@@ -12,7 +12,7 @@ import { hojeBRT, mesBRT, parseMoeda, rotuloMes, somarDiasISO, somarMeses } from
 // Pecas compartilhadas da tela /financeiro. Mobile first: a atendente e o
 // Roger usam no celular, entao botao de acao tem >= 44px e fica a direita.
 
-export const INPUT = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#F7941D] disabled:bg-gray-50 disabled:text-gray-500';
+export const INPUT = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#F7941D] disabled:bg-gray-50 disabled:text-gray-500';
 export const LABEL = 'block text-xs font-medium text-gray-600 mb-1';
 
 // ---------------------------------------------------------------- contexto

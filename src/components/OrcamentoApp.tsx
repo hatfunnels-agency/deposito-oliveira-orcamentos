@@ -689,7 +689,6 @@ export default function OrcamentoApp() {  // Auth state
   // Aviso "saiu para entrega" pelo sistema (GHL), sem abrir o WhatsApp.
   const [avisando, setAvisando] = useState<Set<string>>(new Set());
   const [avisados, setAvisados] = useState<Set<string>>(new Set());
-  const [avisoResultados, setAvisoResultados] = useState<Array<{ id: string; codigo: string; ok: boolean; via: string | null; motivo: string | null; link: string | null }> | null>(null);
   // Pedreiro/empreiteiro: o orcamento aplica sozinho o desconto profissional
   // (configuracoes.desconto_profissional_pct). A atendente pode tirar.
   const [clienteProfissional, setClienteProfissional] = useState<'pedreiro' | 'empreiteiro' | null>(null);
@@ -2101,9 +2100,8 @@ export default function OrcamentoApp() {  // Auth state
       if (!res.ok || !data?.resultados) throw new Error(data?.error || 'Erro ao avisar');
       const rs = data.resultados as Array<{ id: string; codigo: string; ok: boolean; via: string | null; motivo: string | null; link: string | null }>;
       setAvisados(prev => new Set([...prev, ...rs.filter(r => r.ok).map(r => r.id)]));
-      setAvisoResultados(rs);
-      // Um pedido so e falhou: abre o WhatsApp direto com o texto.
-      if (rs.length === 1 && !rs[0].ok && rs[0].link) window.open(rs[0].link, '_blank');
+      // Falhou (fora do GHL, conversa fechada e sem template): abre o WhatsApp com o texto.
+      for (const r of rs) if (!r.ok && r.link) window.open(r.link, '_blank');
     } catch (err) {
       console.error('Erro ao avisar pelo sistema', err);
       // Sem servidor: cai no WhatsApp com o texto pronto.
@@ -5226,29 +5224,6 @@ export default function OrcamentoApp() {  // Auth state
               {rotaGerada && (
                 <div className="border border-green-200 bg-green-50 rounded-lg p-4 mb-2">
                   <p className="text-sm font-bold text-green-800 mb-3">✅ Rota gerada!</p>
-                  {(() => {
-                    const daRota = (rotaGerada.rota_otimizada || rotaGerada.entregas || []) as EntregaRota[];
-                    const pendentesAviso = daRota.filter(e => telefoneWhatsApp(e.cliente_telefone) && !avisados.has(e.id));
-                    return (
-                      <div className="mb-3">
-                        <button type="button" onClick={() => avisarPeloSistema(pendentesAviso)} disabled={pendentesAviso.length === 0 || avisando.size > 0}
-                          className="w-full bg-[#25D366] text-white px-4 py-3 rounded-lg text-sm font-bold hover:bg-[#1EBE57] disabled:opacity-50 min-h-[48px]">
-                          {avisando.size > 0 ? 'Avisando…' : pendentesAviso.length === 0 ? '✓ Todos avisados' : `📲 Avisar ${pendentesAviso.length} cliente${pendentesAviso.length > 1 ? 's' : ''} que saiu para entrega`}
-                        </button>
-                        <p className="text-[11px] text-gray-500 mt-1">Sai pelo sistema, sem abrir o WhatsApp. Quem não der, aparece com um link pra mandar à mão.</p>
-                        {avisoResultados && (
-                          <ul className="mt-2 space-y-1 text-xs">
-                            {avisoResultados.map(r => (
-                              <li key={r.id} className={r.ok ? 'text-green-800' : 'text-red-700'}>
-                                {r.ok ? '✓' : '✗'} {r.codigo || r.id.slice(0, 8)}{r.ok ? (r.via === 'template' ? ' · avisado (template)' : ' · avisado') : ` · ${r.motivo}`}
-                                {!r.ok && r.link && <> <a href={r.link} target="_blank" rel="noopener noreferrer" className="underline font-semibold">mandar à mão</a></>}
-                              </li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-                    );
-                  })()}
                   <div className="flex gap-3 mb-3 flex-wrap">
                     {(rotaGerada.distancia_total_km ?? 0) > 0 && (
                       <div className="bg-white border border-green-200 rounded-lg px-3 py-2 text-center">

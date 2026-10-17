@@ -143,7 +143,8 @@ export default function FinanceiroApp() {
     return <div className="min-h-screen bg-gray-50"><Carregando texto="Abrindo a gestão financeira…" /></div>;
   }
 
-  const secoesVisiveis = usuario.papel === 'admin' ? SECOES : SECOES.filter(s => s.key === 'receber');
+  // 'rapido' e a tela do gerente no celular: no computador nem aparece no menu.
+  const secoesVisiveis = usuario.papel === 'admin' ? SECOES.filter(s => s.key !== 'rapido' || celular) : SECOES.filter(s => s.key === 'receber');
   const atual = SECOES.find(s => s.key === secao) ?? SECOES[0];
 
   let conteudo: ReactNode;

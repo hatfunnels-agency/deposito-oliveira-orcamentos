@@ -384,7 +384,7 @@ export default function FuncionariosTab() {
     return { txt: `${diaSemana(f.proximo.pagamento)} ${dataCurta(f.proximo.pagamento)} · em ${d} dias`, cor: 'text-gray-600' };
   };
 
-  const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]';
+  const input = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white text-gray-900 focus:outline-none focus:ring-2 focus:ring-[#F7941D]';
   const label = 'block text-xs font-medium text-gray-600 mb-1';
 
   return (
