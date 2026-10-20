@@ -1,5 +1,10 @@
 'use client';
 import { useState } from 'react';
+import {
+  type Espacamento, type Medida, type Barras,
+  ESPACAMENTO_M, ESPACAMENTO_ACRESCIMO, precoBaseTier, precoFerragemPorMetro,
+  descontoVolume, proximoDegrau,
+} from '@/lib/ferragem-preco';
 
 export interface DetalheFerro {
   tipo_ferro: string;
@@ -18,35 +23,13 @@ interface ItemAvulso {
 interface Props {
   onAdicionarItens: (itens: ItemAvulso[]) => void;
   onClose: () => void;
+  // Metros de ferragem que ja estao no pedido em construcao. O degrau por
+  // volume olha o pedido inteiro (ja adicionado + esta linha).
+  metrosJaNoPedido?: number;
 }
 
-// Espacamento do estribo: opcoes em cm. 25cm e o padrao. Quanto mais
-// fechado, mais estribos por metro -> mais aco e mais mao de obra, por
-// isso ha acrescimo no preco ao cliente.
-type Espacamento = '10' | '15' | '20' | '25';
-const ESPACAMENTO_M: Record<Espacamento, number> = {
-  '10': 0.10, '15': 0.15, '20': 0.20, '25': 0.25,
-};
-// Acrescimo no preco/metro (R$) por estribo mais fechado que o padrao de 25cm.
-// Valor fixo pequeno por faixa — so pra nao vender abaixo do custo do aco extra.
-const ESPACAMENTO_ACRESCIMO: Record<Espacamento, number> = {
-  '25': 0, '20': 1, '15': 2, '10': 4,
-};
-
-// Tabela de precos base (espacamento padrao 25cm; acrescimo do estribo
-// somado por cima). Nao acumulativo entre medida/barras:
-// 4 barras: 9x15=R$23/m | 9x20=R$23/m | especial=R$28/m
-// 6 barras: R$38/m (independente de medida)
-// 8 barras: R$45/m (independente de medida)
-function precoBaseTier(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8): number {
-  if (barras === 6) return 38;
-  if (barras === 8) return 45;
-  // 4 barras: depende da medida
-  return medida === 'especial' ? 28 : 23;
-}
-function calcPreco(medida: '9x15' | '9x20' | 'especial', barras: 4 | 6 | 8, espacamento: Espacamento): number {
-  return precoBaseTier(medida, barras) + ESPACAMENTO_ACRESCIMO[espacamento];
-}
+// Tabela de preco, espacamento e degrau por volume: src/lib/ferragem-preco.ts
+// (compartilhado com o OrcamentoApp, que reprecifica as linhas ja no pedido).
 
 // Constantes de custo do fornecedor (CMV). Nota: `estribo_4mm_por_metro`
 // e nome legado da constante; o estribo real e ferro 4,2mm (convencao do
@@ -78,9 +61,9 @@ const TIPO_LABELS: Record<TipoElemento, string> = {
   outro: 'Outro',
 };
 
-export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Props) {
-  const [medida, setMedida] = useState<'9x15' | '9x20' | 'especial'>('9x15');
-  const [barras, setBarras] = useState<4 | 6 | 8>(4);
+export default function CalculadoraFerroModal({ onAdicionarItens, onClose, metrosJaNoPedido = 0 }: Props) {
+  const [medida, setMedida] = useState<Medida>('9x15');
+  const [barras, setBarras] = useState<Barras>(4);
   const [tipo, setTipo] = useState<TipoElemento>('coluna');
   const [medidaEspecial, setMedidaEspecial] = useState('');
   const [quantidade, setQuantidade] = useState<number>(1);
@@ -89,9 +72,13 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
   const [obs, setObs] = useState('');
 
   const espacamentoM = ESPACAMENTO_M[espacamento];
-  const precoPorMetro = calcPreco(medida, barras, espacamento);
-  const custoPorMetro = calcularCustoPorMetro(barras, medida, espacamentoM);
   const metrosTotal = quantidade * metrosPorPeca;
+  const metrosNoPedido = metrosJaNoPedido + metrosTotal;
+  const desconto = descontoVolume(metrosNoPedido);
+  const proximo = proximoDegrau(metrosNoPedido);
+  const precoPorMetro = precoFerragemPorMetro(medida, barras, espacamento, metrosNoPedido);
+  const precoSemDegrau = precoBaseTier(medida, barras) + ESPACAMENTO_ACRESCIMO[espacamento];
+  const custoPorMetro = calcularCustoPorMetro(barras, medida, espacamentoM);
   const totalValor = metrosTotal * precoPorMetro;
   const totalCusto = metrosTotal * custoPorMetro;
   const margemPct = precoPorMetro > 0 ? ((precoPorMetro - custoPorMetro) / precoPorMetro) * 100 : 0;
@@ -240,6 +227,16 @@ export default function CalculadoraFerroModal({ onAdicionarItens, onClose }: Pro
                 <span>Custo por metro (CMV)</span>
                 <span className="font-semibold">R$ {custoPorMetro.toFixed(2).replace('.', ',')} <span className="text-xs text-green-600">({margemPct.toFixed(1)}% margem)</span></span>
               </div>
+              {desconto > 0 ? (
+                <div className="flex justify-between items-center text-sm text-green-700 mb-1">
+                  <span>Degrau por volume ({metrosNoPedido}m no pedido)</span>
+                  <span className="font-semibold">−R${desconto}/m <span className="text-xs text-gray-400 line-through">R${precoSemDegrau}</span></span>
+                </div>
+              ) : proximo ? (
+                <div className="text-xs text-gray-500 mb-1">
+                  A partir de {proximo.minMetros}m no pedido: −R${proximo.descontoPorMetro}/m (faltam {Math.max(0, Math.ceil((proximo.minMetros - metrosNoPedido) * 10) / 10)}m)
+                </div>
+              ) : null}
               <div className="flex justify-between items-center text-sm text-gray-600 mb-1">
                 <span>Metragem total</span>
                 <span className="font-semibold">
