@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
+import { parseNomeFerragem, precoFerragemPorMetro } from '@/lib/ferragem-preco';
 import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
 import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
 import FinanceiroTab from './FinanceiroTab';
@@ -1549,6 +1550,28 @@ export default function OrcamentoApp() {  // Auth state
     const ehFerragem = Boolean((it as { detalhamento_ferro?: unknown[] }).detalhamento_ferro);
     return s + (ehFerragem ? (Number(it.quantidade) || 0) : 0);
   }, 0);
+
+  // Degrau por volume (src/lib/ferragem-preco.ts): quando o total de metros
+  // de ferragem do pedido cruza 40m/100m, TODAS as linhas da calculadora
+  // adicionadas nesta sessao ('ferro-...') passam pro preco do degrau — e
+  // voltam se uma linha for removida. Linhas carregadas de pedido existente
+  // ('avulso-...') nao sao mexidas: editar endereco nao pode mudar preco
+  // de venda ja fechada.
+  useEffect(() => {
+    setItens(prev => {
+      let mudou = false;
+      const novo = prev.map(it => {
+        if (!it.detalhamento_ferro || !it.produto.id.startsWith('ferro-')) return it;
+        const spec = parseNomeFerragem(it.produto.nome);
+        if (!spec) return it;
+        const preco = precoFerragemPorMetro(spec.medida, spec.barras, spec.espacamento, metrosFerragemCarrinho);
+        if (it.preco_custom === preco) return it;
+        mudou = true;
+        return { ...it, preco_custom: preco, produto: { ...it.produto, preco } };
+      });
+      return mudou ? novo : prev;
+    });
+  }, [metrosFerragemCarrinho]);
 
   // Projeta quando a ferragem deste pedido ficaria pronta, se entrasse na
   // fila agora. Recalcula quando muda o total de metros no carrinho.
@@ -6803,6 +6826,7 @@ export default function OrcamentoApp() {  // Auth state
         <CalculadoraFerroModal
           onAdicionarItens={adicionarItensAvulsos}
           onClose={() => setShowCalculadoraFerro(false)}
+          metrosJaNoPedido={metrosFerragemCarrinho}
         />
       )}
       {showCalculadoraMadeira && (
