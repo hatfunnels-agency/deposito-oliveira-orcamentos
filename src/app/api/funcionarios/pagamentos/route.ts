@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id?, ate_periodo_fim?, descontar_vales? }
+ * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id?, ate_periodo_fim?, descontar_vales?, valor_pago? }
  *
  * Paga o PROXIMO periodo em aberto. O calculo e refeito aqui (nao confia
  * no numero da tela) e desconta todos os vales em aberto ate pago_em.
@@ -127,7 +127,11 @@ export async function POST(request: NextRequest) {
       .lte('data', pagoEm)
       .order('data')
       .order('criado_em');
-    const valesAbertos = Math.round((vales || []).reduce((a, v) => a + Number(v.valor), 0) * 100) / 100;
+    // Vale negativo = saldo a receber (pagou a menos antes): entra sempre, inteiro.
+    const valesPositivos = (vales || []).filter(v => Number(v.valor) > 0);
+    const creditos = (vales || []).filter(v => Number(v.valor) < 0);
+    const totalCreditos = Math.round(creditos.reduce((a, v) => a + Number(v.valor), 0) * 100) / 100;
+    const valesAbertos = Math.round(valesPositivos.reduce((a, v) => a + Number(v.valor), 0) * 100) / 100;
     // Desconto parcial (29/10): quem esta com vale maior que o salario do
     // periodo desconta so uma parte agora; o resto continua em aberto e cai
     // na proxima quinzena. O vale que fica no meio e dividido em dois
@@ -137,7 +141,16 @@ export async function POST(request: NextRequest) {
     if (descontarPedido !== null && (!Number.isFinite(descontarPedido) || descontarPedido < 0 || descontarPedido > valesAbertos + 0.005)) {
       return NextResponse.json({ error: `Desconto de vales inválido: informe entre 0 e ${valesAbertos.toFixed(2)}.` }, { status: 400 });
     }
-    const totalVales = descontarPedido === null ? valesAbertos : Math.min(descontarPedido, valesAbertos);
+    const descontarPositivos = descontarPedido === null ? valesAbertos : Math.min(descontarPedido, valesAbertos);
+    const totalVales = Math.round((descontarPositivos + totalCreditos) * 100) / 100;
+    // Valor pago (29/10): o que saiu de fato. Diferente do liquido calculado,
+    // a diferenca vira vale (pagou a mais = adiantamento) ou saldo a receber
+    // (pagou a menos = vale negativo), pra proxima quinzena fechar sozinha.
+    const liquidoCalculado = Math.round((bruto.valor - totalVales + ajuste) * 100) / 100;
+    const valorPago = body.valor_pago === undefined || body.valor_pago === null || body.valor_pago === ''
+      ? liquidoCalculado : Math.round(Number(body.valor_pago) * 100) / 100;
+    if (!Number.isFinite(valorPago) || valorPago < 0) return NextResponse.json({ error: 'Valor pago inválido.' }, { status: 400 });
+    const diferenca = Math.round((valorPago - liquidoCalculado) * 100) / 100;
 
     const { data: pag, error: eP } = await supabaseAdmin
       .from('funcionario_pagamentos')
@@ -150,8 +163,11 @@ export async function POST(request: NextRequest) {
         valor_bruto: bruto.valor,
         total_vales: totalVales,
         ajuste,
-        valor_liquido: Math.round((bruto.valor - totalVales + ajuste) * 100) / 100,
-        observacoes: [String(body.observacoes ?? '').trim(), obsPeriodos].filter(Boolean).join(' · ') || null,
+        valor_liquido: valorPago,
+        observacoes: [
+          String(body.observacoes ?? '').trim(), obsPeriodos,
+          diferenca > 0.005 ? `pago ${diferenca.toFixed(2)} a mais (virou adiantamento)` : diferenca < -0.005 ? `pago ${(-diferenca).toFixed(2)} a menos (ficou como saldo a receber)` : '',
+        ].filter(Boolean).join(' · ') || null,
         metodo: saida.metodo,
         conta_id: saida.conta_id,
       })
@@ -163,10 +179,15 @@ export async function POST(request: NextRequest) {
       throw eP;
     }
 
-    if (vales?.length && totalVales > 0.005) {
+    if (vales?.length) {
       try {
+        if (creditos.length) {
+          const { error } = await supabaseAdmin.from('funcionario_vales').update({ pagamento_id: pag.id }).in('id', creditos.map(v => v.id));
+          if (error) throw error;
+        }
         let acumulado = 0;
-        for (const v of vales) {
+        const totalVales = descontarPositivos;
+        for (const v of valesPositivos) {
           const valor = Number(v.valor);
           const falta = Math.round((totalVales - acumulado) * 100) / 100;
           if (falta <= 0.005) break;
@@ -196,6 +217,17 @@ export async function POST(request: NextRequest) {
         await supabaseAdmin.from('funcionario_pagamentos').delete().eq('id', pag.id);
         throw eV;
       }
+    }
+
+    if (Math.abs(diferenca) > 0.005) {
+      const periodoTxt = `${dataBR(periodo.inicio)} a ${dataBR(periodo.fim)}`;
+      const { error: eD } = await supabaseAdmin.from('funcionario_vales').insert({
+        funcionario_id: f.id, data: pagoEm, valor: diferenca,
+        descricao: diferenca > 0
+          ? `Adiantamento: pago a mais no salário de ${periodoTxt}`
+          : `Saldo a receber: pago a menos no salário de ${periodoTxt}`,
+      });
+      if (eD) console.error('[funcionarios/pagamentos] falha ao gravar a diferenca do valor pago:', eD);
     }
 
     // Lancamento e espelho do pagamento: se falhar, o pagamento fica (o
@@ -253,6 +285,14 @@ export async function DELETE(request: NextRequest) {
       .eq('funcionario_pagamento_id', id)
       .eq('origem_lancamento', 'folha');
     if (eL) throw eL;
+    // A diferenca do "valor pago" (adiantamento ou saldo a receber) nasceu
+    // deste pagamento: some junto, senao contaria duas vezes.
+    const { data: pagCompleto } = await supabaseAdmin.from('funcionario_pagamentos').select('pago_em').eq('id', id).single();
+    if (pagCompleto?.pago_em) {
+      await supabaseAdmin.from('funcionario_vales').delete()
+        .eq('funcionario_id', pag.funcionario_id).is('pagamento_id', null).eq('data', pagCompleto.pago_em)
+        .or('descricao.like.Adiantamento: pago a mais no salário de%,descricao.like.Saldo a receber: pago a menos no salário de%');
+    }
     const { error } = await supabaseAdmin.from('funcionario_pagamentos').delete().eq('id', id);
     if (error) throw error;
     return NextResponse.json({ ok: true });

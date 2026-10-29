@@ -155,7 +155,7 @@ export default function FuncionariosTab() {
   // registro so (acerto de atrasados, ex.: mes inteiro na virada pra quinzenal).
   // descontar: quanto dos vales abertos desconta agora ('' = automatico: tudo,
   // ou so ate zerar o liquido). O resto fica em aberto pra proxima quinzena.
-  const [modalPagar, setModalPagar] = useState<{ f: Funcionario; ajuste: string; pago_em: string; observacoes: string; juntar_vencidos: boolean; descontar: string } | null>(null);
+  const [modalPagar, setModalPagar] = useState<{ f: Funcionario; ajuste: string; pago_em: string; observacoes: string; juntar_vencidos: boolean; descontar: string; valor_pago: string } | null>(null);
   const [modalFunc, setModalFunc] = useState<{ id: string | null; form: typeof FORM_VAZIO } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -234,7 +234,9 @@ export default function FuncionariosTab() {
     const f = modalPagar.f;
     const ajuste = Number(modalPagar.ajuste.replace(',', '.')) || 0;
     // Vale com data depois do dia do pagamento fica pro proximo.
-    const valesConsiderados = f.vales_abertos.filter(v => v.data <= modalPagar.pago_em);
+    const valesConsiderados = f.vales_abertos.filter(v => v.data <= modalPagar.pago_em && v.valor > 0);
+    // Saldo a receber (vale negativo, pagou a menos antes) entra sempre, inteiro.
+    const saldoAnterior = Math.round(f.vales_abertos.filter(v => v.data <= modalPagar.pago_em && v.valor < 0).reduce((a, v) => a + v.valor, 0) * 100) / 100;
     const vales = Math.round(valesConsiderados.reduce((a, v) => a + v.valor, 0) * 100) / 100;
     // Periodos seguintes ja vencidos na data do pagamento: podem ir juntos.
     const vencidos = periodosSeguintesVencidos(f, f.proximo, modalPagar.pago_em);
@@ -243,12 +245,15 @@ export default function FuncionariosTab() {
     const bruto = Math.round((f.proximo.bruto + (juntar ? brutoVencidos : 0)) * 100) / 100;
     const fimPeriodo = juntar ? vencidos[vencidos.length - 1].fim : f.proximo.fim;
     // Automatico: desconta tudo; se os vales passam do salario, so ate zerar.
-    const descontarAuto = Math.min(vales, Math.max(0, Math.round((bruto + ajuste) * 100) / 100));
+    const descontarAuto = Math.min(vales, Math.max(0, Math.round((bruto - saldoAnterior + ajuste) * 100) / 100));
     const digitado = modalPagar.descontar === '' ? NaN : Number(modalPagar.descontar.replace(',', '.'));
     const descontar = Number.isFinite(digitado) ? Math.min(vales, Math.max(0, Math.round(digitado * 100) / 100)) : descontarAuto;
     const ficaAberto = Math.round((vales - descontar) * 100) / 100;
-    const liquido = Math.round((bruto - descontar + ajuste) * 100) / 100;
-    return { f, ajuste, valesConsiderados, vales, vencidos, juntar, brutoVencidos, bruto, fimPeriodo, descontar, ficaAberto, liquido };
+    const liquido = Math.round((bruto - descontar - saldoAnterior + ajuste) * 100) / 100;
+    const pagoDigitado = modalPagar.valor_pago === '' ? NaN : Number(modalPagar.valor_pago.replace(',', '.'));
+    const valorPago = Number.isFinite(pagoDigitado) && pagoDigitado >= 0 ? Math.round(pagoDigitado * 100) / 100 : liquido;
+    const diferenca = Math.round((valorPago - liquido) * 100) / 100;
+    return { f, ajuste, valesConsiderados, saldoAnterior, vales, vencidos, juntar, brutoVencidos, bruto, fimPeriodo, descontar, ficaAberto, liquido, valorPago, diferenca };
   })();
 
   const confirmarPagamento = async () => {
@@ -264,7 +269,7 @@ export default function FuncionariosTab() {
           ajuste: Number(modalPagar.ajuste.replace(',', '.')) || 0,
           observacoes: modalPagar.observacoes,
           ...(seguintes.length ? { ate_periodo_fim: seguintes[seguintes.length - 1].fim } : {}),
-          ...(calculoPagar ? { descontar_vales: calculoPagar.descontar } : {}),
+          ...(calculoPagar ? { descontar_vales: calculoPagar.descontar, valor_pago: calculoPagar.valorPago } : {}),
         }),
       });
       setModalPagar(null);
@@ -520,12 +525,12 @@ export default function FuncionariosTab() {
                     <button
                       onClick={() => setExpandido(aberto ? null : f.id)}
                       className="text-orange-600 hover:underline"
-                    >− Vales ({f.vales_abertos.length}) {brl(f.proximo.total_vales)}</button>
+                    >{f.proximo.total_vales < 0 ? `+ Saldo a receber ${brl(-f.proximo.total_vales)}` : `− Vales (${f.vales_abertos.length}) ${brl(f.proximo.total_vales)}`}</button>
                     <p className="font-bold text-gray-900 text-base">A receber {brl(f.proximo.a_receber)}</p>
                   </div>
                   <div className="flex flex-col gap-1">
                     <button
-                      onClick={() => setModalPagar({ f, ajuste: '', pago_em: hoje, observacoes: '', juntar_vencidos: true, descontar: '' })}
+                      onClick={() => setModalPagar({ f, ajuste: '', pago_em: hoje, observacoes: '', juntar_vencidos: true, descontar: '', valor_pago: '' })}
                       className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700"
                     >Pagar</button>
                     <button
@@ -542,14 +547,14 @@ export default function FuncionariosTab() {
                       <ul className="space-y-1">
                         {f.vales_abertos.map(v => (
                           <li key={v.id} className="flex items-center justify-between text-sm">
-                            <span>{dataBR(v.data)} · {brl(v.valor)}{v.descricao ? ` · ${v.descricao}` : ''}</span>
+                            <span className={v.valor < 0 ? 'text-emerald-700' : ''}>{dataBR(v.data)} · {v.valor < 0 ? `+${brl(-v.valor)}` : brl(v.valor)}{v.descricao ? ` · ${v.descricao}` : ''}</span>
                             <button onClick={() => apagarVale(v)} className="text-gray-400 hover:text-red-600" aria-label="Apagar vale"><Trash2 size={14} /></button>
                           </li>
                         ))}
                       </ul>
                     )}
                     {f.proximo.a_receber < 0 && (
-                      <p className="mt-2 text-xs text-red-600">Os vales passaram do salário do período. A diferença pode ser compensada com um ajuste no pagamento.</p>
+                      <p className="mt-2 text-xs text-red-600">Os vales passaram do salário do período. Ao pagar, o sistema desconta só até zerar e o resto fica em aberto pra próxima quinzena.</p>
                     )}
                   </div>
                 )}
@@ -818,7 +823,7 @@ export default function FuncionariosTab() {
 
       {/* ===== MODAL PAGAR ===== */}
       {modalPagar && calculoPagar && (() => {
-        const { f, ajuste, valesConsiderados, vales, vencidos, juntar, brutoVencidos, bruto, fimPeriodo, descontar, ficaAberto, liquido } = calculoPagar;
+        const { f, ajuste, valesConsiderados, saldoAnterior, vales, vencidos, juntar, brutoVencidos, bruto, fimPeriodo, descontar, ficaAberto, liquido, valorPago, diferenca } = calculoPagar;
         return (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3">
@@ -841,10 +846,18 @@ export default function FuncionariosTab() {
               )}
               <div className="text-sm space-y-1 bg-gray-50 rounded-lg p-3">
                 <div className="flex justify-between"><span>Salário {juntar ? `de ${vencidos.length + 1} períodos` : 'do período'}</span><span>{brl(bruto)}</span></div>
+                {saldoAnterior < -0.005 && <div className="flex justify-between text-emerald-700"><span>+ Saldo a receber (pago a menos antes)</span><span>{brl(-saldoAnterior)}</span></div>}
                 <div className="flex justify-between text-orange-600"><span>− Vales descontados agora</span><span>{brl(descontar)}</span></div>
                 {ficaAberto > 0.005 && <div className="flex justify-between text-xs text-gray-500"><span>Fica em aberto pra próxima quinzena</span><span>{brl(ficaAberto)}</span></div>}
                 {ajuste !== 0 && <div className="flex justify-between"><span>Ajuste</span><span>{brl(ajuste)}</span></div>}
                 <div className="flex justify-between font-bold text-base border-t pt-1"><span>A pagar</span><span>{brl(liquido)}</span></div>
+              </div>
+              <div>
+                <label className={label}>Valor pago (o que saiu de fato)</label>
+                <input className={input} inputMode="decimal" placeholder={brl(liquido)} value={modalPagar.valor_pago}
+                  onChange={e => setModalPagar({ ...modalPagar, valor_pago: e.target.value })} />
+                {diferenca > 0.005 && <p className="text-[11px] text-orange-700 mt-1">Pagou {brl(diferenca)} a mais: vira adiantamento e abate da próxima quinzena.</p>}
+                {diferenca < -0.005 && <p className="text-[11px] text-emerald-700 mt-1">Pagou {brl(-diferenca)} a menos: fica como saldo a receber e soma na próxima quinzena.</p>}
               </div>
               {vales > 0.005 && (
                 <div>
