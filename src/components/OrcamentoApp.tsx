@@ -5,7 +5,7 @@ import { supabaseBrowser } from '@/lib/supabase-client';
 import CalculadoraFerroModal from './CalculadoraFerroModal';
 import { parseNomeFerragem, precoFerragemPorMetro } from '@/lib/ferragem-preco';
 import CalculadoraMadeiraModal from './CalculadoraMadeiraModal';
-import CalculadoraLajeModal, { AVISO_LAJE, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
+import CalculadoraLajeModal, { AVISO_LAJE, LARGURA_VIGOTA_M, calcularVigotas, ehVigota, type DetalhesLaje, type LinhaLaje } from './CalculadoraLajeModal';
 import FinanceiroTab from './FinanceiroTab';
 import { SeletorParcelas } from '@/components/financeiro/Comuns';
 import ClienteProfile from './ClienteProfile';
@@ -1080,14 +1080,17 @@ export default function OrcamentoApp() {  // Auth state
   // pertencem ao segmento de laje e tem seu proprio lugar (Batch D).
   const ehProdutoCalculadoraMadeira = (p: Produto) =>
     p.unidade === 'metro' && p.categoria !== 'Ferro' && p.categoria !== 'Laje';
+  // Vigota treliçada entra so pela Calculadora de Laje > "Por vigotas", pra
+  // sair com qtd x tamanho no papel da fabrica (antes ia por metro, sem medida).
+  const ehVigotaLaje = (p: Produto) => p.categoria === 'Laje' && ehVigota(p.nome);
   // Ferro em metro (Ferro 10mm, Ferro 4,2mm) e so estoque: vende-se a barra,
   // o estribo pronto ou a calculadora de ferragem.
   const ehSoEstoque = (p: Produto) => p.vendavel === false;
 
-  const categorias = ['Todas', ...Array.from(new Set(produtos.filter(p => !ehProdutoCalculadoraMadeira(p) && !ehSoEstoque(p)).map(p => p.categoria)))];
+  const categorias = ['Todas', ...Array.from(new Set(produtos.filter(p => !ehProdutoCalculadoraMadeira(p) && !ehSoEstoque(p) && !ehVigotaLaje(p)).map(p => p.categoria)))];
 
   const produtosFiltrados = produtos.filter(p => {
-    if (ehProdutoCalculadoraMadeira(p) || ehSoEstoque(p)) return false;
+    if (ehProdutoCalculadoraMadeira(p) || ehSoEstoque(p) || ehVigotaLaje(p)) return false;
     const matchBusca = p.nome.toLowerCase().includes(busca.toLowerCase());
     const matchCategoria = categoriaSelecionada === 'Todas' || p.categoria === categoriaSelecionada;
     return matchBusca && matchCategoria;
@@ -2177,9 +2180,25 @@ export default function OrcamentoApp() {  // Auth state
         })
       : itens.flatMap(i => (i.laje_detalhes ? [{ nome: i.produto.nome, det: i.laje_detalhes }] : []));
     const num = (v: number) => String(v).replace('.', ',');
-    const blocoFabrica = lajesImp.length === 0 ? '' :
+    // Treliça avulsa: a fabrica so tem barra de 12 m — vai no bloco tambem.
+    const nomesImp = d ? d.orcamento_itens.map(i => i.produto_nome) : itens.map(i => i.produto.nome);
+    const temTrelica = nomesImp.some(n => /treli[çc]a/i.test(n));
+    const blocoFabrica = lajesImp.length === 0 && !temTrelica ? '' :
       `<div class="fabrica"><div class="fabrica-t">&#127981; DADOS PARA A FÁBRICA</div>` +
       lajesImp.map(({ nome, det }) => {
+        // Pedido por vigota (aba "Por vigotas"): comprimento = tamanho da
+        // vigota, largura = faixa coberta (qtd x 0,42). Sai como a fabrica le.
+        if (ehVigota(nome) && det.comprimento && det.largura) {
+          const qtd = Math.round(det.largura / LARGURA_VIGOTA_M);
+          const c = calcularVigotas(qtd, det.comprimento);
+          return `<div class="fabrica-item"><b>${nome}</b><div class="fabrica-g">` +
+            `<span><b>Vigotas:</b> ${qtd} × ${num(det.comprimento)} m</span>` +
+            `<span><b>Vão:</b> ${num(c.vao)} m (${qtd} × 0,42)</span>` +
+            `<span><b>Área:</b> ${formatBRL(c.area)} m²</span>` +
+            `<span><b>Uso:</b> ${det.uso === 'piso' ? 'Piso' : 'Forro'}</span>` +
+            `<span><b>Lajotas (referência):</b> ${c.lajotas} un</span>` +
+            `</div></div>`;
+        }
         const medidas = det.comprimento && det.largura
           ? `${num(det.comprimento)}m × ${num(det.largura)}m`
           : '—';
@@ -2194,6 +2213,7 @@ export default function OrcamentoApp() {  // Auth state
           `<span><b>Viga intermediária:</b> ${det.tem_viga_intermediaria ? 'Sim' : 'Não'}</span>` +
           `</div>${alerta}</div>`;
       }).join('') +
+      (temTrelica ? `<div class="fabrica-item"><b>Treliça</b><div class="fabrica-g"><span><b>Barra padrão:</b> 12 m</span></div></div>` : '') +
       `<div class="fabrica-aviso">${AVISO_LAJE}</div></div>`;
 
     const nome = d ? (d.clientes?.nome || 'Cliente') : (nomeCliente || 'Cliente');
