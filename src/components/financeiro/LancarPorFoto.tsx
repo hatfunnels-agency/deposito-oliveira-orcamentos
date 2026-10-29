@@ -111,7 +111,6 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   const [resumoSalvo, setResumoSalvo] = useState<string[]>([]);
   // Lancamento a mao: mesmo formulario, sem foto e sem leitura.
   const [manual, setManual] = useState(false);
-  const [manualComEstoque, setManualComEstoque] = useState(false);
 
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
 
@@ -232,9 +231,10 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   });
 
   // Lancamento a mao. So dois caminhos (29/10: o gerente se perdia com
-  // quatro): conta/boleto — com ou sem entrada no estoque — e pagamento
-  // ja feito. Ticket e nota continuam entrando pela foto.
-  const lancarManual = (tipo: TipoDocumentoLido, comEntrada = false) => {
+  // quatro): conta/boleto e pagamento ja feito. A entrada no estoque e o
+  // check "Dar entrada no estoque" do formulario. Ticket e nota continuam
+  // entrando pela foto.
+  const lancarManual = (tipo: TipoDocumentoLido) => {
     const r: RespostaLeitura = {
       leitura: {
         tipo, data: hoje, valor_total: null, fornecedor_nome: null, fornecedor_documento: null, numero_documento: null,
@@ -245,7 +245,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
     preencher(r);
     setDescricao('');
     setValorEditado(tipo !== 'ticket_pesagem');
-    const comItens = tipo === 'ticket_pesagem' || tipo === 'nota_fiscal' || comEntrada;
+    const comItens = tipo === 'ticket_pesagem' || tipo === 'nota_fiscal';
     setLinhas(comItens ? [linhaVazia(tipo === 'ticket_pesagem', 1)] : []);
     setComEstoque(comItens);
     setResp(r);
@@ -410,13 +410,9 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
           <div className="border-t border-gray-100 pt-3">
             <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1"><PencilLine className="w-4 h-4" /> Ou lance à mão, sem foto</p>
             <div className="grid grid-cols-2 gap-2">
-              <BotaoSecundario onClick={() => lancarManual('boleto', manualComEstoque)} className="min-h-[52px]">Boleto / conta a pagar</BotaoSecundario>
+              <BotaoSecundario onClick={() => lancarManual('boleto')} className="min-h-[52px]">Boleto / conta a pagar</BotaoSecundario>
               <BotaoSecundario onClick={() => lancarManual('comprovante_pagamento')} className="min-h-[52px]">Pagamento já feito</BotaoSecundario>
             </div>
-            <label className="mt-2 flex items-center gap-2 text-sm text-gray-700 min-h-[40px] cursor-pointer select-none">
-              <input type="checkbox" checked={manualComEstoque} onChange={e => setManualComEstoque(e.target.checked)} className="w-4 h-4 accent-[#F7941D]" />
-              Chegou mercadoria: dar entrada no estoque junto com o boleto
-            </label>
           </div>
         )}
         {erro && <Aviso tom="erro">{erro}</Aviso>}
