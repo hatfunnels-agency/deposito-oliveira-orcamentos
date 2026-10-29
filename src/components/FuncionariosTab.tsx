@@ -153,7 +153,9 @@ export default function FuncionariosTab() {
   const [modalVale, setModalVale] = useState<{ funcionario_id: string; valor: string; data: string; descricao: string } | null>(null);
   // juntar_vencidos: paga tambem os periodos seguintes ja vencidos num
   // registro so (acerto de atrasados, ex.: mes inteiro na virada pra quinzenal).
-  const [modalPagar, setModalPagar] = useState<{ f: Funcionario; ajuste: string; pago_em: string; observacoes: string; juntar_vencidos: boolean } | null>(null);
+  // descontar: quanto dos vales abertos desconta agora ('' = automatico: tudo,
+  // ou so ate zerar o liquido). O resto fica em aberto pra proxima quinzena.
+  const [modalPagar, setModalPagar] = useState<{ f: Funcionario; ajuste: string; pago_em: string; observacoes: string; juntar_vencidos: boolean; descontar: string } | null>(null);
   const [modalFunc, setModalFunc] = useState<{ id: string | null; form: typeof FORM_VAZIO } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -226,6 +228,29 @@ export default function FuncionariosTab() {
     }
   };
 
+  // Numeros do modal Pagar (mesma conta na tela e no envio).
+  const calculoPagar = (() => {
+    if (!modalPagar) return null;
+    const f = modalPagar.f;
+    const ajuste = Number(modalPagar.ajuste.replace(',', '.')) || 0;
+    // Vale com data depois do dia do pagamento fica pro proximo.
+    const valesConsiderados = f.vales_abertos.filter(v => v.data <= modalPagar.pago_em);
+    const vales = Math.round(valesConsiderados.reduce((a, v) => a + v.valor, 0) * 100) / 100;
+    // Periodos seguintes ja vencidos na data do pagamento: podem ir juntos.
+    const vencidos = periodosSeguintesVencidos(f, f.proximo, modalPagar.pago_em);
+    const juntar = modalPagar.juntar_vencidos && vencidos.length > 0;
+    const brutoVencidos = vencidos.reduce((s, p) => s + brutoDoPeriodo(f, p).valor, 0);
+    const bruto = Math.round((f.proximo.bruto + (juntar ? brutoVencidos : 0)) * 100) / 100;
+    const fimPeriodo = juntar ? vencidos[vencidos.length - 1].fim : f.proximo.fim;
+    // Automatico: desconta tudo; se os vales passam do salario, so ate zerar.
+    const descontarAuto = Math.min(vales, Math.max(0, Math.round((bruto + ajuste) * 100) / 100));
+    const digitado = modalPagar.descontar === '' ? NaN : Number(modalPagar.descontar.replace(',', '.'));
+    const descontar = Number.isFinite(digitado) ? Math.min(vales, Math.max(0, Math.round(digitado * 100) / 100)) : descontarAuto;
+    const ficaAberto = Math.round((vales - descontar) * 100) / 100;
+    const liquido = Math.round((bruto - descontar + ajuste) * 100) / 100;
+    return { f, ajuste, valesConsiderados, vales, vencidos, juntar, brutoVencidos, bruto, fimPeriodo, descontar, ficaAberto, liquido };
+  })();
+
   const confirmarPagamento = async () => {
     if (!modalPagar) return;
     setSalvando(true);
@@ -239,6 +264,7 @@ export default function FuncionariosTab() {
           ajuste: Number(modalPagar.ajuste.replace(',', '.')) || 0,
           observacoes: modalPagar.observacoes,
           ...(seguintes.length ? { ate_periodo_fim: seguintes[seguintes.length - 1].fim } : {}),
+          ...(calculoPagar ? { descontar_vales: calculoPagar.descontar } : {}),
         }),
       });
       setModalPagar(null);
@@ -499,7 +525,7 @@ export default function FuncionariosTab() {
                   </div>
                   <div className="flex flex-col gap-1">
                     <button
-                      onClick={() => setModalPagar({ f, ajuste: '', pago_em: hoje, observacoes: '', juntar_vencidos: true })}
+                      onClick={() => setModalPagar({ f, ajuste: '', pago_em: hoje, observacoes: '', juntar_vencidos: true, descontar: '' })}
                       className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700"
                     >Pagar</button>
                     <button
@@ -791,19 +817,8 @@ export default function FuncionariosTab() {
       )}
 
       {/* ===== MODAL PAGAR ===== */}
-      {modalPagar && (() => {
-        const f = modalPagar.f;
-        const ajuste = Number(modalPagar.ajuste.replace(',', '.')) || 0;
-        // Vale com data depois do dia do pagamento fica pro proximo.
-        const valesConsiderados = f.vales_abertos.filter(v => v.data <= modalPagar.pago_em);
-        const vales = valesConsiderados.reduce((a, v) => a + v.valor, 0);
-        // Periodos seguintes ja vencidos na data do pagamento: podem ir juntos.
-        const vencidos = periodosSeguintesVencidos(f, f.proximo, modalPagar.pago_em);
-        const juntar = modalPagar.juntar_vencidos && vencidos.length > 0;
-        const brutoVencidos = vencidos.reduce((s, p) => s + brutoDoPeriodo(f, p).valor, 0);
-        const bruto = Math.round((f.proximo.bruto + (juntar ? brutoVencidos : 0)) * 100) / 100;
-        const fimPeriodo = juntar ? vencidos[vencidos.length - 1].fim : f.proximo.fim;
-        const liquido = bruto - vales + ajuste;
+      {modalPagar && calculoPagar && (() => {
+        const { f, ajuste, valesConsiderados, vales, vencidos, juntar, brutoVencidos, bruto, fimPeriodo, descontar, ficaAberto, liquido } = calculoPagar;
         return (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3">
@@ -826,10 +841,19 @@ export default function FuncionariosTab() {
               )}
               <div className="text-sm space-y-1 bg-gray-50 rounded-lg p-3">
                 <div className="flex justify-between"><span>Salário {juntar ? `de ${vencidos.length + 1} períodos` : 'do período'}</span><span>{brl(bruto)}</span></div>
-                <div className="flex justify-between text-orange-600"><span>− Vales ({valesConsiderados.length})</span><span>{brl(vales)}</span></div>
+                <div className="flex justify-between text-orange-600"><span>− Vales descontados agora</span><span>{brl(descontar)}</span></div>
+                {ficaAberto > 0.005 && <div className="flex justify-between text-xs text-gray-500"><span>Fica em aberto pra próxima quinzena</span><span>{brl(ficaAberto)}</span></div>}
                 {ajuste !== 0 && <div className="flex justify-between"><span>Ajuste</span><span>{brl(ajuste)}</span></div>}
                 <div className="flex justify-between font-bold text-base border-t pt-1"><span>A pagar</span><span>{brl(liquido)}</span></div>
               </div>
+              {vales > 0.005 && (
+                <div>
+                  <label className={label}>Descontar dos vales agora (em aberto: {brl(vales)}, {valesConsiderados.length} vale{valesConsiderados.length > 1 ? 's' : ''})</label>
+                  <input className={input} inputMode="decimal" placeholder={brl(descontar)} value={modalPagar.descontar}
+                    onChange={e => setModalPagar({ ...modalPagar, descontar: e.target.value })} />
+                  <p className="text-[11px] text-gray-500 mt-1">Em branco desconta tudo, ou só até zerar o líquido quando os vales passam do salário. O resto continua em aberto.</p>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-2">
                 <div>
                   <label className={label}>Ajuste (+/−)</label>

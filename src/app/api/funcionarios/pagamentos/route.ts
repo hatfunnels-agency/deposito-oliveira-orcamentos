@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id?, ate_periodo_fim? }
+ * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id?, ate_periodo_fim?, descontar_vales? }
  *
  * Paga o PROXIMO periodo em aberto. O calculo e refeito aqui (nao confia
  * no numero da tela) e desconta todos os vales em aberto ate pago_em.
@@ -121,11 +121,23 @@ export async function POST(request: NextRequest) {
 
     const { data: vales } = await supabaseAdmin
       .from('funcionario_vales')
-      .select('id, valor')
+      .select('id, valor, data, descricao, criado_em')
       .eq('funcionario_id', f.id)
       .is('pagamento_id', null)
-      .lte('data', pagoEm);
-    const totalVales = Math.round((vales || []).reduce((a, v) => a + Number(v.valor), 0) * 100) / 100;
+      .lte('data', pagoEm)
+      .order('data')
+      .order('criado_em');
+    const valesAbertos = Math.round((vales || []).reduce((a, v) => a + Number(v.valor), 0) * 100) / 100;
+    // Desconto parcial (29/10): quem esta com vale maior que o salario do
+    // periodo desconta so uma parte agora; o resto continua em aberto e cai
+    // na proxima quinzena. O vale que fica no meio e dividido em dois
+    // (parte paga, parte "restante") pra soma do historico fechar.
+    const descontarPedido = body.descontar_vales === undefined || body.descontar_vales === null || body.descontar_vales === ''
+      ? null : Math.round(Number(body.descontar_vales) * 100) / 100;
+    if (descontarPedido !== null && (!Number.isFinite(descontarPedido) || descontarPedido < 0 || descontarPedido > valesAbertos + 0.005)) {
+      return NextResponse.json({ error: `Desconto de vales inválido: informe entre 0 e ${valesAbertos.toFixed(2)}.` }, { status: 400 });
+    }
+    const totalVales = descontarPedido === null ? valesAbertos : Math.min(descontarPedido, valesAbertos);
 
     const { data: pag, error: eP } = await supabaseAdmin
       .from('funcionario_pagamentos')
@@ -151,13 +163,36 @@ export async function POST(request: NextRequest) {
       throw eP;
     }
 
-    if (vales?.length) {
-      const { error: eV } = await supabaseAdmin
-        .from('funcionario_vales')
-        .update({ pagamento_id: pag.id })
-        .in('id', vales.map(v => v.id));
-      if (eV) {
-        // Sem os vales marcados o pagamento ficaria errado: desfaz.
+    if (vales?.length && totalVales > 0.005) {
+      try {
+        let acumulado = 0;
+        for (const v of vales) {
+          const valor = Number(v.valor);
+          const falta = Math.round((totalVales - acumulado) * 100) / 100;
+          if (falta <= 0.005) break;
+          if (valor <= falta + 0.005) {
+            const { error } = await supabaseAdmin.from('funcionario_vales').update({ pagamento_id: pag.id }).eq('id', v.id);
+            if (error) throw error;
+            acumulado += valor;
+            continue;
+          }
+          // Este vale e maior que o que ainda cabe: divide. A parte paga fica
+          // neste registro; o restante vira um vale novo, em aberto.
+          const restante = Math.round((valor - falta) * 100) / 100;
+          const { error: eParte } = await supabaseAdmin.from('funcionario_vales')
+            .update({ valor: falta, pagamento_id: pag.id }).eq('id', v.id);
+          if (eParte) throw eParte;
+          const { error: eResto } = await supabaseAdmin.from('funcionario_vales').insert({
+            funcionario_id: f.id, data: v.data, valor: restante,
+            descricao: `${String(v.descricao ?? '').trim() || 'Vale'} (restante, de ${dataBR(String(v.data))})`,
+          });
+          if (eResto) throw eResto;
+          acumulado += falta;
+          break;
+        }
+      } catch (eV) {
+        // Sem os vales marcados o pagamento ficaria errado: desfaz o que der.
+        await supabaseAdmin.from('funcionario_vales').update({ pagamento_id: null }).eq('pagamento_id', pag.id);
         await supabaseAdmin.from('funcionario_pagamentos').delete().eq('id', pag.id);
         throw eV;
       }
