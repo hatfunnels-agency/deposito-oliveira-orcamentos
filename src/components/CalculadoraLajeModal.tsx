@@ -62,6 +62,32 @@ const PARAMS_FALLBACK: Record<string, number> = {
   tela_m2_por_painel: 5.1,
 };
 
+// Vigotas treliçadas (pedido "por vigota", quando o cliente ja sabe quantas
+// quer). Especificacao da Laje Master:
+//   - cada vigota + lajota ocupa 0,42 m de largura (o "vao" = qtd x 0,42);
+//   - a fabrica so produz em numeros pares de 20 em 20 cm, de 1,20 a 6,00 m;
+//   - a vigota e vendida por metro linear; lajota, concreto etc. ficam so
+//     como referencia (a atendente adiciona pelo catalogo se o cliente levar).
+export const LARGURA_VIGOTA_M = 0.42;
+export const TAMANHOS_VIGOTA: number[] = Array.from({ length: 25 }, (_, i) => Math.round((1.2 + i * 0.2) * 100) / 100);
+// Lajotas por m² de laje (11,5 = mesma conta do sistema da fabrica:
+// 6 m² -> 69 lajotas). Fica em laje_parametros, chave lajotas_por_m2.
+export const LAJOTAS_POR_M2_FALLBACK = 11.5;
+export type AlturaVigota = 'H8' | 'H12';
+// Nome do produto no catalogo (o antigo "Mt. Linear Viga" fica como fallback
+// enquanto o banco nao for renomeado).
+const NOMES_VIGOTA: Record<AlturaVigota, string[]> = {
+  H8: ['Vigota Treliçada H8', 'Mt. Linear Viga H8'],
+  H12: ['Vigota Treliçada H12', 'Mt. Linear Viga H12'],
+};
+export const ehVigota = (nome: string) => /vigota treli|mt\. linear viga/i.test(nome);
+
+export function calcularVigotas(qtd: number, comprimento: number, lajotasPorM2 = LAJOTAS_POR_M2_FALLBACK) {
+  const vao = Math.round(qtd * LARGURA_VIGOTA_M * 100) / 100;
+  const area = Math.round(vao * comprimento * 100) / 100;
+  return { vao, area, lajotas: tetoSeguro(area * lajotasPorM2), metros: Math.round(qtd * comprimento * 100) / 100 };
+}
+
 // Arredonda pra cima com guarda de float: sem isso, 2.0000000001 viraria 3.
 function tetoSeguro(v: number): number {
   return Math.ceil(parseFloat(v.toFixed(6)));
@@ -82,7 +108,7 @@ function sugerirKit(vao: number, uso: 'forro' | 'piso'): string {
 }
 
 export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }: Props) {
-  const [aba, setAba] = useState<'ambiente' | 'avulso'>('ambiente');
+  const [aba, setAba] = useState<'ambiente' | 'vigotas' | 'avulso'>('ambiente');
   const [consumo, setConsumo] = useState<Record<string, number>>({});
   const [parametros, setParametros] = useState<Record<string, number>>(PARAMS_FALLBACK);
 
@@ -93,6 +119,12 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
   const [temViga, setTemViga] = useState(false);
   const [trechos, setTrechos] = useState<number[]>([0, 0]);
   const [kitEscolhido, setKitEscolhido] = useState<string>('');
+
+  // Aba "vigotas": o cliente ja sabe quantas quer e de que tamanho. Pode ter
+  // mais de um tamanho no mesmo pedido (cada um vira uma linha).
+  const [vigAltura, setVigAltura] = useState<AlturaVigota>('H8');
+  const [vigUso, setVigUso] = useState<'forro' | 'piso'>('forro');
+  const [vigLinhas, setVigLinhas] = useState<Array<{ qtd: number; comprimento: number }>>([{ qtd: 0, comprimento: 0 }]);
 
   // Aba "avulso"
   const [buscaAvulso, setBuscaAvulso] = useState('');
@@ -116,12 +148,13 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
     [produtos],
   );
 
-  // Avulsos = tudo da categoria Laje que nao e kit (treliça por barra, isopor
-  // e lajota por unidade, telas por peça, viga por metro).
+  // Avulsos = tudo da categoria Laje que nao e kit nem vigota (treliça por
+  // barra, isopor e lajota por unidade, telas por peça). Vigota tem aba
+  // propria, pra sair com as medidas pra fabrica.
   const avulsos = useMemo(() => {
     const termo = buscaAvulso.trim().toLowerCase();
     return produtos
-      .filter(p => p.categoria === 'Laje' && !KITS.includes(p.nome))
+      .filter(p => p.categoria === 'Laje' && !KITS.includes(p.nome) && !ehVigota(p.nome))
       .filter(p => !termo || p.nome.toLowerCase().includes(termo))
       .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   }, [produtos, buscaAvulso]);
@@ -206,6 +239,72 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
     onClose();
   };
 
+  // ---- Aba "vigotas" ----
+  const produtoVigota = useMemo(() => {
+    for (const nome of NOMES_VIGOTA[vigAltura]) {
+      const p = acharProduto(nome);
+      if (p) return p;
+    }
+    return null;
+  }, [produtos, vigAltura]);
+  const lajotasPorM2 = parametros.lajotas_por_m2 ?? LAJOTAS_POR_M2_FALLBACK;
+
+  const vigCalc = useMemo(() => {
+    const validas = vigLinhas.filter(l => l.qtd > 0 && l.comprimento > 0);
+    const porLinha = validas.map(l => ({ ...l, ...calcularVigotas(l.qtd, l.comprimento, lajotasPorM2) }));
+    const area = Math.round(porLinha.reduce((s, l) => s + l.area, 0) * 100) / 100;
+    const metros = Math.round(porLinha.reduce((s, l) => s + l.metros, 0) * 100) / 100;
+    const qtd = porLinha.reduce((s, l) => s + l.qtd, 0);
+    return { porLinha, area, metros, qtd, lajotas: tetoSeguro(area * lajotasPorM2) };
+  }, [vigLinhas, lajotasPorM2]);
+
+  // Referencia de capa: usa o consumo do kit equivalente (lajota da mesma
+  // altura), igual a aba ambiente. Nada disso entra no orcamento.
+  const vigRef = useMemo(() => {
+    if (vigCalc.area <= 0) return null;
+    const nomeKit = vigAltura === 'H12' ? 'Laje H12 Lajota' : (vigUso === 'piso' ? 'Laje H08 Lajota Piso' : 'Laje H08 Lajota');
+    const kit = acharProduto(nomeKit);
+    const concreto = vigCalc.area * (kit ? (consumo[kit.id] ?? 0) : 0);
+    const lajotaProd = acharProduto(vigAltura === 'H12' ? 'Lajota H12' : 'Lajota H8 / Forro e Piso');
+    return {
+      lajotaNome: lajotaProd?.nome ?? `Lajota ${vigAltura}`,
+      concreto,
+      cimento: tetoSeguro(concreto * (parametros.cimento_sacos_por_m3 ?? 7)),
+      areia: tetoMeioM3(concreto * (parametros.areia_m3_por_m3 ?? 0.55)),
+      pedra: tetoMeioM3(concreto * (parametros.pedra_m3_por_m3 ?? 0.55)),
+      tela: tetoSeguro(vigCalc.area / (parametros.tela_m2_por_painel ?? 5.1)),
+    };
+  }, [vigCalc, vigAltura, vigUso, consumo, parametros, produtos]);
+
+  const vigItens: LinhaLaje[] = useMemo(() => {
+    if (!produtoVigota) return [];
+    return vigCalc.porLinha.map(l => ({
+      produto_id: produtoVigota.id,
+      nome: produtoVigota.nome,
+      quantidade: l.metros,
+      unidade: produtoVigota.unidade,
+      preco: produtoVigota.preco,
+      preco_custo: produtoVigota.preco_custo,
+      // comprimento = tamanho da vigota (e o vao que ela vence); largura =
+      // faixa coberta (qtd x 0,42). A impressao recupera a qtd por largura/0,42.
+      laje_detalhes: {
+        comprimento: l.comprimento,
+        largura: l.vao,
+        area_m2: l.area,
+        vao_livre: l.comprimento,
+        uso: vigUso,
+        tem_viga_intermediaria: false,
+      },
+    }));
+  }, [produtoVigota, vigCalc, vigUso]);
+  const vigTotal = vigItens.reduce((s, l) => s + l.quantidade * l.preco, 0);
+
+  const adicionarVigotas = () => {
+    if (!vigItens.length) return;
+    onAdicionar(vigItens);
+    onClose();
+  };
+
   const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-[#F7941D]';
 
   return (
@@ -216,7 +315,7 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
             <h2 className="text-xl font-bold text-gray-800">Laje</h2>
             <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
           </div>
-          <div className="grid grid-cols-2 gap-2 mb-4">
+          <div className="grid grid-cols-3 gap-2 mb-4">
             <button
               onClick={() => setAba('ambiente')}
               className={'p-3 rounded-lg border-2 text-sm font-medium transition-colors ' +
@@ -224,6 +323,14 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
             >
               <div className="font-bold">Calcular ambiente</div>
               <div className="text-xs opacity-75">Monta o pedido pelas medidas</div>
+            </button>
+            <button
+              onClick={() => setAba('vigotas')}
+              className={'p-3 rounded-lg border-2 text-sm font-medium transition-colors ' +
+                (aba === 'vigotas' ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}
+            >
+              <div className="font-bold">Por vigotas</div>
+              <div className="text-xs opacity-75">Cliente já sabe quantas quer</div>
             </button>
             <button
               onClick={() => setAba('avulso')}
@@ -384,6 +491,134 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
             </div>
           )}
 
+          {aba === 'vigotas' && (
+            <div className="space-y-5">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Altura</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['H8', 'H12'] as const).map(h => (
+                      <button key={h} onClick={() => setVigAltura(h)}
+                        className={'p-2 rounded-lg border-2 text-sm font-bold transition-colors ' +
+                          (vigAltura === h ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
+                        {h}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Uso</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {(['forro', 'piso'] as const).map(u => (
+                      <button key={u} onClick={() => setVigUso(u)}
+                        className={'p-2 rounded-lg border-2 text-sm font-bold transition-colors ' +
+                          (vigUso === u ? 'border-[#F7941D] bg-orange-50 text-[#F7941D]' : 'border-gray-200 text-gray-600 hover:border-gray-300')}>
+                        {u === 'forro' ? 'Forro' : 'Piso'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Vigotas</label>
+                <div className="space-y-2">
+                  {vigLinhas.map((l, i) => {
+                    const c = l.qtd > 0 && l.comprimento > 0 ? calcularVigotas(l.qtd, l.comprimento, lajotasPorM2) : null;
+                    return (
+                      <div key={i} className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+                        <div className="flex items-center gap-2">
+                          <input type="number" min="0" step="1" value={l.qtd || ''} placeholder="Qtd"
+                            onChange={e => {
+                              const v = Math.max(0, Math.floor(parseFloat(e.target.value) || 0));
+                              setVigLinhas(prev => prev.map((x, j) => (j === i ? { ...x, qtd: v } : x)));
+                            }}
+                            className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                          <span className="text-sm text-gray-500">vigotas de</span>
+                          <select value={l.comprimento || ''}
+                            onChange={e => {
+                              const v = parseFloat(e.target.value) || 0;
+                              setVigLinhas(prev => prev.map((x, j) => (j === i ? { ...x, comprimento: v } : x)));
+                            }}
+                            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-lg font-medium focus:outline-none focus:ring-2 focus:ring-[#F7941D]">
+                            <option value="">tamanho</option>
+                            {TAMANHOS_VIGOTA.map(t => (
+                              <option key={t} value={t}>{brl(t)} m</option>
+                            ))}
+                          </select>
+                          {vigLinhas.length > 1 && (
+                            <button onClick={() => setVigLinhas(prev => prev.filter((_, j) => j !== i))}
+                              className="text-gray-400 hover:text-red-500 text-xl leading-none px-1">&times;</button>
+                          )}
+                        </div>
+                        {c && (
+                          <div className="mt-2 text-xs text-gray-600">
+                            Vão {brl(c.vao)} m ({l.qtd} × 0,42) · Área {brl(c.area)} m² · {brl(c.metros)} m lineares
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={() => setVigLinhas(prev => [...prev, { qtd: 0, comprimento: 0 }])}
+                  className="mt-2 text-xs font-medium text-[#F7941D] hover:underline">+ Outro tamanho</button>
+                <p className="mt-2 text-xs text-gray-500">
+                  A fábrica produz de 1,20 m a 6,00 m, de 20 em 20 cm. Treliça avulsa é barra de 12 m.
+                </p>
+              </div>
+
+              {!produtoVigota && (
+                <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg p-3">
+                  Produto &quot;Vigota Treliçada {vigAltura}&quot; não encontrado no catálogo.
+                </p>
+              )}
+
+              {vigItens.length > 0 && (
+                <div className="bg-orange-50 border border-orange-200 rounded-lg p-4">
+                  <div className="flex justify-between text-sm text-gray-600 mb-2 pb-2 border-b border-orange-200">
+                    <span>{vigCalc.qtd} vigotas · {brl(vigCalc.area)} m² de laje</span>
+                    <span className="font-bold">{brl(vigCalc.metros)} m lineares</span>
+                  </div>
+                  {vigItens.map((l, i) => (
+                    <div key={i} className="flex justify-between items-center text-sm py-1">
+                      <span className="text-gray-800">{l.nome} — {vigCalc.porLinha[i].qtd} × {brl(vigCalc.porLinha[i].comprimento)} m</span>
+                      <span className="text-gray-600 whitespace-nowrap">
+                        {brl(l.quantidade)} m · R$ {brl(l.quantidade * l.preco)}
+                      </span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between items-center font-bold text-[#F7941D] text-lg mt-2 pt-2 border-t border-orange-200">
+                    <span>Total</span>
+                    <span>R$ {brl(vigTotal)}</span>
+                  </div>
+                </div>
+              )}
+
+              {vigRef && (
+                <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                  <div className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
+                    Material sugerido — referência
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs text-gray-600">
+                    <span>{vigRef.lajotaNome}</span><span className="text-right font-semibold">{vigCalc.lajotas} un</span>
+                    <span>Concreto</span><span className="text-right font-semibold">{brl(vigRef.concreto)} m³</span>
+                    <span>Cimento</span><span className="text-right font-semibold">{vigRef.cimento} sacos</span>
+                    <span>Areia</span><span className="text-right font-semibold">{brl(vigRef.areia)} m³</span>
+                    <span>Pedra</span><span className="text-right font-semibold">{brl(vigRef.pedra)} m³</span>
+                    <span>Tela 20×20</span><span className="text-right font-semibold">{vigRef.tela} peças</span>
+                  </div>
+                  <p className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-500">
+                    Não entra no orçamento. Se o cliente quiser levar, adicione pelo catálogo.
+                  </p>
+                </div>
+              )}
+
+              <p className="text-xs text-gray-500 bg-gray-50 border border-gray-200 rounded-lg p-3">
+                {AVISO_LAJE}
+              </p>
+            </div>
+          )}
+
           {aba === 'avulso' && (
             <div className="space-y-5">
               <div>
@@ -428,8 +663,8 @@ export default function CalculadoraLajeModal({ produtos, onAdicionar, onClose }:
             Cancelar
           </button>
           <button
-            onClick={aba === 'ambiente' ? adicionarAmbiente : adicionarAvulso}
-            disabled={aba === 'ambiente' ? linhas.length === 0 : (!avulsoId || avulsoQtd <= 0)}
+            onClick={aba === 'ambiente' ? adicionarAmbiente : aba === 'vigotas' ? adicionarVigotas : adicionarAvulso}
+            disabled={aba === 'ambiente' ? linhas.length === 0 : aba === 'vigotas' ? vigItens.length === 0 : (!avulsoId || avulsoQtd <= 0)}
             className="flex-1 px-4 py-2 bg-[#F7941D] text-white rounded-lg hover:bg-[#E8850A] disabled:opacity-50 font-bold"
           >
             Adicionar ao Orçamento
