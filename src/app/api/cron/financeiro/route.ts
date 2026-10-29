@@ -3,6 +3,7 @@ import { timingSafeEqual } from 'crypto';
 import { gerarContasDoMes } from '@/lib/financeiro/despesas-fixas';
 import { hojeSP, mesSP, mesSeguinte, somarDias } from '@/lib/financeiro/datas';
 import { importarDia, stoneConfigurado } from '@/lib/financeiro/stone-conciliacao';
+import { importarItau, itauConfigurado } from '@/lib/financeiro/itau-extrato';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 120;
@@ -20,6 +21,10 @@ export const maxDuration = 120;
 // Fase 2: com STONE_CONCILIACAO_CHAVE/STONE_CODES configuradas, importa o
 // arquivo de conciliacao da Stone de D-1 (disponivel apos 05:00 BRT) e
 // casa as vendas do cartao com os pagamentos do sistema.
+//
+// Itau: com ITAU_* configuradas, puxa o extrato da conta corrente de D-3 a
+// D-1 pela API Account Statement (janela de 3 dias cobre lancamento que o
+// banco contabiliza com atraso; reimportar nao duplica).
 export async function GET(request: NextRequest) {
   // Comparacao em tempo constante; sem CRON_SECRET o anonimo ve so 401
   // (o motivo fica no log, nao na resposta).
@@ -61,6 +66,18 @@ export async function GET(request: NextRequest) {
     } catch (e) {
       console.error(`[cron financeiro] falha ao importar Stone de ${ontem}`, e);
       etapas.push({ etapa: `stone ${ontem}`, ok: false, erro: e instanceof Error ? e.message : 'Erro interno' });
+    }
+  }
+
+  if (itauConfigurado()) {
+    const ontem = somarDias(hojeSP(), -1);
+    const de = somarDias(ontem, -2);
+    try {
+      const r = await importarItau({ de, ate: ontem }, 'cron');
+      etapas.push({ etapa: `itau ${de} a ${ontem}`, ok: true, importacoes: [{ total: r.total, novos: r.novos, a_revisar: r.a_revisar, conciliacao: r.conciliacao, saldo: r.saldo_registrado }] });
+    } catch (e) {
+      console.error(`[cron financeiro] falha ao importar extrato do Itau ${de} a ${ontem}`, e);
+      etapas.push({ etapa: `itau ${de} a ${ontem}`, ok: false, erro: e instanceof Error ? e.message : 'Erro interno' });
     }
   }
 
