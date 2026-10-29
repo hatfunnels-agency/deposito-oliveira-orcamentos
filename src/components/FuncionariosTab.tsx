@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Users, Wallet, CalendarClock, HandCoins, Plus, X, Trash2, Pencil, Paperclip, FileText, AlertTriangle } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
-import { FREQUENCIA_LABELS, valorPeriodo, type Frequencia } from '@/lib/folha';
+import { FREQUENCIA_LABELS, brutoDoPeriodo, periodosSeguintesVencidos, valorPeriodo, type Frequencia } from '@/lib/folha';
 import {
   BUCKET_DOCUMENTOS, MIMES_ACEITOS, TAMANHO_MAXIMO, TIPOS_DOCUMENTO, type TipoDocumento,
 } from '@/lib/documentos-funcionario';
@@ -151,7 +151,9 @@ export default function FuncionariosTab() {
 
   // Modais
   const [modalVale, setModalVale] = useState<{ funcionario_id: string; valor: string; data: string; descricao: string } | null>(null);
-  const [modalPagar, setModalPagar] = useState<{ f: Funcionario; ajuste: string; pago_em: string; observacoes: string } | null>(null);
+  // juntar_vencidos: paga tambem os periodos seguintes ja vencidos num
+  // registro so (acerto de atrasados, ex.: mes inteiro na virada pra quinzenal).
+  const [modalPagar, setModalPagar] = useState<{ f: Funcionario; ajuste: string; pago_em: string; observacoes: string; juntar_vencidos: boolean } | null>(null);
   const [modalFunc, setModalFunc] = useState<{ id: string | null; form: typeof FORM_VAZIO } | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
@@ -228,6 +230,7 @@ export default function FuncionariosTab() {
     if (!modalPagar) return;
     setSalvando(true);
     try {
+      const seguintes = modalPagar.juntar_vencidos ? periodosSeguintesVencidos(modalPagar.f, modalPagar.f.proximo, modalPagar.pago_em) : [];
       await api('/api/funcionarios/pagamentos', {
         method: 'POST',
         body: JSON.stringify({
@@ -235,6 +238,7 @@ export default function FuncionariosTab() {
           pago_em: modalPagar.pago_em,
           ajuste: Number(modalPagar.ajuste.replace(',', '.')) || 0,
           observacoes: modalPagar.observacoes,
+          ...(seguintes.length ? { ate_periodo_fim: seguintes[seguintes.length - 1].fim } : {}),
         }),
       });
       setModalPagar(null);
@@ -495,7 +499,7 @@ export default function FuncionariosTab() {
                   </div>
                   <div className="flex flex-col gap-1">
                     <button
-                      onClick={() => setModalPagar({ f, ajuste: '', pago_em: hoje, observacoes: '' })}
+                      onClick={() => setModalPagar({ f, ajuste: '', pago_em: hoje, observacoes: '', juntar_vencidos: true })}
                       className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700"
                     >Pagar</button>
                     <button
@@ -793,7 +797,13 @@ export default function FuncionariosTab() {
         // Vale com data depois do dia do pagamento fica pro proximo.
         const valesConsiderados = f.vales_abertos.filter(v => v.data <= modalPagar.pago_em);
         const vales = valesConsiderados.reduce((a, v) => a + v.valor, 0);
-        const liquido = f.proximo.bruto - vales + ajuste;
+        // Periodos seguintes ja vencidos na data do pagamento: podem ir juntos.
+        const vencidos = periodosSeguintesVencidos(f, f.proximo, modalPagar.pago_em);
+        const juntar = modalPagar.juntar_vencidos && vencidos.length > 0;
+        const brutoVencidos = vencidos.reduce((s, p) => s + brutoDoPeriodo(f, p).valor, 0);
+        const bruto = Math.round((f.proximo.bruto + (juntar ? brutoVencidos : 0)) * 100) / 100;
+        const fimPeriodo = juntar ? vencidos[vencidos.length - 1].fim : f.proximo.fim;
+        const liquido = bruto - vales + ajuste;
         return (
           <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
             <div className="bg-white rounded-2xl w-full max-w-sm p-5 space-y-3">
@@ -802,10 +812,20 @@ export default function FuncionariosTab() {
                 <button onClick={() => setModalPagar(null)} aria-label="Fechar"><X size={20} /></button>
               </div>
               <p className="text-xs text-gray-500">
-                {FREQUENCIA_LABELS[f.frequencia]} · período {dataBR(f.proximo.inicio)} a {dataBR(f.proximo.fim)}
+                {FREQUENCIA_LABELS[f.frequencia]} · período {dataBR(f.proximo.inicio)} a {dataBR(fimPeriodo)}
               </p>
+              {vencidos.length > 0 && (
+                <label className="flex items-start gap-2 text-xs text-gray-700 bg-amber-50 border border-amber-200 rounded-lg p-2 cursor-pointer">
+                  <input type="checkbox" className="mt-0.5 accent-[#F7941D]" checked={modalPagar.juntar_vencidos}
+                    onChange={e => setModalPagar({ ...modalPagar, juntar_vencidos: e.target.checked })} />
+                  <span>
+                    Juntar {vencidos.length === 1 ? 'o período seguinte, que também já venceu' : `os ${vencidos.length} períodos seguintes, que também já venceram`}: {vencidos.map(p => `${dataBR(p.inicio)} a ${dataBR(p.fim)}`).join(', ')} (+{brl(brutoVencidos)}).
+                    Desmarque para pagar só o primeiro período.
+                  </span>
+                </label>
+              )}
               <div className="text-sm space-y-1 bg-gray-50 rounded-lg p-3">
-                <div className="flex justify-between"><span>Salário do período</span><span>{brl(f.proximo.bruto)}</span></div>
+                <div className="flex justify-between"><span>Salário {juntar ? `de ${vencidos.length + 1} períodos` : 'do período'}</span><span>{brl(bruto)}</span></div>
                 <div className="flex justify-between text-orange-600"><span>− Vales ({valesConsiderados.length})</span><span>{brl(vales)}</span></div>
                 {ajuste !== 0 && <div className="flex justify-between"><span>Ajuste</span><span>{brl(ajuste)}</span></div>}
                 <div className="flex justify-between font-bold text-base border-t pt-1"><span>A pagar</span><span>{brl(liquido)}</span></div>

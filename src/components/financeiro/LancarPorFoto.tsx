@@ -111,6 +111,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   const [resumoSalvo, setResumoSalvo] = useState<string[]>([]);
   // Lancamento a mao: mesmo formulario, sem foto e sem leitura.
   const [manual, setManual] = useState(false);
+  const [manualComEstoque, setManualComEstoque] = useState(false);
 
   useEffect(() => () => { if (previa) URL.revokeObjectURL(previa); }, [previa]);
 
@@ -230,7 +231,10 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
     pesoKg: null, densidade: null, conferirPeso: false, avulsa: true,
   });
 
-  const lancarManual = (tipo: TipoDocumentoLido) => {
+  // Lancamento a mao. So dois caminhos (29/10: o gerente se perdia com
+  // quatro): conta/boleto — com ou sem entrada no estoque — e pagamento
+  // ja feito. Ticket e nota continuam entrando pela foto.
+  const lancarManual = (tipo: TipoDocumentoLido, comEntrada = false) => {
     const r: RespostaLeitura = {
       leitura: {
         tipo, data: hoje, valor_total: null, fornecedor_nome: null, fornecedor_documento: null, numero_documento: null,
@@ -241,7 +245,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
     preencher(r);
     setDescricao('');
     setValorEditado(tipo !== 'ticket_pesagem');
-    const comItens = tipo === 'ticket_pesagem' || tipo === 'nota_fiscal';
+    const comItens = tipo === 'ticket_pesagem' || tipo === 'nota_fiscal' || comEntrada;
     setLinhas(comItens ? [linhaVazia(tipo === 'ticket_pesagem', 1)] : []);
     setComEstoque(comItens);
     setResp(r);
@@ -284,8 +288,13 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
   const salvar = async () => {
     setErro(null);
     if (destino === 'nenhum' && !comEstoque) { setErro('Escolha pelo menos um destino.'); return; }
+    // Descricao e opcional (29/10): sem ela, monta uma pelo tipo, fornecedor e numero.
+    const descricaoFinal = descricao.trim() || [
+      ROTULO_TIPO[resp?.leitura.tipo ?? 'outro'],
+      documento.trim() ? `nº ${documento.trim()}` : '',
+      fornecedor.nome.trim() ? `— ${fornecedor.nome.trim()}` : '',
+    ].filter(Boolean).join(' ');
     if (destino !== 'nenhum') {
-      if (!descricao.trim()) { setErro('Descreva a conta.'); return; }
       if (!valorFinal || valorFinal <= 0) { setErro('Informe o valor.'); return; }
       if (destino === 'conta_pendente' && !vencimento) { setErro('Informe o vencimento.'); return; }
       if (destino !== 'conta_pendente' && dataPagamento > hoje) { setErro('Pagamento não pode ter data futura.'); return; }
@@ -308,7 +317,7 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
         const pago = destino !== 'conta_pendente';
         const venc = destino === 'pagamento_dia' ? dataPagamento : vencimento;
         const corpo: NovaContaPagar = {
-          descricao: descricao.trim(),
+          descricao: descricaoFinal,
           valor: valorFinal!,
           vencimento: venc,
           competencia: (dataDoc && dataDoc <= venc ? dataDoc : venc).slice(0, 7),
@@ -401,11 +410,13 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
           <div className="border-t border-gray-100 pt-3">
             <p className="text-xs font-semibold text-gray-600 mb-2 flex items-center gap-1"><PencilLine className="w-4 h-4" /> Ou lance à mão, sem foto</p>
             <div className="grid grid-cols-2 gap-2">
-              <BotaoSecundario onClick={() => lancarManual('boleto')}>Conta / boleto</BotaoSecundario>
-              <BotaoSecundario onClick={() => lancarManual('nota_fiscal')}>Nota com mercadoria</BotaoSecundario>
-              <BotaoSecundario onClick={() => lancarManual('ticket_pesagem')}>Ticket de pesagem</BotaoSecundario>
-              <BotaoSecundario onClick={() => lancarManual('comprovante_pagamento')}>Pagamento feito</BotaoSecundario>
+              <BotaoSecundario onClick={() => lancarManual('boleto', manualComEstoque)} className="min-h-[52px]">Boleto / conta a pagar</BotaoSecundario>
+              <BotaoSecundario onClick={() => lancarManual('comprovante_pagamento')} className="min-h-[52px]">Pagamento já feito</BotaoSecundario>
             </div>
+            <label className="mt-2 flex items-center gap-2 text-sm text-gray-700 min-h-[40px] cursor-pointer select-none">
+              <input type="checkbox" checked={manualComEstoque} onChange={e => setManualComEstoque(e.target.checked)} className="w-4 h-4 accent-[#F7941D]" />
+              Chegou mercadoria: dar entrada no estoque junto com o boleto
+            </label>
           </div>
         )}
         {erro && <Aviso tom="erro">{erro}</Aviso>}
@@ -525,8 +536,8 @@ export default function LancarPorFoto({ onFechar, onSalvo }: { onFechar: () => v
           </select>
         </Campo>
       </div>
-      <Campo rotulo="Descrição">
-        <input value={descricao} onChange={e => setDescricao(e.target.value)} className={INPUT} />
+      <Campo rotulo="Descrição (opcional)" dica={!descricao.trim() ? 'Em branco, fica o tipo do documento, o número e o fornecedor.' : undefined}>
+        <input value={descricao} onChange={e => setDescricao(e.target.value)} className={INPUT} placeholder="ex.: cimento 50 sacos" />
       </Campo>
       <div className="grid grid-cols-2 gap-3">
         <Campo rotulo="Data do documento">

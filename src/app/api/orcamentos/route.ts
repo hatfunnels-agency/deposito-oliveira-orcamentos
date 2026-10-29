@@ -28,6 +28,7 @@ export async function POST(request: NextRequest) {
                   desconto_percentual,
                   desconto_valor,
                   data_entrega,
+                  motivo_sem_data,
                   itens,
                   status,
                   forma_pagamento,
@@ -159,6 +160,8 @@ export async function POST(request: NextRequest) {
     if (condicao_pagamento) insertData.condicao_pagamento = condicao_pagamento;
         if (vencimento) insertData.vencimento = vencimento;
           if (data_entrega) { insertData.data_entrega = data_entrega; }
+          // Venda confirmada sem data: guarda o porque (aparece em "entregas sem data").
+          if (!data_entrega && motivo_sem_data) { insertData.motivo_sem_data = String(motivo_sem_data).trim().slice(0, 300) || null; }
           if (data_retirada) { insertData.data_retirada = data_retirada; }
           if (enderecoIdFinal) { insertData.endereco_id = enderecoIdFinal; }
 

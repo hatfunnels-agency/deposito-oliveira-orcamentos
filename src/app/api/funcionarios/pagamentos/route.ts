@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { exigirAdmin } from '@/lib/auth-admin';
-import { brutoDoPeriodo, hojeSP, proximoPeriodo } from '@/lib/folha';
+import { brutoDoPeriodo, hojeSP, periodosSeguintesVencidos, proximoPeriodo } from '@/lib/folha';
 import { CATEGORIA_FOLHA, METODOS, carregarCategorias, categoriaPorNome, hashInterno } from '@/lib/financeiro/contas-pagar';
 import { carregarContasFinanceiras, contaPorTipo } from '@/lib/financeiro/saldos';
 import { dataBR } from '@/lib/financeiro/datas';
@@ -75,10 +75,13 @@ export async function GET(request: NextRequest) {
 }
 
 /**
- * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id? }
+ * POST /api/funcionarios/pagamentos — { funcionario_id, pago_em?, ajuste?, observacoes?, metodo?, conta_id?, ate_periodo_fim? }
  *
  * Paga o PROXIMO periodo em aberto. O calculo e refeito aqui (nao confia
  * no numero da tela) e desconta todos os vales em aberto ate pago_em.
+ * Com `ate_periodo_fim` (AAAA-MM-DD), junta num pagamento so os periodos
+ * seguintes ja vencidos ate essa data (acerto de atrasados): um registro
+ * com periodo_inicio do primeiro e periodo_fim do ultimo, bruto somado.
  */
 export async function POST(request: NextRequest) {
   const negado = await exigirAdmin(request);
@@ -104,8 +107,17 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
 
     const base = { ...f, salario_mensal: Number(f.salario_mensal) };
-    const periodo = proximoPeriodo(base, ult?.periodo_fim ?? null);
-    const bruto = brutoDoPeriodo(base, periodo);
+    const primeiro = proximoPeriodo(base, ult?.periodo_fim ?? null);
+    // Acerto de varios periodos: so os ja vencidos em pago_em, ate a data pedida.
+    const atePeriodoFim = typeof body.ate_periodo_fim === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.ate_periodo_fim) ? body.ate_periodo_fim : null;
+    const seguintes = atePeriodoFim && atePeriodoFim > primeiro.fim
+      ? periodosSeguintesVencidos(base, primeiro, pagoEm).filter(p => p.fim <= atePeriodoFim)
+      : [];
+    const todos = [primeiro, ...seguintes];
+    const ultimoPeriodo = todos[todos.length - 1];
+    const periodo = { inicio: primeiro.inicio, fim: ultimoPeriodo.fim, pagamento: ultimoPeriodo.pagamento };
+    const bruto = { valor: Math.round(todos.reduce((s, p) => s + brutoDoPeriodo(base, p).valor, 0) * 100) / 100 };
+    const obsPeriodos = todos.length > 1 ? `${todos.length} períodos num pagamento só` : '';
 
     const { data: vales } = await supabaseAdmin
       .from('funcionario_vales')
@@ -127,7 +139,7 @@ export async function POST(request: NextRequest) {
         total_vales: totalVales,
         ajuste,
         valor_liquido: Math.round((bruto.valor - totalVales + ajuste) * 100) / 100,
-        observacoes: String(body.observacoes ?? '').trim() || null,
+        observacoes: [String(body.observacoes ?? '').trim(), obsPeriodos].filter(Boolean).join(' · ') || null,
         metodo: saida.metodo,
         conta_id: saida.conta_id,
       })

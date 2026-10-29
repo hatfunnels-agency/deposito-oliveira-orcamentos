@@ -123,6 +123,7 @@ interface OrcamentoDetalhe {
   // Perdido = status 'cancelado' + motivo (ver supabase-orcamento-perdido.sql).
   perdido_em?: string | null;
   motivo_perda?: string | null;
+  motivo_sem_data?: string | null;
   codigo: string;
   tipo_entrega: string;
   valor_frete: number;
@@ -215,6 +216,8 @@ interface OrcamentoSalvo {
   // Perdido = status 'cancelado' + motivo (ver supabase-orcamento-perdido.sql).
   perdido_em?: string | null;
   motivo_perda?: string | null;
+  // Por que a entrega confirmada esta sem data (quadro "sem data" da aba Entregas).
+  motivo_sem_data?: string | null;
   codigo: string;
   tipo_entrega: string;
   valor_frete: number;
@@ -889,6 +892,8 @@ export default function OrcamentoApp() {  // Auth state
   const [dataConfirmacao, setDataConfirmacao] = useState('');
   // Cliente fechou mas ainda vai combinar o dia com o pedreiro.
   const [semDataConfirmacao, setSemDataConfirmacao] = useState(false);
+  const [motivoSemDataConfirmacao, setMotivoSemDataConfirmacao] = useState('');
+  const [reabrindoEntrega, setReabrindoEntrega] = useState(false);
   // Entregas confirmadas sem data: a aba Entregas lista por dia e elas sumiam.
   const [entregasSemData, setEntregasSemData] = useState<any[]>([]);
   const [confirmandoVenda, setConfirmandoVenda] = useState(false);
@@ -1693,9 +1698,14 @@ export default function OrcamentoApp() {  // Auth state
     // Venda confirmada de entrega sem data: a atendente esquecia. Pergunta
     // antes, como no "Confirmar venda" do detalhe. OK segue sem data (cliente
     // vai confirmar com o pedreiro).
-    if (tipoEntrega === 'entrega' && !dataEntrega && STATUS_VENDA_CONFIRMADA.includes(statusFinal)
-      && !window.confirm('Esta entrega está sem data.\n\nO cliente realmente não passou data de entrega?\n\nOK = salvar sem data · Cancelar = voltar e preencher')) {
-      return;
+    // Sem data so com motivo (29/10): pedido fechado sem data e sem porque
+    // virava "fantasma" — conta no faturamento e ninguem sabe se vai sair.
+    let motivoSemData: string | null = null;
+    if (tipoEntrega === 'entrega' && !dataEntrega && STATUS_VENDA_CONFIRMADA.includes(statusFinal)) {
+      const m = window.prompt('Esta entrega está sem data.\n\nPor que ainda não tem data? (ex.: cliente vai procurar pedreiro, obra ainda não começou, agenda depois de pagar)\n\nEscreva o motivo para salvar sem data, ou cancele para voltar e preencher a data.');
+      if (m === null) return;
+      if (!m.trim()) { alert('Escreva o motivo de estar sem data, ou volte e preencha a data.'); return; }
+      motivoSemData = m.trim();
     }
     setSalvandoOrcamento(true);
     setOrcamentoSalvo(null);
@@ -1722,6 +1732,7 @@ export default function OrcamentoApp() {  // Auth state
           ? (descontoModo === 'valor' ? Math.round(descontoValorInput * 100) / 100 : (total - totalFinal))
           : 0,
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
+        ...(motivoSemData ? { motivo_sem_data: motivoSemData } : {}),
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
             fonte: fonteVenda || null,
@@ -2074,24 +2085,35 @@ export default function OrcamentoApp() {  // Auth state
     const entrega = d.tipo_entrega === 'entrega';
     const novoStatus = entrega ? 'entrega_pendente' : 'retirada_pendente';
     const data = semDataConfirmacao ? '' : (dataConfirmacao || d.data_entrega || '');
-    if (entrega && !data && !semDataConfirmacao && !window.confirm(
-      'Esta entrega está sem data.\n\nO cliente realmente não passou data de entrega?\n\nOK = confirmar sem data · Cancelar = voltar e preencher',
-    )) return;
+    // Sem data so com motivo (29/10): marcou "sem data ainda" = escreve o
+    // porque no campo; esqueceu a data = pergunta o motivo aqui.
+    let motivoSemData = motivoSemDataConfirmacao.trim();
+    if (entrega && !data) {
+      if (semDataConfirmacao && !motivoSemData) { alert('Escreva por que a entrega ainda está sem data (ex.: cliente vai procurar pedreiro).'); return; }
+      if (!semDataConfirmacao) {
+        const m = window.prompt('Esta entrega está sem data.\n\nPor que ainda não tem data? (ex.: cliente vai procurar pedreiro, obra ainda não começou, agenda depois de pagar)\n\nEscreva o motivo para confirmar sem data, ou cancele para voltar e preencher a data.');
+        if (m === null) return;
+        if (!m.trim()) { alert('Escreva o motivo de estar sem data, ou volte e preencha a data.'); return; }
+        motivoSemData = m.trim();
+      }
+    }
     setConfirmandoVenda(true);
     try {
       const body: Record<string, unknown> = { status: novoStatus, _previous_status: d.status };
       if (entrega && data && data !== d.data_entrega) body.data_entrega = data;
       if (entrega && !data && d.data_entrega) body.data_entrega = null;
+      if (entrega && !data) body.motivo_sem_data = motivoSemData;
       const res = await fetch(`/api/orcamentos/${d.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setOrcamentoDetalhe({ ...d, status: novoStatus, data_entrega: entrega ? (data || null) : d.data_entrega });
+      setOrcamentoDetalhe({ ...d, status: novoStatus, data_entrega: entrega ? (data || null) : d.data_entrega, motivo_sem_data: entrega && !data ? motivoSemData : null });
       setVendaConfirmadaId(d.id);
       setDataConfirmacao('');
       setSemDataConfirmacao(false);
+      setMotivoSemDataConfirmacao('');
       carregarHistorico();
       carregarProdutos();
     } catch (e) {
@@ -2314,6 +2336,38 @@ export default function OrcamentoApp() {  // Auth state
       console.error('Erro ao marcar como perdido', e);
       alert('Nao foi possivel marcar como perdido. Tente de novo.');
     }
+  };
+
+  // Pedido com entrega parcial que virou "completo" sem o restante sair:
+  // volta pra Entrega Parcial (ou Pendente, se nada foi entregue) pra
+  // programar o que falta. 'completo' ja e committed: nao baixa estoque de novo.
+  const reabrirEntrega = async () => {
+    const d = orcamentoDetalhe;
+    if (!d) return;
+    const falta = d.orcamento_itens
+      .map(it => ({ nome: it.produto_nome, unidade: it.unidade, falta: Number(it.quantidade) - (Number(it.quantidade_entregue) || 0) }))
+      .filter(x => x.falta > 1e-9);
+    if (!window.confirm(`Reabrir a entrega de ${d.codigo}?\n\nFalta: ${falta.map(f => `${f.falta} ${f.unidade} de ${f.nome}`).join(' · ')}\n\nO pedido volta pra "Entrega Parcial" e você programa o restante.`)) return;
+    const algumEntregue = d.orcamento_itens.some(i => (Number(i.quantidade_entregue) || 0) > 1e-9);
+    const novoStatus = algumEntregue ? 'entrega_parcial' : 'entrega_pendente';
+    setReabrindoEntrega(true);
+    try {
+      const res = await fetch(`/api/orcamentos/${d.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: novoStatus, _previous_status: 'completo' }),
+        cache: 'no-store',
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      setOrcamentoDetalhe({ ...d, status: novoStatus });
+      carregarHistorico();
+      fetch('/api/entregas/sem-data', { cache: 'no-store' })
+        .then(r => r.json()).then(x => setEntregasSemData(x.entregas || [])).catch(() => {});
+    } catch (e) {
+      console.error('Erro ao reabrir entrega', e);
+      alert('Não foi possível reabrir a entrega. Tente de novo.');
+    }
+    setReabrindoEntrega(false);
   };
 
   // Retirada concluida pelo detalhe do pedido. Com saldo em aberto, confirma.
@@ -5007,20 +5061,33 @@ export default function OrcamentoApp() {  // Auth state
               <details className="rounded-xl border border-amber-300 bg-amber-50 p-3">
                 <summary className="cursor-pointer text-sm font-semibold text-amber-900">
                   📅 {entregasSemData.length} entrega{entregasSemData.length > 1 ? 's' : ''} confirmada{entregasSemData.length > 1 ? 's' : ''} sem data — o cliente ainda vai combinar o dia
+                  {(() => {
+                    // Fechado, sem data e sem pagar = pedido fantasma: conta no
+                    // faturamento e pode nunca sair. Chama atencao no titulo.
+                    const semPagar = entregasSemData.filter(e => (Number(e.total) || 0) - (Number(e.valor_pago) || 0) > 0.01).length;
+                    return semPagar > 0 ? <span className="ml-2 text-xs font-semibold text-red-700">· {semPagar} sem pagamento</span> : null;
+                  })()}
                 </summary>
                 <div className="mt-2 divide-y divide-amber-200">
-                  {entregasSemData.map(e => (
+                  {entregasSemData.map(e => {
+                    const emAberto = (Number(e.total) || 0) - (Number(e.valor_pago) || 0);
+                    return (
                     <div key={e.id} className="flex items-center justify-between gap-3 py-2 text-sm">
                       <div className="min-w-0">
                         <p className="font-medium text-gray-800 truncate">{e.clientes?.nome || 'Cliente'} <span className="text-gray-400 font-normal">· {e.codigo}</span>{e.parcialmente_programada && <span className="ml-1 text-[11px] font-normal text-indigo-700">· parte já programada, falta o restante</span>}</p>
                         <p className="text-xs text-gray-500">
                           {[e.endereco_completo?.bairro, e.endereco_completo?.cidade].filter(Boolean).join(' — ') || 'sem endereço'} · R$ {formatBRL(Number(e.total) || 0)} · confirmado em {new Date(e.criado_em).toLocaleDateString('pt-BR')}
+                          {emAberto > 0.01 && <span className="ml-1 font-semibold text-red-700">· falta pagar R$ {formatBRL(emAberto)}</span>}
+                        </p>
+                        <p className={`text-xs ${e.motivo_sem_data ? 'text-amber-900' : 'text-gray-400 italic'}`}>
+                          {e.motivo_sem_data ? `Motivo: ${e.motivo_sem_data}` : 'Motivo não informado'}
                         </p>
                       </div>
                       <button onClick={() => abrirDetalhe(e.id)}
                         className="shrink-0 text-xs font-semibold text-amber-900 border border-amber-300 bg-white rounded-lg px-2.5 py-1.5 hover:bg-amber-100">Definir data</button>
                     </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </details>
             )}
@@ -5750,6 +5817,10 @@ export default function OrcamentoApp() {  // Auth state
                     <button onClick={() => { setMostrarDetalhe(false); setOrcamentoDetalhe(null); }} className="text-gray-400 hover:text-gray-600 text-2xl leading-none">&times;</button>
                   </div>
                   <p className="text-xs text-gray-400">Criado em: {new Date(orcamentoDetalhe.criado_em).toLocaleDateString('pt-BR')} {new Date(orcamentoDetalhe.criado_em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+                  {orcamentoDetalhe.tipo_entrega === 'entrega' && !orcamentoDetalhe.data_entrega
+                    && ['entrega_pendente', 'entrega_parcial'].includes(orcamentoDetalhe.status) && (
+                    <p className="text-xs text-amber-800 mt-0.5">📅 Sem data de entrega — {orcamentoDetalhe.motivo_sem_data ? `motivo: ${orcamentoDetalhe.motivo_sem_data}` : 'motivo não informado'}</p>
+                  )}
                 </div>
                 <div className="md:grid md:grid-cols-[minmax(0,1fr)_320px]">
                   <div className="min-w-0 md:border-r md:border-gray-100 pb-3">
@@ -6065,6 +6136,11 @@ export default function OrcamentoApp() {  // Auth state
                                   <input type="checkbox" checked={semDataConfirmacao} onChange={e => setSemDataConfirmacao(e.target.checked)} className="accent-[#F7941D]" />
                                   Sem data ainda (cliente vai confirmar)
                                 </span>
+                                {semDataConfirmacao && (
+                                  <input type="text" value={motivoSemDataConfirmacao} onChange={e => setMotivoSemDataConfirmacao(e.target.value)}
+                                    placeholder="Por quê? ex.: vai procurar pedreiro, obra não começou, agenda depois de pagar"
+                                    className="mt-1.5 w-full text-sm border border-amber-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#F7941D]" />
+                                )}
                               </label>
                             )}
                             <button onClick={() => confirmarVenda(orcamentoDetalhe)} disabled={confirmandoVenda}
@@ -6093,6 +6169,19 @@ export default function OrcamentoApp() {  // Auth state
                       pedidos em rota parados desde agosto (15/10). */}
                   {['em_rota', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega' && (
                     <button onClick={marcarTudoEntregue} disabled={marcandoTudoEntregue} className="w-full bg-green-600 text-white py-2 rounded-xl font-bold hover:bg-green-700 transition text-sm disabled:opacity-50">{marcandoTudoEntregue ? 'Salvando...' : '✅ Marcar Tudo Entregue'}</button>
+                  )}
+                  {/* Pedido com entrega parcial que foi marcado "completo" pela aba
+                      Entregas (ou por engano) sem o restante ter saido: volta pra
+                      Entrega Parcial pra programar o que falta (29/10). So aparece
+                      quando houve parcial — pedido entregue inteiro de uma vez nao
+                      controla quantidade_entregue. */}
+                  {orcamentoDetalhe.status === 'completo' && orcamentoDetalhe.tipo_entrega === 'entrega'
+                    && (entregasParciais.length > 0 || orcamentoDetalhe.orcamento_itens.some(i => (Number(i.quantidade_entregue) || 0) > 1e-9))
+                    && orcamentoDetalhe.orcamento_itens.some(i => Number(i.quantidade) - (Number(i.quantidade_entregue) || 0) > 1e-9) && (
+                    <button onClick={reabrirEntrega} disabled={reabrindoEntrega}
+                      className="w-full border border-indigo-300 text-indigo-800 bg-indigo-50 py-2 rounded-xl font-bold hover:bg-indigo-100 transition text-sm disabled:opacity-50">
+                      {reabrindoEntrega ? 'Salvando...' : '↩️ Reabrir entrega — ainda falta material'}
+                    </button>
                   )}
                   {/* Retirada: concluir no proprio pedido (antes so existia em
                       Entregas > Lista > Retiradas Pendentes). Inclui pedido de

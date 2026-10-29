@@ -12,7 +12,7 @@ export const dynamic = 'force-dynamic';
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('orcamentos')
-    .select('id, codigo, total, criado_em, clientes ( nome, telefone ), endereco_completo:enderecos_clientes ( bairro, cidade ), orcamento_itens ( id, quantidade, quantidade_entregue )')
+    .select('id, codigo, total, valor_pago, motivo_sem_data, criado_em, clientes ( nome, telefone ), endereco_completo:enderecos_clientes ( bairro, cidade ), orcamento_itens ( id, quantidade, quantidade_entregue )')
     .eq('tipo_entrega', 'entrega')
     .is('data_entrega', null)
     .in('status', ['entrega_pendente', 'entrega_parcial', 'em_rota'])

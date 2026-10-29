@@ -7,9 +7,12 @@ export type Frequencia = 'semanal' | 'quinzenal' | 'mensal';
 
 export const FREQUENCIA_LABELS: Record<Frequencia, string> = {
   semanal: 'Semanal (sábado)',
-  quinzenal: 'Quinzenal (dias 5 e 20)',
+  quinzenal: 'Quinzenal (dias 15 e 30)',
   mensal: 'Mensal (dia 5)',
 };
+
+/** Quantos periodos seguidos podem ir num pagamento so (acerto de atrasados). */
+export const MAX_PERIODOS_POR_PAGAMENTO = 12;
 
 export interface Periodo {
   inicio: string;     // primeiro dia trabalhado do periodo
@@ -37,7 +40,9 @@ export const hojeSP = () =>
 /**
  * Periodo que contem a data `s`.
  *   semanal   -> domingo a sabado, paga no proprio sabado
- *   quinzenal -> 1 a 15 paga dia 20; 16 ao fim do mes paga dia 5 do mes seguinte
+ *   quinzenal -> 1 a 15 paga dia 15; 16 ao fim do mes paga dia 30 (ou o
+ *                ultimo dia, em fevereiro). Mudou em 29/10/2026: antes pagava
+ *                dia 20 e dia 5 do mes seguinte.
  *   mensal    -> mes inteiro, paga dia 5 do mes seguinte
  */
 export function periodoContendo(freq: Frequencia, s: string): Periodo {
@@ -51,11 +56,30 @@ export function periodoContendo(freq: Frequencia, s: string): Periodo {
   }
   if (freq === 'quinzenal') {
     if (d.getUTCDate() <= 15) {
-      return { inicio: ymd(y, m, 1), fim: ymd(y, m, 15), pagamento: ymd(y, m, 20) };
+      return { inicio: ymd(y, m, 1), fim: ymd(y, m, 15), pagamento: ymd(y, m, 15) };
     }
-    return { inicio: ymd(y, m, 16), fim: ymd(y, m + 1, 0), pagamento: ymd(y, m + 1, 5) };
+    const ultimoDia = new Date(Date.UTC(y, m + 1, 0)).getUTCDate();
+    return { inicio: ymd(y, m, 16), fim: ymd(y, m + 1, 0), pagamento: ymd(y, m, Math.min(30, ultimoDia)) };
   }
   return { inicio: ymd(y, m, 1), fim: ymd(y, m + 1, 0), pagamento: ymd(y, m + 1, 5) };
+}
+
+/**
+ * Periodos seguintes ao `primeiro` cujo dia de pagar ja chegou em `pagoEm`
+ * (sem contar o proprio `primeiro`). E o que pode ir junto num unico
+ * pagamento quando a pessoa esta com mais de um periodo atrasado — caso
+ * da virada pra quinzenal em out/2026, em que o mes inteiro foi acertado
+ * de uma vez no dia 30.
+ */
+export function periodosSeguintesVencidos(f: FuncionarioBase, primeiro: Periodo, pagoEm: string): Periodo[] {
+  const lista: Periodo[] = [];
+  let p = periodoContendo(f.frequencia, somarDias(primeiro.fim, 1));
+  while (p.pagamento <= pagoEm && lista.length < MAX_PERIODOS_POR_PAGAMENTO - 1) {
+    if (f.data_desligamento && p.inicio > f.data_desligamento) break;
+    lista.push(p);
+    p = periodoContendo(f.frequencia, somarDias(p.fim, 1));
+  }
+  return lista;
 }
 
 /** Valor cheio de um periodo a partir do salario mensal. */
