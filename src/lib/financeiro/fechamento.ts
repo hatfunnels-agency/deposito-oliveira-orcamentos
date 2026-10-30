@@ -23,7 +23,7 @@ import { carregarTaxas, custosDoPeriodo, resumirCustos, taxasVigentes } from './
 import { contasPagasNoPeriodo, contasPagasPorCompetencia, listarContasPagar } from './contas-pagar';
 import { listarDespesasFixas } from './despesas-fixas';
 import { extratoAtePorConta } from './dia';
-import { cartaoAgregado } from './conciliacao';
+import { cartaoAgregado, tokensDeNome } from './conciliacao';
 
 type Row = Record<string, any>;
 const um = <T,>(v: unknown): T | null => (Array.isArray(v) ? (v[0] ?? null) : (v ?? null)) as T | null;
@@ -62,7 +62,7 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
       .select('id, conta_id, data, descricao, contraparte, valor, tarifa, origem_lancamento, revisado, categoria_origem, categoria_id, pagamento_id, conta_pagar_id, funcionario_pagamento_id, funcionario_vale_id, categorias_financeiras ( nome, grupo, grupo_gestao )')
       .gte('data', inicio).lte('data', fim)),
     lerTudo<Row>(() => supabaseAdmin.from('funcionario_pagamentos')
-      .select('id, valor_liquido, total_vales, pago_em, periodo_fim, metodo, conta_id, funcionarios ( nome )').gte('periodo_fim', inicio).lte('periodo_fim', fim)),
+      .select('id, valor_liquido, total_vales, pago_em, periodo_inicio, periodo_fim, metodo, conta_id, funcionarios ( nome )').gte('periodo_fim', inicio).lte('periodo_fim', fim)),
     lerTudo<Row>(() => supabaseAdmin.from('funcionario_pagamentos')
       .select('id, valor_liquido, pago_em, metodo, conta_id').gte('pago_em', inicio).lte('pago_em', fim)),
     lerTudo<Row>(() => supabaseAdmin.from('funcionario_vales')
@@ -154,6 +154,18 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
 
   // (b) folha: so de funcionario_pagamentos (bruto = liquido + vales descontados), por periodo_fim.
   const refsFolha: Ref[] = folhaPaga.map(f => ({ data: String(f.pago_em), valor: arred2(Number(f.valor_liquido) || 0) }));
+  // Salario registrado em Funcionarios que, na pratica, saiu em varios Pix
+  // (ex.: os sabados que viraram uma quinzena): a linha do extrato com o nome
+  // do funcionario, dentro do periodo de um pagamento registrado, ja e folha.
+  const periodosFolha = folhaComp.map(f => ({
+    tokens: tokensDeNome(um<Row>(f.funcionarios)?.nome as string | undefined),
+    inicio: String(f.periodo_inicio ?? f.periodo_fim), fim: String(f.pago_em) > String(f.periodo_fim) ? String(f.pago_em) : String(f.periodo_fim),
+  }));
+  const dentroDeFolhaRegistrada = (l: Row) => {
+    const texto = `${normalizar(l.contraparte as string | null)} ${normalizar(l.descricao as string | null)}`;
+    const data = String(l.data);
+    return periodosFolha.some(p => p.tokens.length > 0 && data >= p.inicio && data <= p.fim && p.tokens.some(t => texto.includes(t)));
+  };
   let folhaRealizada = 0;
   for (const f of folhaComp) {
     const valor = arred2((Number(f.valor_liquido) || 0) + (Number(f.total_vales) || 0));
@@ -197,7 +209,7 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     // Salario pago por PIX so e descartado quando o mesmo pagamento esta
     // registrado em Funcionarios (ai ele ja entrou pela folha). Sem registro,
     // a linha do extrato E a folha realizada.
-    if (ehFolha(cat?.nome) && doExtrato && coincide(refsFolha, String(l.data), abs)) { folhaJaContada++; continue; }
+    if (ehFolha(cat?.nome) && doExtrato && (coincide(refsFolha, String(l.data), abs) || dentroDeFolhaRegistrada(l))) { folhaJaContada++; continue; }
     if (doExtrato && (coincide(refsContas, String(l.data), abs) || coincide(refsFolha, String(l.data), abs))) { duplicidades++; continue; }
     if (doExtrato) saidasExtrato.push({ valor: abs, conta_id: String(l.conta_id) }); else saidasCaixa.push(abs);
     // Categoria com grupo_gestao NULL (nao operacional) fica fora; sem categoria cai em 'outro'.
