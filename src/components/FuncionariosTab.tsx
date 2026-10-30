@@ -605,10 +605,6 @@ export default function FuncionariosTab() {
                       onClick={() => setModalVale({ funcionario_id: f.id, valor: '', data: hoje, descricao: '' })}
                       className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50"
                     >+ Vale</button>
-                    <button
-                      onClick={() => abrirExtrato(f)}
-                      className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50"
-                    >Extrato</button>
                   </div>
                 </div>
                 {aberto && (
@@ -687,7 +683,7 @@ export default function FuncionariosTab() {
                       })()}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      <button onClick={() => abrirExtrato(f)} className="text-gray-500 hover:text-[#F7941D] mr-3" aria-label="Extrato" title="Extrato de pagamentos e vales"><FileText size={16} /></button>
+                      <button onClick={() => abrirExtrato(f)} className="inline-flex items-center gap-1 text-gray-600 hover:text-[#F7941D] mr-3 text-xs" title="Extrato de pagamentos e vales"><FileText size={14} /> Extrato</button>
                       <button onClick={() => abrirEditarFunc(f)} className="text-gray-500 hover:text-[#F7941D]" aria-label="Editar"><Pencil size={16} /></button>
                     </td>
                   </tr>
