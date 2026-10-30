@@ -160,6 +160,9 @@ export default function FuncionariosTab() {
   const [salvando, setSalvando] = useState(false);
   const [expandido, setExpandido] = useState<string | null>(null);
   const [modalDocs, setModalDocs] = useState<Funcionario | null>(null);
+  // Extrato do funcionario: pagamentos + vales numa linha do tempo, pra
+  // mostrar quando ele vier questionar. pagamentos=null enquanto carrega.
+  const [modalExtrato, setModalExtrato] = useState<{ f: Funcionario; pagamentos: Pagamento[] | null } | null>(null);
   const [docs, setDocs] = useState<Documento[]>([]);
   const [novoDoc, setNovoDoc] = useState(DOC_VAZIO);
   const [enviando, setEnviando] = useState(false);
@@ -289,6 +292,71 @@ export default function FuncionariosTab() {
     } catch (e) {
       alert((e as Error).message);
     }
+  };
+
+  const abrirExtrato = async (f: Funcionario) => {
+    setModalExtrato({ f, pagamentos: null });
+    try {
+      const json = await api(`/api/funcionarios/pagamentos?funcionario_id=${f.id}`);
+      setModalExtrato(prev => (prev && prev.f.id === f.id ? { f, pagamentos: json.pagamentos || [] } : prev));
+    } catch (e) {
+      setErro((e as Error).message);
+      setModalExtrato(null);
+    }
+  };
+
+  // Linha do tempo do extrato: cada pagamento e cada vale (descontado ou em
+  // aberto) vira um evento, do mais novo pro mais antigo.
+  const eventosExtrato = (f: Funcionario, pagamentos: Pagamento[]) => {
+    type Evento =
+      | { tipo: 'pagamento'; data: string; p: Pagamento }
+      | { tipo: 'vale'; data: string; v: Vale; pagoEm: string | null };
+    const lista: Evento[] = [];
+    for (const p of pagamentos) {
+      lista.push({ tipo: 'pagamento', data: p.pago_em, p });
+      for (const v of p.funcionario_vales || []) lista.push({ tipo: 'vale', data: v.data, v, pagoEm: p.pago_em });
+    }
+    for (const v of f.vales_abertos) lista.push({ tipo: 'vale', data: v.data, v, pagoEm: null });
+    // Mesmo dia: pagamento depois dos vales (o vale e descontado nele).
+    return lista.sort((a, b) => b.data.localeCompare(a.data) || (a.tipo === 'pagamento' ? -1 : 1) - (b.tipo === 'pagamento' ? -1 : 1));
+  };
+
+  const imprimirExtrato = (f: Funcionario, pagamentos: Pagamento[]) => {
+    const win = window.open('', '_blank');
+    if (!win) return;
+    const esc = (t: string | null | undefined) => String(t ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c] as string));
+    const linhas = eventosExtrato(f, pagamentos).map(ev => {
+      if (ev.tipo === 'pagamento') {
+        const p = ev.p;
+        return `<tr class="pg"><td>${dataBR(p.pago_em)}</td><td><b>Salário</b> ${dataBR(p.periodo_inicio)} a ${dataBR(p.periodo_fim)}` +
+          `<div class="sub">bruto ${brl(p.valor_bruto)} · vales descontados ${brl(p.total_vales)}${Number(p.ajuste) !== 0 ? ` · ajuste ${Number(p.ajuste) > 0 ? '+' : ''}${brl(p.ajuste)}` : ''}${p.observacoes ? ` · ${esc(p.observacoes)}` : ''}</div></td>` +
+          `<td class="r"><b>${brl(p.valor_liquido)}</b><div class="sub">pago</div></td></tr>`;
+      }
+      const v = ev.v;
+      const credito = v.valor < 0;
+      return `<tr><td>${dataBR(v.data)}</td><td>${credito ? 'Saldo a receber' : 'Vale'}${v.descricao ? ` · ${esc(v.descricao)}` : ''}` +
+        `<div class="sub">${ev.pagoEm ? `descontado no pagamento de ${dataBR(ev.pagoEm)}` : 'em aberto'}</div></td>` +
+        `<td class="r ${credito ? 'cr' : 'vl'}">${credito ? '+' : '−'} ${brl(Math.abs(v.valor))}</td></tr>`;
+    }).join('');
+    const totalPago = pagamentos.reduce((a, p) => a + Number(p.valor_liquido), 0);
+    const abertos = f.vales_abertos.filter(v => v.valor > 0).reduce((a, v) => a + v.valor, 0);
+    const credito = -f.vales_abertos.filter(v => v.valor < 0).reduce((a, v) => a + v.valor, 0);
+    win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Extrato — ${esc(f.nome)}</title><style>
+      @page{size:A4 portrait;margin:14mm}body{font-family:Arial,sans-serif;font-size:13px;color:#222;margin:0}
+      h1{font-size:20px;margin:0 0 2px;color:#F7941D}.meta{color:#666;font-size:12px;margin-bottom:12px}
+      .tot{display:flex;gap:18px;margin:10px 0 14px;font-size:12px}.tot b{display:block;font-size:15px;color:#111}
+      table{width:100%;border-collapse:collapse}th{text-align:left;background:#F7941D;color:#fff;padding:6px 8px;font-size:12px}
+      td{padding:6px 8px;border-bottom:1px solid #e5e5e5;vertical-align:top}.r{text-align:right;white-space:nowrap}
+      .sub{color:#777;font-size:11px}.pg td{background:#fff8ee}.vl{color:#c2410c}.cr{color:#047857}
+      .ftr{margin-top:16px;color:#999;font-size:11px}</style></head><body>
+      <h1>Extrato de pagamentos — ${esc(f.nome)}</h1>
+      <div class="meta">Depósito Oliveira · ${esc(f.funcao || '')} · admissão ${dataBR(f.data_admissao)} · ${FREQUENCIA_LABELS[f.frequencia]} · salário ${brl(f.salario_mensal)}/mês · emitido em ${dataBR(hoje)}</div>
+      <div class="tot"><div>Pagamentos<b>${pagamentos.length}</b></div><div>Total pago<b>${brl(totalPago)}</b></div><div>Vales em aberto<b>${brl(abertos)}</b></div>${credito > 0 ? `<div>Saldo a receber<b>${brl(credito)}</b></div>` : ''}</div>
+      <table><thead><tr><th>Data</th><th>Lançamento</th><th class="r">Valor</th></tr></thead><tbody>${linhas}</tbody></table>
+      <div class="ftr">Vale em aberto é descontado no próximo pagamento. Saldo a receber é valor pago a menos, somado no próximo pagamento.</div>
+      </body></html>`);
+    win.document.close();
+    setTimeout(() => win.print(), 250);
   };
 
   const abrirNovoFunc = () => setModalFunc({ id: null, form: { ...FORM_VAZIO, controle_desde: hoje } });
@@ -537,6 +605,10 @@ export default function FuncionariosTab() {
                       onClick={() => setModalVale({ funcionario_id: f.id, valor: '', data: hoje, descricao: '' })}
                       className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50"
                     >+ Vale</button>
+                    <button
+                      onClick={() => abrirExtrato(f)}
+                      className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50"
+                    >Extrato</button>
                   </div>
                 </div>
                 {aberto && (
@@ -615,6 +687,7 @@ export default function FuncionariosTab() {
                       })()}
                     </td>
                     <td className="px-3 py-2 text-right">
+                      <button onClick={() => abrirExtrato(f)} className="text-gray-500 hover:text-[#F7941D] mr-3" aria-label="Extrato" title="Extrato de pagamentos e vales"><FileText size={16} /></button>
                       <button onClick={() => abrirEditarFunc(f)} className="text-gray-500 hover:text-[#F7941D]" aria-label="Editar"><Pencil size={16} /></button>
                     </td>
                   </tr>
@@ -708,6 +781,70 @@ export default function FuncionariosTab() {
       )}
 
       {/* ===== MODAL DOCUMENTOS ===== */}
+      {modalExtrato && (() => {
+        const f = funcs.find(x => x.id === modalExtrato.f.id) ?? modalExtrato.f;
+        const pags = modalExtrato.pagamentos;
+        const totalPago = (pags || []).reduce((a, p) => a + Number(p.valor_liquido), 0);
+        const abertos = f.vales_abertos.filter(v => v.valor > 0).reduce((a, v) => a + v.valor, 0);
+        const credito = -f.vales_abertos.filter(v => v.valor < 0).reduce((a, v) => a + v.valor, 0);
+        return (
+          <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl w-full max-w-2xl p-5 space-y-3 my-8">
+              <div className="flex items-center justify-between gap-2">
+                <div>
+                  <h3 className="font-bold text-lg">Extrato de {f.nome}</h3>
+                  <p className="text-xs text-gray-500">{FREQUENCIA_LABELS[f.frequencia]} · salário {brl(f.salario_mensal)}/mês · admissão {dataBR(f.data_admissao)}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  {pags && pags.length + f.vales_abertos.length > 0 && (
+                    <button onClick={() => imprimirExtrato(f, pags)} className="px-3 py-1.5 rounded-lg border text-xs hover:bg-gray-50">🖨️ Imprimir</button>
+                  )}
+                  <button onClick={() => setModalExtrato(null)} aria-label="Fechar"><X size={20} /></button>
+                </div>
+              </div>
+
+              {pags && (
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div className="rounded-lg bg-gray-50 p-2"><p className="text-xs text-gray-500">Pagamentos</p><p className="font-bold">{pags.length} · {brl(totalPago)}</p></div>
+                  <div className="rounded-lg bg-orange-50 p-2"><p className="text-xs text-gray-500">Vales em aberto</p><p className="font-bold text-orange-700">{brl(abertos)}</p></div>
+                  <div className="rounded-lg bg-emerald-50 p-2"><p className="text-xs text-gray-500">Saldo a receber</p><p className="font-bold text-emerald-700">{brl(credito)}</p></div>
+                </div>
+              )}
+
+              {!pags && <p className="text-sm text-gray-500">Carregando…</p>}
+              {pags && pags.length + f.vales_abertos.length === 0 && <p className="text-sm text-gray-500">Nenhum pagamento nem vale registrado ainda.</p>}
+              {pags && (
+                <ul className="divide-y max-h-[60vh] overflow-y-auto -mx-1 px-1">
+                  {eventosExtrato(f, pags).map(ev => ev.tipo === 'pagamento' ? (
+                    <li key={`p-${ev.p.id}`} className="py-2 flex gap-3 items-start bg-orange-50/60 -mx-2 px-2 rounded">
+                      <span className="text-xs text-gray-500 w-20 shrink-0 pt-0.5">{dataBR(ev.p.pago_em)}</span>
+                      <div className="flex-1 min-w-0 text-sm">
+                        <p className="font-semibold">Salário {dataBR(ev.p.periodo_inicio)} a {dataBR(ev.p.periodo_fim)}</p>
+                        <p className="text-xs text-gray-500">
+                          bruto {brl(ev.p.valor_bruto)} · vales descontados {brl(ev.p.total_vales)}
+                          {Number(ev.p.ajuste) !== 0 && ` · ajuste ${Number(ev.p.ajuste) > 0 ? '+' : ''}${brl(ev.p.ajuste)}`}
+                        </p>
+                        {ev.p.observacoes && <p className="text-xs text-gray-500">{ev.p.observacoes}</p>}
+                      </div>
+                      <span className="font-bold text-sm whitespace-nowrap">{brl(ev.p.valor_liquido)}</span>
+                    </li>
+                  ) : (
+                    <li key={`v-${ev.v.id}`} className="py-2 flex gap-3 items-start">
+                      <span className="text-xs text-gray-500 w-20 shrink-0 pt-0.5">{dataBR(ev.v.data)}</span>
+                      <div className="flex-1 min-w-0 text-sm">
+                        <p>{ev.v.valor < 0 ? 'Saldo a receber' : 'Vale'}{ev.v.descricao ? ` · ${ev.v.descricao}` : ''}</p>
+                        <p className="text-xs text-gray-500">{ev.pagoEm ? `descontado no pagamento de ${dataBR(ev.pagoEm)}` : 'em aberto'}</p>
+                      </div>
+                      <span className={`text-sm whitespace-nowrap ${ev.v.valor < 0 ? 'text-emerald-700' : 'text-orange-700'}`}>{ev.v.valor < 0 ? '+' : '−'} {brl(Math.abs(ev.v.valor))}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
       {modalDocs && (() => {
         const f = funcs.find(x => x.id === modalDocs.id) ?? modalDocs;
         const faltam = docsEsperados(f).filter(t => !docs.some(d => d.tipo === t));
