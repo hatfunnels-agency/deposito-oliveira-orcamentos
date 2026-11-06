@@ -1,10 +1,10 @@
 'use client';
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Upload, FileText, AlertTriangle, CheckCircle2, TrendingUp } from 'lucide-react';
+import { Upload, FileText, AlertTriangle, CheckCircle2, TrendingUp, Landmark, RefreshCw } from 'lucide-react';
 import { supabaseBrowser } from '@/lib/supabase-client';
 import { apiFinanceiro } from '@/lib/financeiro/cliente-api';
-import type { ResultadoImportacao } from '@/lib/financeiro/tipos';
+import type { ResultadoImportacao, StatusItau, TesteItau } from '@/lib/financeiro/tipos';
 
 /**
  * Importacao de extrato + revisao + DRE.
@@ -256,6 +256,7 @@ export default function ExtratosTab({
       {/* ---------------- IMPORTAR ---------------- */}
       {vista === 'importar' && (
         <div className="space-y-4">
+          <BlocoItau onImportou={(r) => { setResultado(r); setErro(null); carregarContas(); }} />
           <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
             <h2 className="font-bold text-gray-700 mb-1">Importar extrato</h2>
             <p className="text-xs text-gray-500 mb-4">
@@ -535,6 +536,120 @@ export default function ExtratosTab({
                 </div>
               </div>
             </>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// ---------------------------------------------------------------- Itau pela API
+// Extrato da conta corrente puxado direto do banco (API Account Statement).
+// O cron roda todo dia; aqui o Roger ve o status, testa a conexao e busca
+// um periodo na mao. Sem credenciais mostra o passo a passo e nada mais.
+function BlocoItau({ onImportou }: { onImportou: (r: ResultadoImportacao) => void }) {
+  const [status, setStatus] = useState<StatusItau | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const [de, setDe] = useState(() => { const d = new Date(); d.setDate(d.getDate() - 7); return d.toISOString().slice(0, 10); });
+  const [ate, setAte] = useState(() => new Date().toISOString().slice(0, 10));
+  const [ocupado, setOcupado] = useState<'testar' | 'importar' | null>(null);
+  const [teste, setTeste] = useState<TesteItau | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    try { setStatus(await apiFinanceiro<StatusItau>('/api/financeiro/itau', { cache: 'no-store' })); setErro(null); }
+    catch (e) { setErro(e instanceof Error ? e.message : 'Erro ao consultar a API do Itaú'); }
+    finally { setCarregando(false); }
+  }, []);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const rodar = async (acao: 'testar' | 'importar') => {
+    setOcupado(acao); setErro(null); setAviso(null); setTeste(null);
+    try {
+      if (acao === 'testar') {
+        setTeste(await apiFinanceiro<TesteItau>('/api/financeiro/itau', { method: 'POST', body: JSON.stringify({ acao, de, ate }) }));
+      } else {
+        const r = await apiFinanceiro<ResultadoImportacao>('/api/financeiro/itau', { method: 'POST', body: JSON.stringify({ acao, de, ate }) });
+        setAviso(r.total === 0 ? 'Sem movimento no período.' : `${r.novos} lançamento(s) novo(s) de ${r.total} (${r.duplicados + r.duplicados_por_conteudo} já estavam).`);
+        onImportou(r);
+        carregar();
+      }
+    } catch (e) {
+      setErro(e instanceof Error ? e.message : 'Falha ao falar com o Itaú');
+    } finally { setOcupado(null); }
+  };
+
+  const u = status?.ultima_sincronizacao ?? null;
+  const quando = (iso: string) => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
+      <div className="flex items-start justify-between gap-2 flex-wrap">
+        <div>
+          <h2 className="font-bold text-gray-700 flex items-center gap-2"><Landmark className="w-4 h-4 text-[#F7941D]" /> Itaú · extrato pela API</h2>
+          <p className="text-xs text-gray-500 mt-0.5">A conta corrente entra sozinha todo dia de manhã (Pix, boletos, TED, tarifas). O upload do arquivo abaixo vira só reserva.</p>
+        </div>
+        {carregando ? <span className="text-xs text-gray-400">carregando…</span>
+          : status?.configurado
+            ? <span className={`text-xs font-semibold px-2 py-1 rounded-full ${u?.ok === false ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+                {status.ambiente === 'sandbox' ? 'sandbox' : 'ligada'}{u ? ` · ${u.ok ? 'atualizado' : 'erro'} ${quando(u.em)}` : ' · ainda não rodou'}
+              </span>
+            : <span className="text-xs font-semibold px-2 py-1 rounded-full bg-gray-100 text-gray-600">não configurada</span>}
+      </div>
+
+      {erro && <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-100 rounded-lg px-3 py-2">{erro}</p>}
+
+      {status && !status.configurado && (
+        <div className="mt-3 text-xs text-gray-600 space-y-1">
+          <p>Falta na Vercel: <code className="bg-gray-100 px-1 rounded">{status.falta.join('</code>, <code className="bg-gray-100 px-1 rounded">')}</code>.</p>
+          <ol className="list-decimal pl-4 space-y-0.5">
+            <li>Itaú for Developers › aplicação › gerar credencial (Client ID e Client Secret).</li>
+            <li>Solicitar o certificado (Owner aprova no Bankline) e baixar o certificado e a chave.</li>
+            <li>Cadastrar <code className="bg-gray-100 px-1 rounded">ITAU_CLIENT_ID</code>, <code className="bg-gray-100 px-1 rounded">ITAU_CLIENT_SECRET</code>, <code className="bg-gray-100 px-1 rounded">ITAU_CERTIFICADO</code> e <code className="bg-gray-100 px-1 rounded">ITAU_CHAVE_PRIVADA</code> na Vercel e fazer o redeploy.</li>
+          </ol>
+        </div>
+      )}
+
+      {status?.configurado && (
+        <div className="mt-3 space-y-3">
+          <div className="text-xs text-gray-600 flex flex-wrap gap-x-4 gap-y-1">
+            {status.conta && <span>Conta: <strong>{status.conta.nome}</strong>{status.conta.agencia ? ` · ag ${status.conta.agencia} cc ${status.conta.conta}` : ''}</span>}
+            {!status.conta?.statement_id && <span className="text-amber-700">Sem agência/conta cadastradas: defina ITAU_STATEMENT_ID.</span>}
+            {u && <span>Última: {u.de} a {u.ate} · {u.origem === 'cron' ? 'automática' : 'manual'} · {u.ok ? `${u.novos} novo(s) de ${u.total}` : u.erro}</span>}
+          </div>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-xs text-gray-600">De<br /><input type="date" value={de} onChange={e => setDe(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 bg-white" /></label>
+            <label className="text-xs text-gray-600">Até<br /><input type="date" value={ate} onChange={e => setAte(e.target.value)} className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-gray-900 bg-white" /></label>
+            <button onClick={() => rodar('testar')} disabled={ocupado !== null}
+              className="px-3 py-2 rounded-lg text-sm font-semibold border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+              {ocupado === 'testar' ? 'Testando…' : 'Testar conexão'}
+            </button>
+            <button onClick={() => rodar('importar')} disabled={ocupado !== null || !status.conta?.statement_id}
+              className="px-3 py-2 rounded-lg text-sm font-semibold bg-[#F7941D] text-white hover:bg-[#e8860f] disabled:opacity-50 inline-flex items-center gap-1">
+              <RefreshCw className={`w-4 h-4 ${ocupado === 'importar' ? 'animate-spin' : ''}`} /> {ocupado === 'importar' ? 'Buscando…' : 'Buscar extrato'}
+            </button>
+          </div>
+          {aviso && <p className="text-xs text-green-800 bg-green-50 border border-green-100 rounded-lg px-3 py-2">{aviso}</p>}
+          {teste && (
+            <div className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 space-y-1">
+              <p><strong>Conexão OK</strong> ({teste.ambiente}) · conta {teste.statement_id} · {teste.periodo[0]} a {teste.periodo[1]}</p>
+              <p>{teste.lancamentos} lançamento(s) ({teste.ja_importados} já no sistema) · {teste.entradas.qtd} entrada(s) {brl(teste.entradas.total)} · {teste.saidas.qtd} saída(s) {brl(teste.saidas.total)}</p>
+              {teste.saldos.length > 0 && <p>Saldo: {teste.saldos.map(s => `${dataBR(s.data)} ${brl(s.saldo)}`).join(' · ')}</p>}
+              {teste.amostra.length > 0 && (
+                <div className="font-mono text-[11px] text-gray-600 pt-1">
+                  {teste.amostra.map((a, i) => <p key={i} className="truncate">{dataBR(a.data)} {brl(a.valor).padStart(14)} {a.descricao}{a.contraparte ? ` · ${a.contraparte}` : ''}</p>)}
+                </div>
+              )}
+              <p className="text-gray-500">Nada foi gravado. Use “Buscar extrato” para importar.</p>
+            </div>
+          )}
+          {status.importacoes.length > 0 && (
+            <div className="text-xs text-gray-500 space-y-0.5">
+              {status.importacoes.slice(0, 4).map(i => <p key={i.id}>{quando(i.criado_em)} · {i.periodo_inicio} a {i.periodo_fim} · +{i.linhas_novas} de {i.linhas_total}</p>)}
+            </div>
           )}
         </div>
       )}

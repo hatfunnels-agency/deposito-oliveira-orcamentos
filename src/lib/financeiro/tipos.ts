@@ -1216,3 +1216,30 @@ export interface ResultadoVinculoPedido {
   vinculo: VinculoAplicado;
   pedido: { id: string; codigo: string | null; saldo: number };
 }
+
+// ------------------------------------------------------------
+// Itau — API Account Statement (/api/financeiro/itau)
+// ------------------------------------------------------------
+export interface StatusItau {
+  configurado: boolean;
+  ambiente: 'producao' | 'sandbox';
+  falta: string[];
+  conta: { nome: string; agencia: string | null; conta: string | null; statement_id: string | null } | null;
+  ultima_sincronizacao: { em: string; ok: boolean; origem: 'cron' | 'manual'; ambiente: string; de: string; ate: string; total: number; novos: number; erro: string | null } | null;
+  importacoes: Array<{ id: string; arquivo_nome: string; periodo_inicio: string | null; periodo_fim: string | null; linhas_total: number; linhas_novas: number; criado_em: string }>;
+}
+
+export interface TesteItau {
+  ambiente: 'producao' | 'sandbox';
+  conta: string;
+  statement_id: string;
+  periodo: [string, string];
+  eventos: number;
+  lancamentos: number;
+  ja_importados: number;
+  entradas: { qtd: number; total: number };
+  saidas: { qtd: number; total: number };
+  saldos: Array<{ data: string; saldo: number }>;
+  amostra: Array<{ data: string; descricao: string; contraparte: string | null; valor: number }>;
+  ignoradas: Array<{ linha: number; motivo: string; conteudo: string }>;
+}

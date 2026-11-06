@@ -21,6 +21,7 @@ Contratos entre API, lib e UI: `src/lib/financeiro/tipos.ts` (fonte da verdade; 
 | Fechamento mensal | Fechamento | `fechamento.ts`, `cmv.ts` | `/api/financeiro/fechamento` |
 | Simulador de cenários | Simulador | `simulador.ts` | `/api/financeiro/simulador` |
 | Fase 2: API de Conciliação Stone | Maquininha (bloco Stone) | `stone-conciliacao.ts`, `xml-min.ts` | `/api/financeiro/stone` |
+| Extrato do Itaú pela API (Account Statement, mTLS) | Extratos (bloco "Itaú · extrato pela API") | `itau-extrato.ts` → `importar-lancamentos.ts` | `/api/financeiro/itau`; cron diário D-3..D-1 em `/api/cron/financeiro` |
 
 Princípio: o que o sistema já sabe é derivado (vendas, pagamentos, folha, extrato). O que não existe em lugar nenhum — saldo do banco sem conector, saída avulsa em dinheiro, valor da fatura do cartão — é digitado **uma vez** e vira dado como qualquer outro.
 
