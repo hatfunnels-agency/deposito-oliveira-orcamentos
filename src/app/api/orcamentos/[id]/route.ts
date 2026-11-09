@@ -336,7 +336,6 @@ export async function PATCH(
               if (atual && (atual.data_entrega || null) !== (data_entrega || null)) {
                       updateData.confirmacao_status = null;
                       updateData.confirmacao_enviada_em = null;
-                      updateData.confirmacao_em = null;
               }
               if (data_retirada !== undefined) updateData.data_retirada = data_retirada || null;
               if (fonte !== undefined) updateData.fonte = fonte;

@@ -702,7 +702,6 @@ export default function OrcamentoApp() {  // Auth state
   // Confirmacao do cliente no inicio do dia + filtro por periodo (08/11/2026).
   const [filtroPeriodoDia, setFiltroPeriodoDia] = useState<'todos' | PeriodoEntrega | 'sem'>('todos');
   const [pedindoConfirmacao, setPedindoConfirmacao] = useState(false);
-  const [marcandoConfirmacao, setMarcandoConfirmacao] = useState<string | null>(null);
   // Teto de entregas por periodo (configuracoes.entregas_capacidade_periodo). So admin muda.
   const [capacidadePeriodo, setCapacidadePeriodo] = useState<number | null>(null);
   const [avisados, setAvisados] = useState<Set<string>>(new Set());
@@ -3366,7 +3365,7 @@ export default function OrcamentoApp() {  // Auth state
     setSelecionadas(entregasDiaFiltradas.map(e => e.id));
   };
 
-  // Manda o pedido de confirmacao para todas as entregas pendentes do dia que
+  // "Enviar Confirmacao": manda o pedido de confirmacao para as entregas pendentes do dia que
   // ainda nao receberam (uma mensagem so, no inicio do dia). Quem nao esta no
   // GHL ou com conversa fechada sem template abre no WhatsApp com o texto.
   const pedirConfirmacaoDia = async () => {
@@ -3391,19 +3390,6 @@ export default function OrcamentoApp() {  // Auth state
     setPedindoConfirmacao(false);
   };
 
-  // A atendente marca o que o cliente respondeu (mensagem ou ligacao).
-  const marcarConfirmacao = async (e: EntregaRota, status: 'confirmado' | 'sem_resposta') => {
-    setMarcandoConfirmacao(e.id);
-    try {
-      const res = await fetch('/api/entregas/confirmar', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: e.id, status }), cache: 'no-store' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setEntregasDia(prev => prev.map(x => x.id === e.id ? { ...x, confirmacao_status: status } : x));
-    } catch (err) {
-      console.error('Erro ao marcar confirmação', err);
-      alert('Não foi possível salvar. Tente de novo.');
-    }
-    setMarcandoConfirmacao(null);
-  };
 
   const marcarEntregue = async (id: string) => {
     setLoadingCompleto(id);
@@ -3558,7 +3544,7 @@ export default function OrcamentoApp() {  // Auth state
     const dt = new Date(d + 'T12:00:00');
     const diasSemana = ['Domingo', 'Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado'];
     const dataStr = dt.toLocaleDateString('pt-BR') + ' - ' + diasSemana[dt.getDay()];
-    const conf = (c?: string | null) => c === 'confirmado' ? '✅ Confirmado' : c === 'sem_resposta' ? '⛔ Sem resposta' : c === 'enviada' ? '⏳ Aguardando' : '☐ Pedir confirmação';
+    const conf = (c?: string | null) => c ? '📲 Confirmação enviada' : '☐ Enviar confirmação';
     const grupos: Array<[string, EntregaRota[]]> = [
       ['Manhã (8h–12h)', entregasDia.filter(e => e.periodo_entrega === 'manha')],
       ['Tarde (13h–17h)', entregasDia.filter(e => e.periodo_entrega === 'tarde')],
@@ -5367,16 +5353,14 @@ export default function OrcamentoApp() {  // Auth state
                 // Confirmacao do dia: uma mensagem so, no inicio do dia, para
                 // todos. Sem confirmacao e sem atender a ligacao, nao carrega.
                 const semEnvio = entregasDia.filter(e => !e.confirmacao_status && telefoneWhatsApp(e.cliente_telefone)).length;
-                const confirmadas = entregasDia.filter(e => e.confirmacao_status === 'confirmado').length;
                 const nPer = (p: 'manha' | 'tarde' | 'sem') => entregasDia.filter(e => p === 'sem' ? e.periodo_entrega !== 'manha' && e.periodo_entrega !== 'tarde' : e.periodo_entrega === p).length;
                 return (
                   <div className="mb-3 space-y-2">
                     <div className="flex flex-wrap items-center gap-2">
                       <button onClick={pedirConfirmacaoDia} disabled={pedindoConfirmacao || semEnvio === 0}
                         className={`px-4 py-2 rounded-lg text-sm font-bold min-h-[44px] disabled:cursor-not-allowed ${semEnvio === 0 ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-[#25D366] text-white hover:bg-[#1EBE57] disabled:opacity-50'}`}>
-                        {pedindoConfirmacao ? 'Enviando…' : semEnvio === 0 ? '✓ Confirmação pedida a todos' : `📲 Pedir confirmação (${semEnvio})`}
+                        {pedindoConfirmacao ? 'Enviando…' : semEnvio === 0 ? '✓ Confirmação enviada a todos' : `📲 Enviar Confirmação (${semEnvio})`}
                       </button>
-                      <span className="text-xs text-gray-600">✅ {confirmadas} de {entregasDia.length} confirmada(s)</span>
                     </div>
                     <div className="flex flex-wrap gap-1.5">
                       {([['todos', 'Todos', entregasDia.length], ['manha', 'Manhã', nPer('manha')], ['tarde', 'Tarde', nPer('tarde')], ['sem', 'Sem período', nPer('sem')]] as const)
@@ -5440,23 +5424,14 @@ export default function OrcamentoApp() {  // Auth state
                               {e.carga_tipo === 'programada' ? `📦 ${e.codigo} · Entrega #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
                             </p>
                           )}
-                          {/* Periodo e confirmacao do cliente. Sem confirmacao
-                              (e sem atender a ligacao) o pedido nao carrega. */}
-                          <div className="flex flex-wrap items-center gap-1.5 mt-1" onClick={ev => ev.stopPropagation()}>
+                          {/* Periodo e se o pedido de confirmacao ja foi enviado. */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
                             <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${e.periodo_entrega === 'manha' ? 'bg-amber-100 text-amber-800' : e.periodo_entrega === 'tarde' ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-500'}`}>
                               {e.periodo_entrega === 'manha' || e.periodo_entrega === 'tarde' ? PERIODO_LABEL[e.periodo_entrega] : 'Sem período'}
                             </span>
-                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${e.confirmacao_status === 'confirmado' ? 'bg-green-100 text-green-800' : e.confirmacao_status === 'sem_resposta' ? 'bg-red-100 text-red-700' : e.confirmacao_status === 'enviada' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-500'}`}>
-                              {e.confirmacao_status === 'confirmado' ? '✅ Confirmado' : e.confirmacao_status === 'sem_resposta' ? '⛔ Sem resposta — não carrega' : e.confirmacao_status === 'enviada' ? '⏳ Aguardando resposta' : 'Confirmação não pedida'}
+                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${e.confirmacao_status ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
+                              {e.confirmacao_status ? '📲 Confirmação enviada' : 'Confirmação não enviada'}
                             </span>
-                            {e.confirmacao_status !== 'confirmado' && (
-                              <button onClick={() => marcarConfirmacao(e, 'confirmado')} disabled={marcandoConfirmacao === e.id}
-                                className="text-[11px] px-2 py-1 rounded border border-green-300 text-green-700 hover:bg-green-50 disabled:opacity-50 min-h-[32px]">✓ Confirmou</button>
-                            )}
-                            {e.confirmacao_status !== 'sem_resposta' && (
-                              <button onClick={() => marcarConfirmacao(e, 'sem_resposta')} disabled={marcandoConfirmacao === e.id}
-                                className="text-[11px] px-2 py-1 rounded border border-red-200 text-red-600 hover:bg-red-50 disabled:opacity-50 min-h-[32px]">Sem resposta</button>
-                            )}
                           </div>
                         </div>
                         {/* No celular os botoes descem pra linha de baixo: lado a lado
@@ -5582,13 +5557,6 @@ export default function OrcamentoApp() {  // Auth state
                       <div className="p-3 flex flex-wrap items-start gap-3">
                         <span className="text-purple-400 text-xs mt-0.5 w-5 text-center shrink-0">{idx + 1}</span>
                         <div className="flex-1 min-w-0">
-                          {/* Em rota de outro dia: saiu e ninguem deu baixa. Tem que
-                              ser resolvido antes de fechar o dia. */}
-                          {e.data_entrega && e.data_entrega < new Date().toLocaleDateString('sv-SE') && (
-                            <p className="inline-block text-[11px] font-bold text-red-800 bg-red-100 border border-red-300 rounded px-2 py-0.5 mb-1">
-                              ⚠️ Em rota desde {e.data_entrega.split('-').reverse().join('/')} — dar baixa ou voltar para pendente
-                            </p>
-                          )}
                           <p className="font-semibold">{e.cliente_nome}</p>
                           <p className="text-gray-600 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                           {e.distancia_km != null && <p className="text-gray-400 text-xs">{e.distancia_km.toFixed(1)} km do depósito</p>}

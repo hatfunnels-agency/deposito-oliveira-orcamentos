@@ -110,12 +110,9 @@ export async function GET(request: NextRequest) {
       .from('entregas_parciais').select('orcamento_id')
       .eq('status', 'programada').eq('data_entrega', dia);
     const idsComViagem = Array.from(new Set((viagensDoDia || []).map(v => String(v.orcamento_id))));
-    // Em rota entra SEMPRE, de qualquer dia: pedido que saiu e ninguem deu
-    // baixa sumia da tela no dia seguinte e ficava "em rota" para sempre
-    // (29 pedidos assim em 08/11/2026, o mais antigo de 15/10).
     query = idsComViagem.length
-      ? query.or(`data_entrega.eq.${dia},status.eq.em_rota,id.in.(${idsComViagem.join(',')})`)
-      : query.or(`data_entrega.eq.${dia},status.eq.em_rota`);
+      ? query.or(`data_entrega.eq.${dia},id.in.(${idsComViagem.join(',')})`)
+      : query.eq('data_entrega', dia);
 
     const { data: entregas, error } = await query;
     if (error) {
