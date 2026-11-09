@@ -67,6 +67,9 @@ interface EntregaItem {
   periodo_entrega: string | null;
   confirmacao_status: string | null;
   confirmacao_enviada_em: string | null;
+  // true = card de uma viagem ja entregue nesse dia (o pedido em si segue
+  // aberto com o resto). Vai para Completas, sem "voltar para Em Rota".
+  viagem_entregue?: boolean;
 }
 
 // GET - carrega entregas do dia (pendentes, em rota e completas)
@@ -103,12 +106,15 @@ export async function GET(request: NextRequest) {
       .in('status', statusEntrega)
       .order('criado_em', { ascending: true });
 
-    // Dia pedido + pedidos com viagem PROGRAMADA nesse dia (um pedido pode
-    // ter varias viagens; a data dele e so a mais cedo).
+    // Dia pedido + pedidos com viagem PROGRAMADA ou ENTREGUE nesse dia (um
+    // pedido pode ter varias viagens; a data dele e so a mais cedo). Sem as
+    // entregues, a viagem sumia da tela ao clicar "Entregue": o pedido volta
+    // a entrega_parcial com a data da proxima viagem (ou sem data) e nao
+    // casava mais com o dia.
     const dia = data || new Date().toISOString().slice(0, 10);
     const { data: viagensDoDia } = await supabaseAdmin
       .from('entregas_parciais').select('orcamento_id')
-      .eq('status', 'programada').eq('data_entrega', dia);
+      .in('status', ['programada', 'entregue']).eq('data_entrega', dia);
     const idsComViagem = Array.from(new Set((viagensDoDia || []).map(v => String(v.orcamento_id))));
     query = idsComViagem.length
       ? query.or(`data_entrega.eq.${dia},id.in.(${idsComViagem.join(',')})`)
@@ -137,7 +143,18 @@ export async function GET(request: NextRequest) {
         const itens = e.orcamento_itens as Array<Record<string, unknown>> | null;
         // So o que vai NESTA viagem (programada do dia, ou o que falta).
         const carga = cargaDoDia(itens, e.entregas_parciais as never, dia);
-        const itensResumo = carga.resumo;
+        // Viagem do dia ja entregue e o pedido nao e mais do dia: mostra como
+        // completa, com os itens daquela viagem.
+        const viagens = (e.entregas_parciais || []) as Array<{ id: unknown; numero_entrega: unknown; status: unknown; data_entrega: unknown; entregas_parciais_itens?: Array<{ orcamento_item_id: unknown; quantidade: unknown }> | null }>;
+        const viagemEntregue = carga.tipo === 'programada' || String(e.data_entrega || '') === dia
+          ? null
+          : viagens.find(v => v.status === 'entregue' && String(v.data_entrega) === dia) || null;
+        const itensResumo = viagemEntregue
+          ? (viagemEntregue.entregas_parciais_itens || []).map(vi => {
+              const it = (itens || []).find(i => String(i.id) === String(vi.orcamento_item_id));
+              return it ? `${Number(vi.quantidade) || 0} ${String(it.unidade || '')} de ${it.produto_nome}`.trim() : null;
+            }).filter((x): x is string => !!x).join(', ')
+          : carga.resumo;
         const faltaResumo = (itens || [])
           .map((i) => {
             const total = Number(i.quantidade) || 0;
@@ -178,15 +195,16 @@ export async function GET(request: NextRequest) {
           complemento: end?.complemento ? String(end.complemento) : '',
           recebedor: cliente?.recebedor ? String(cliente.recebedor) : '',
           bairro, cidade,
-          status: String(e.status), total: Number(e.total),
+          status: viagemEntregue ? 'completo' : String(e.status), total: Number(e.total),
+          viagem_entregue: !!viagemEntregue,
           a_cobrar: Math.max(0, Number(e.total) - (Number(e.valor_pago) || 0)),
           forma_pagamento: e.forma_pagamento ? String(e.forma_pagamento) : '',
           aviso_rota_em: e.aviso_rota_em ? String(e.aviso_rota_em) : null,
           itens_resumo: itensResumo,
           falta_resumo: faltaResumo,
           carga_tipo: carga.tipo,
-          viagem_numero: carga.numero,
-          viagem_id: carga.viagemId,
+          viagem_numero: viagemEntregue ? Number(viagemEntregue.numero_entrega) || null : carga.numero,
+          viagem_id: viagemEntregue ? String(viagemEntregue.id) : carga.viagemId,
           data_entrega: e.data_entrega ? String(e.data_entrega) : null,
           observacoes: e.observacoes ? String(e.observacoes) : '',
           distancia_km: distanciaKm,

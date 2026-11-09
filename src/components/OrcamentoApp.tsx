@@ -281,6 +281,8 @@ interface EntregaRota {
   carga_tipo?: 'programada' | 'restante' | 'completa';
   viagem_numero?: number | null;
   viagem_id?: string | null;
+  // Viagem ja entregue nesse dia (o pedido segue aberto com o resto).
+  viagem_entregue?: boolean;
   data_entrega: string | null;
   observacoes: string;
   motorista_id?: string | null;
@@ -5626,20 +5628,21 @@ export default function OrcamentoApp() {  // Auth state
                       <div className="p-3 flex items-start gap-3">
                         <span className="text-green-500 text-sm mt-0.5 w-5 text-center shrink-0">✓</span>
                         <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-600">{e.cliente_nome}</p>
+                          <p className="font-semibold text-gray-600">{e.cliente_nome}{e.viagem_entregue && <span className="ml-2 text-xs font-medium text-indigo-600">Entrega #{e.viagem_numero ?? ''} · resto do pedido segue pendente</span>}</p>
                           <p className="text-gray-500 text-xs truncate">{e.endereco}{e.numero ? ', ' + e.numero : ''}{e.bairro ? ' - ' + e.bairro : ''}</p>
                         </div>
                         <div className="flex gap-2 shrink-0 items-center">
                           <span className="text-xs text-green-600 font-medium">R$ {(e.total || 0).toLocaleString('pt-BR', {minimumFractionDigits:2})}</span>
-                          {/* Marcou entregue por engano: volta pra Em Rota. */}
-                          <button
+                          {/* Marcou entregue por engano: volta pra Em Rota. Viagem
+                              entregue nao tem volta por aqui: o pedido em si nao e completo. */}
+                          {!e.viagem_entregue && <button
                             onClick={() => voltarStatusEntrega(e, 'em_rota')}
                             disabled={revertendoStatus === e.id}
                             className="text-xs text-gray-500 hover:text-gray-800 px-2 py-1 rounded hover:bg-gray-100 disabled:opacity-50 whitespace-nowrap"
                             title="Voltar para Em Rota"
                           >
                             {revertendoStatus === e.id ? '...' : '↩ Em rota'}
-                          </button>
+                          </button>}
                           <button
                             onClick={() => setExpandedCompleto(prev => prev.includes(e.id) ? prev.filter(x => x !== e.id) : [...prev, e.id])}
                             className="text-xs text-green-500 hover:text-green-700 px-2 py-1 rounded hover:bg-green-50 whitespace-nowrap"
