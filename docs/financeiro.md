@@ -78,7 +78,7 @@ Consequências práticas:
 ## 4. Regras de negócio
 
 ### 4.1 Nada conta duas vezes
-- **Folha** realizada vem exclusivamente de `funcionario_pagamentos` (por `periodo_fim` no Fechamento, por `pago_em` no Dia) e `funcionario_vales`. Linhas de extrato categorizadas como "Folha - %" sem vínculo são **excluídas** do realizado e contadas em `qualidade.folha_ja_contada`. Nunca há despesa fixa de folha gerando conta a pagar: a despesa "Folha de pagamento" tem `fonte = funcionarios`, `gera_conta = false`, e seu valor é a soma dos salários ativos.
+- **Folha** realizada vem exclusivamente de `funcionario_pagamentos` (por `periodo_fim` no Fechamento, por `pago_em` no Dia) e `funcionario_vales`. Linha de extrato categorizada como "Folha - %" sem vínculo é **excluída** do realizado (e contada em `qualidade.folha_ja_contada`) quando coincide em valor e data (±3 dias) com um pagamento registrado **ou** quando traz o nome de um funcionário dentro do período de um pagamento registrado dele (um salário que saiu em vários Pix, como os sábados que viraram uma quinzena). Sem pagamento registrado, a linha do extrato **é** a folha realizada. Nunca há despesa fixa de folha gerando conta a pagar: a despesa "Folha de pagamento" tem `fonte = funcionarios`, `gera_conta = false`, e seu valor é a soma dos salários ativos.
 - **Fatura de cartão** não é despesa. A compra no cartão entra como despesa no dia da compra (lançamento negativo na conta `cartao_credito`); pagar a fatura é transferência banco → cartão (categoria "Pagamento de fatura de cartao", grupo `transferencia`). A fatura existe como conta a pagar (sai caixa, vence) mas fica fora de `pago_no_mes`, do `pago.total` do Dia e do realizado do Fechamento.
 - **Transferências próprias** (Stone → Itaú, depósito de dinheiro do caixa no banco) não entram em receita, despesa nem conciliação. Categoria de grupo `transferencia`, documento igual ao CNPJ próprio (`configuracoes.financeiro_cnpj_proprio`) ou contraparte com o nome da empresa são ignoradas e contadas em `transferencias_ignoradas`.
 - **Despesa paga por conta a pagar** e a **linha de extrato** correspondente são a mesma coisa: no Fechamento, linhas de saída sem vínculo que coincidem (±0,01, ±3 dias) com uma conta paga ou um pagamento de folha não somam; viram `qualidade.possiveis_duplicidades`.
@@ -134,7 +134,7 @@ Consequências práticas:
 
 ## 7. OFX: como exportar
 
-O importador aceita `.xlsx`/`.csv` (layouts atuais) e `.ofx` (detectado pelo conteúdo, `OFXHEADER` ou `<OFX>`, com prioridade sobre o layout da conta). OFX traz `FITID` (identificador único por transação), o que torna a reimportação exata, e `LEDGERBAL` (saldo final), que alimenta `saldos_conta` sozinho.
+O importador aceita `.xlsx`/`.csv` (layouts atuais) e `.ofx` (detectado pelo conteúdo, `OFXHEADER` ou `<OFX>`, com prioridade sobre o layout da conta). OFX traz `FITID` (identificador único por transação), o que torna a reimportação exata, e `LEDGERBAL` (saldo final), que alimenta `saldos_conta` sozinho. O OFX do Itaú traz uma pseudo-transação por dia ("SALDO TOTAL DISPONÍVEL DIA") que o parser ignora, e vem sem `NAME`: a contraparte e o documento são extraídos do `MEMO` ("PIX ENVIADO FULANO 000.000.000-00").
 
 **Itaú Empresas (internet banking PJ):** Conta corrente › Extrato › escolha o período (o banco limita a janela; para períodos maiores, exporte em partes) › **Salvar em outros formatos › OFX**. Suba o arquivo em `/financeiro` › Extratos escolhendo a conta do banco.
 
@@ -195,8 +195,8 @@ Para adicionar uma despesa fixa ou um fornecedor depois, use a tela (ou `POST /a
 Descoberto em out/2026: a Stone divide cada venda no **cartão** em 85% para a conta Stone e 15% para a carteira **Vloz** da Votorantim. O cashback da Votoran (a taxa reembolsada) também cai na Vloz. Esse crédito só serve para comprar cimento da Votorantim; quando o saldo cobre o boleto, ele é pago inteiro com a Vloz. Pix não tem divisão.
 
 - Conta `Vloz (Votorantim)`, tipo `carteira`, layout `vloz_csv`. Saldo = soma dos lançamentos; fica **fora** do "total disponível".
-- Importação: o CSV "vendasvloz_<data>.csv" (Extratos › conta Vloz). Cada venda vira "Vloz 15% — …" (categoria venda no cartão) e "Cashback Votoran — …" (categoria reembolso de taxa). O código da transação dá idempotência. O CSV usa `;` com vírgula decimal.
-- Cimento pago com saldo Vloz: "Paguei" na conta a pagar escolhendo a conta Vloz; o lançamento sai da carteira, como no caixa.
+- Importação: dois CSVs, os dois com `;` e vírgula decimal, reconhecidos pelo cabeçalho (Extratos › conta Vloz). **Preferir o extrato da carteira** "movimentacoes_saldo_vloz_<data>.csv": cada dia vira "Vloz 15% — …" (venda no cartão, com a taxa total das vendas do dia em `tarifa`), o crédito mensal vira "Cashback Votoran" (reembolso de taxa) e cada pedido pago com o saldo vira "Cimento Votoran pago com saldo Vloz — …" (CMV - Cimento, negativo), com o saldo final do arquivo em `saldos_conta`. O arquivo de vendas "vendasvloz_<data>.csv" (uma linha por venda, cashback por venda) continua aceito, mas não misture os dois no mesmo período: o Fechamento somaria o cashback duas vezes.
+- Cimento pago com saldo Vloz: entra sozinho pelo extrato da carteira (linha negativa, CMV). Se a conta a pagar do pedido existir, vincule-a à linha; sem extrato, "Paguei" escolhendo a conta Vloz cria a linha. No Fechamento essas saídas contam no realizado e nas compras, mas ficam fora do "Caixa do mês" (não é dinheiro de banco).
 - O cashback da carteira conta como **reembolso recebido** na Maquininha e no Fechamento.
 - A conferência do cartão Stone compara a liquidação só com os 85% (`configuracoes.financeiro_split_carteira_pct`).
 - No bloco "Caixa do mês", as entradas vêm do extrato; os 15% da Vloz nunca entram no banco.
