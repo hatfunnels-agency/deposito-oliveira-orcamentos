@@ -9,6 +9,9 @@ const CHAVES: Record<string, { padrao: string; valida: (v: string) => boolean }>
   // Desconto que o orcamento aplica sozinho para pedreiro/empreiteiro (%).
   // Comeca em 0: o Roger quer testar com empreiteiros amigos antes de ligar.
   desconto_profissional_pct: { padrao: '0', valida: v => /^\d{1,2}([.,]\d)?$/.test(v) && Number(v.replace(',', '.')) <= 30 },
+  // Teto de entregas por periodo (manha/tarde). Comeca em 8 (08/11/2026):
+  // sobe quando a medicao de tempo mostrar que cabe mais.
+  entregas_capacidade_periodo: { padrao: '8', valida: v => /^\d{1,2}$/.test(v) && Number(v) >= 1 && Number(v) <= 40 },
 };
 
 // GET /api/configuracoes?chave=desconto_profissional_pct -> { chave, valor }

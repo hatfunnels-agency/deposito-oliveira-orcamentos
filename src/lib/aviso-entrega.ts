@@ -34,3 +34,39 @@ export function montarAvisoEntrega(e: DadosAvisoEntrega): string {
     `Por favor, deixe alguém no local para receber${e.recebedor ? ` (${e.recebedor})` : ''}.`,
   ].filter(l => l !== null).join('\n');
 }
+
+// Periodos de entrega (08/11/2026). A entrega e agendada em manha ou tarde;
+// o teto por periodo fica em configuracoes.entregas_capacidade_periodo.
+export type PeriodoEntrega = 'manha' | 'tarde';
+export const PERIODO_LABEL: Record<PeriodoEntrega, string> = { manha: 'Manhã (8h–12h)', tarde: 'Tarde (13h–17h)' };
+const PERIODO_FAIXA: Record<PeriodoEntrega, string> = { manha: 'entre 8h e 12h', tarde: 'entre 13h e 17h' };
+
+export interface DadosPedidoConfirmacao {
+  codigo: string;
+  cliente_nome: string;
+  data_entrega: string | null;
+  periodo_entrega?: string | null;
+  hoje?: string;
+}
+
+// Pedido de confirmacao mandado no inicio do dia. Sem confirmacao o pedido
+// nao carrega — a mensagem diz isso de forma educada.
+export function montarPedidoConfirmacao(e: DadosPedidoConfirmacao): string {
+  const primeiroNome = (e.cliente_nome || '').trim().split(/\s+/)[0] || '';
+  const quando = e.data_entrega && e.hoje && e.data_entrega === e.hoje
+    ? 'para *hoje*'
+    : e.data_entrega ? `para *${e.data_entrega.split('-').reverse().join('/')}*` : '';
+  const periodo = e.periodo_entrega === 'manha' || e.periodo_entrega === 'tarde'
+    ? `, no período da *${e.periodo_entrega === 'manha' ? 'manhã' : 'tarde'}* (${PERIODO_FAIXA[e.periodo_entrega]})`
+    : '';
+  return [
+    primeiroNome ? `Olá, ${primeiroNome}! 👷` : 'Olá! 👷',
+    '',
+    `Aqui é do *Depósito Oliveira*. A entrega do seu pedido *${e.codigo}* está agendada ${quando}${periodo}.`,
+    '',
+    'Pode *confirmar* que vai ter alguém no local para receber? É só responder *SIM*.',
+    'Se precisar mudar o dia, responda aqui que a gente reagenda.',
+    '',
+    'Importante: só enviamos o caminhão depois da sua confirmação.',
+  ].join('\n');
+}

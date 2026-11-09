@@ -19,7 +19,7 @@ export async function GET(
                             desconto_percentual, desconto_valor,
                             status, observacoes, criado_em, atualizado_em,
                             perdido_em, motivo_perda, motivo_sem_data,
-                                    data_entrega, data_retirada, fonte, forma_pagamento,
+                                    data_entrega, periodo_entrega, confirmacao_status, data_retirada, fonte, forma_pagamento,
                                             status_pagamento, valor_pago, condicao_pagamento, vencimento,
                                             entregue_sem_pagamento, entregue_sem_pagamento_em,
                                             ferragem_status,
@@ -77,7 +77,7 @@ export async function PATCH(
                   desconto_percentual, desconto_valor,
                   cliente_nome, cliente_telefone, cliente_recebedor,
                   bling_pedido_id, reagendar, motorista_id, leva_id,
-                  motivo_perda, motivo_sem_data,
+                  motivo_perda, motivo_sem_data, periodo_entrega,
                   endereco_id: enderecoIdBody,
                   endereco_novo: enderecoNovoBody,
           } = body;
@@ -321,10 +321,22 @@ export async function PATCH(
 
       // Por que esta sem data (entrega confirmada sem dia). Ganhou data = motivo some.
       if (motivo_sem_data !== undefined) updateData.motivo_sem_data = String(motivo_sem_data || '').trim() || null;
+      // Periodo da entrega (manha/tarde). null limpa.
+      if (periodo_entrega !== undefined) {
+              updateData.periodo_entrega = periodo_entrega === 'manha' || periodo_entrega === 'tarde' ? periodo_entrega : null;
+      }
       // Reschedule logic
       if (data_entrega !== undefined) {
               updateData.data_entrega = data_entrega;
               if (data_entrega) updateData.motivo_sem_data = null;
+              else updateData.periodo_entrega = null;
+              // Mudou o dia: a confirmacao do cliente era para o dia antigo.
+              const { data: atual } = await supabaseAdmin
+                .from('orcamentos').select('data_entrega').eq('id', params.id).maybeSingle();
+              if (atual && (atual.data_entrega || null) !== (data_entrega || null)) {
+                      updateData.confirmacao_status = null;
+                      updateData.confirmacao_enviada_em = null;
+              }
               if (data_retirada !== undefined) updateData.data_retirada = data_retirada || null;
               if (fonte !== undefined) updateData.fonte = fonte;
 

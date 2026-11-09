@@ -31,3 +31,6 @@ brand-guidelines/
 
 # Copias de conflito do iCloud Drive ("arquivo 2.ts"): nunca versionar
 * 2.*
+
+# folhas impressas da operacao (nomes de funcionarios/clientes)
+/Operacao/

@@ -16,7 +16,8 @@ import EditarClienteEndereco from './EditarClienteEndereco';
 import TipoProfissional from './TipoProfissional';
 import ContatosCliente from './ContatosCliente';
 import AssistenteTecnico from './AssistenteTecnico';
-import { montarAvisoEntrega } from '@/lib/aviso-entrega';
+import { montarAvisoEntrega, PERIODO_LABEL, type PeriodoEntrega } from '@/lib/aviso-entrega';
+import SeletorPeriodo from './SeletorPeriodo';
 import { Menu, LogOut } from 'lucide-react';
 import { TAGS_VALIDAS } from '@/lib/tags';
 
@@ -136,6 +137,7 @@ interface OrcamentoDetalhe {
   criado_em: string;
   atualizado_em: string;
   data_entrega: string | null;
+  periodo_entrega?: string | null;
   data_retirada?: string | null;
   data_entrega_original: string | null;
   reagendamentos: number;
@@ -283,6 +285,9 @@ interface EntregaRota {
   observacoes: string;
   motorista_id?: string | null;
   aviso_rota_em?: string | null;
+  periodo_entrega?: string | null;
+  confirmacao_status?: string | null;
+  confirmacao_enviada_em?: string | null;
   leva_id?: string | null;
   leva_numero?: number | null;
   distancia_km?: number | null;
@@ -647,6 +652,8 @@ export default function OrcamentoApp() {  // Auth state
   const [paginaHistorico, setPaginaHistorico] = useState(1);
   const [totalOrcamentos, setTotalOrcamentos] = useState(0);
   const [dataEntrega, setDataEntrega] = useState('');
+  // Manha/tarde da entrega (08/11/2026). Obrigatorio quando tem data.
+  const [periodoEntrega, setPeriodoEntrega] = useState<PeriodoEntrega | ''>('');
   const [dataRetirada, setDataRetirada] = useState('');
   const [fonteVenda, setFonteVenda] = useState('');
   const [statusPedidoForm, setStatusPedidoForm] = useState('orcamento');
@@ -692,6 +699,11 @@ export default function OrcamentoApp() {  // Auth state
   const [casoLancarId, setCasoLancarId] = useState<string | null>(null);
   // Aviso "saiu para entrega" pelo sistema (GHL), sem abrir o WhatsApp.
   const [avisando, setAvisando] = useState<Set<string>>(new Set());
+  // Confirmacao do cliente no inicio do dia + filtro por periodo (08/11/2026).
+  const [filtroPeriodoDia, setFiltroPeriodoDia] = useState<'todos' | PeriodoEntrega | 'sem'>('todos');
+  const [pedindoConfirmacao, setPedindoConfirmacao] = useState(false);
+  // Teto de entregas por periodo (configuracoes.entregas_capacidade_periodo). So admin muda.
+  const [capacidadePeriodo, setCapacidadePeriodo] = useState<number | null>(null);
   const [avisados, setAvisados] = useState<Set<string>>(new Set());
   // Pedreiro/empreiteiro: o orcamento aplica sozinho o desconto profissional
   // (configuracoes.desconto_profissional_pct). A atendente pode tirar.
@@ -773,6 +785,7 @@ export default function OrcamentoApp() {  // Auth state
   // Feature 9 - Reschedule
   const [mostrarReagendar, setMostrarReagendar] = useState(false);
   const [novaDataEntrega, setNovaDataEntrega] = useState('');
+  const [novoPeriodoEntrega, setNovoPeriodoEntrega] = useState<PeriodoEntrega | ''>('');
   const [reagendandoId, setReagendandoId] = useState<string | null>(null);
   // Entregas state
   const [entregasDia, setEntregasDia] = useState<EntregaRota[]>([]);
@@ -890,6 +903,7 @@ export default function OrcamentoApp() {  // Auth state
   // "Confirmar venda" no detalhe do pedido: data pedida ali mesmo (a
   // atendente esquecia de mudar o status e de por a data) e aviso de recibo.
   const [dataConfirmacao, setDataConfirmacao] = useState('');
+  const [periodoConfirmacao, setPeriodoConfirmacao] = useState<PeriodoEntrega | ''>('');
   // Cliente fechou mas ainda vai combinar o dia com o pedreiro.
   const [semDataConfirmacao, setSemDataConfirmacao] = useState(false);
   const [motivoSemDataConfirmacao, setMotivoSemDataConfirmacao] = useState('');
@@ -1601,6 +1615,8 @@ export default function OrcamentoApp() {  // Auth state
       carregarFerragemFila();
     }
     if (abaAtiva === 'entregas') {
+      fetch('/api/configuracoes?chave=entregas_capacidade_periodo', { cache: 'no-store' })
+        .then(r => r.json()).then(d => setCapacidadePeriodo(Number(d?.valor) || 8)).catch(() => {});
       fetch('/api/entregas/sem-data', { cache: 'no-store' })
         .then(r => r.json()).then(d => setEntregasSemData(d.entregas || [])).catch(() => setEntregasSemData([]));
       // Load retiradas pendentes
@@ -1643,6 +1659,7 @@ export default function OrcamentoApp() {  // Auth state
     setWhatsappCliente('');
     setCepDestino('');
     setDataEntrega('');
+    setPeriodoEntrega('');
     setDataRetirada('');
     setNumeroEndereco('');
     setComplementoEndereco('');
@@ -1703,6 +1720,12 @@ export default function OrcamentoApp() {  // Auth state
     // vai confirmar com o pedreiro).
     // Sem data so com motivo (29/10): pedido fechado sem data e sem porque
     // virava "fantasma" — conta no faturamento e ninguem sabe se vai sair.
+    // Entrega com data e ainda por sair precisa de periodo (08/11/2026): e
+    // ele que mostra se o dia ainda tem vaga.
+    if (tipoEntrega === 'entrega' && dataEntrega && !periodoEntrega && (statusFinal === 'entrega_pendente' || statusFinal === 'entrega_parcial')) {
+      alert('Escolha o período da entrega: manhã (8h–12h) ou tarde (13h–17h).');
+      return;
+    }
     let motivoSemData: string | null = null;
     if (tipoEntrega === 'entrega' && !dataEntrega && STATUS_VENDA_CONFIRMADA.includes(statusFinal)) {
       const m = window.prompt('Esta entrega está sem data.\n\nPor que ainda não tem data? (ex.: cliente vai procurar pedreiro, obra ainda não começou, agenda depois de pagar)\n\nEscreva o motivo para salvar sem data, ou cancele para voltar e preencher a data.');
@@ -1735,6 +1758,7 @@ export default function OrcamentoApp() {  // Auth state
           ? (descontoModo === 'valor' ? Math.round(descontoValorInput * 100) / 100 : (total - totalFinal))
           : 0,
         data_entrega: tipoEntrega === 'entrega' && dataEntrega ? dataEntrega : null,
+        periodo_entrega: tipoEntrega === 'entrega' && dataEntrega && periodoEntrega ? periodoEntrega : null,
         ...(motivoSemData ? { motivo_sem_data: motivoSemData } : {}),
             observacoes_entrega: tipoEntrega === 'retirada' && dataRetirada ? `*Retirada na loja:* ${new Date(dataRetirada + 'T12:00:00').toLocaleDateString('pt-BR')}` : '',
             data_retirada: tipoEntrega === 'retirada' && dataRetirada ? dataRetirada : null,
@@ -1881,18 +1905,20 @@ export default function OrcamentoApp() {  // Auth state
 
   // Feature 9 - Reschedule delivery
   const reagendarEntrega = async (id: string, novaData: string) => {
+    if (!novoPeriodoEntrega) { alert('Escolha o período da entrega: manhã (8h–12h) ou tarde (13h–17h).'); return; }
     try {
       const res = await fetch(`/api/orcamentos/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ data_entrega: novaData, reagendar: true }),
+        body: JSON.stringify({ data_entrega: novaData, periodo_entrega: novoPeriodoEntrega, reagendar: true }),
       });
       if (res.ok) {
         setMostrarReagendar(false);
         setReagendandoId(null);
         setNovaDataEntrega('');
+        setNovoPeriodoEntrega('');
         if (orcamentoDetalhe && orcamentoDetalhe.id === id) {
-          setOrcamentoDetalhe({ ...orcamentoDetalhe, data_entrega: novaData, reagendamentos: (orcamentoDetalhe.reagendamentos || 0) + 1 });
+          setOrcamentoDetalhe({ ...orcamentoDetalhe, data_entrega: novaData, periodo_entrega: novoPeriodoEntrega, reagendamentos: (orcamentoDetalhe.reagendamentos || 0) + 1 });
         }
         carregarHistorico();
         if (abaAtiva === 'entregas') carregarEntregasDia();
@@ -2091,6 +2117,8 @@ export default function OrcamentoApp() {  // Auth state
     // Sem data so com motivo (29/10): marcou "sem data ainda" = escreve o
     // porque no campo; esqueceu a data = pergunta o motivo aqui.
     let motivoSemData = motivoSemDataConfirmacao.trim();
+    const periodo = periodoConfirmacao || (d.periodo_entrega === 'manha' || d.periodo_entrega === 'tarde' ? d.periodo_entrega : '');
+    if (entrega && data && !periodo) { alert('Escolha o período da entrega: manhã (8h–12h) ou tarde (13h–17h).'); return; }
     if (entrega && !data) {
       if (semDataConfirmacao && !motivoSemData) { alert('Escreva por que a entrega ainda está sem data (ex.: cliente vai procurar pedreiro).'); return; }
       if (!semDataConfirmacao) {
@@ -2104,6 +2132,7 @@ export default function OrcamentoApp() {  // Auth state
     try {
       const body: Record<string, unknown> = { status: novoStatus, _previous_status: d.status };
       if (entrega && data && data !== d.data_entrega) body.data_entrega = data;
+      if (entrega && data) body.periodo_entrega = periodo;
       if (entrega && !data && d.data_entrega) body.data_entrega = null;
       if (entrega && !data) body.motivo_sem_data = motivoSemData;
       const res = await fetch(`/api/orcamentos/${d.id}`, {
@@ -2112,9 +2141,10 @@ export default function OrcamentoApp() {  // Auth state
         body: JSON.stringify(body),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      setOrcamentoDetalhe({ ...d, status: novoStatus, data_entrega: entrega ? (data || null) : d.data_entrega, motivo_sem_data: entrega && !data ? motivoSemData : null });
+      setOrcamentoDetalhe({ ...d, status: novoStatus, data_entrega: entrega ? (data || null) : d.data_entrega, periodo_entrega: entrega && data ? periodo : d.periodo_entrega, motivo_sem_data: entrega && !data ? motivoSemData : null });
       setVendaConfirmadaId(d.id);
       setDataConfirmacao('');
+      setPeriodoConfirmacao('');
       setSemDataConfirmacao(false);
       setMotivoSemDataConfirmacao('');
       carregarHistorico();
@@ -2828,6 +2858,7 @@ export default function OrcamentoApp() {  // Auth state
     setWhatsappCliente(detalhe.clientes?.telefone || '');
     setTipoEntrega(detalhe.tipo_entrega as 'retirada' | 'entrega');
     setDataEntrega(detalhe.data_entrega || '');
+    setPeriodoEntrega(detalhe.periodo_entrega === 'manha' || detalhe.periodo_entrega === 'tarde' ? detalhe.periodo_entrega : '');
     setDataRetirada(detalhe.data_retirada || '');
     setFonteVenda(detalhe.fonte || '');
     // Prefere endereco_completo do orcamento (endereco REAL gravado nele,
@@ -3325,9 +3356,40 @@ export default function OrcamentoApp() {  // Auth state
     setSelecionadas(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   };
 
+  const entregasDiaFiltradas = entregasDia.filter(e =>
+    filtroPeriodoDia === 'todos' ? true
+      : filtroPeriodoDia === 'sem' ? e.periodo_entrega !== 'manha' && e.periodo_entrega !== 'tarde'
+      : e.periodo_entrega === filtroPeriodoDia);
+
   const selecionarTodas = () => {
-    setSelecionadas(entregasDia.map(e => e.id));
+    setSelecionadas(entregasDiaFiltradas.map(e => e.id));
   };
+
+  // "Enviar Confirmacao": manda o pedido de confirmacao para as entregas pendentes do dia que
+  // ainda nao receberam (uma mensagem so, no inicio do dia). Quem nao esta no
+  // GHL ou com conversa fechada sem template abre no WhatsApp com o texto.
+  const pedirConfirmacaoDia = async () => {
+    const alvo = entregasDia.filter(e => !e.confirmacao_status && telefoneWhatsApp(e.cliente_telefone));
+    if (!alvo.length) return;
+    if (!window.confirm(`Mandar o pedido de confirmação para ${alvo.length} cliente(s) com entrega neste dia?`)) return;
+    setPedindoConfirmacao(true);
+    try {
+      const res = await fetch('/api/entregas/confirmar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids: alvo.map(e => e.id) }), cache: 'no-store' });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.resultados) throw new Error(data?.error || 'Erro ao pedir confirmação');
+      const rs = data.resultados as Array<{ id: string; ok: boolean; motivo: string | null; link: string | null }>;
+      const enviados = new Set(rs.filter(r => r.ok).map(r => r.id));
+      setEntregasDia(prev => prev.map(e => enviados.has(e.id) ? { ...e, confirmacao_status: 'enviada', confirmacao_enviada_em: new Date().toISOString() } : e));
+      const falhas = rs.filter(r => !r.ok);
+      for (const r of falhas) if (r.link) window.open(r.link, '_blank');
+      if (falhas.length) alert(`${enviados.size} enviado(s) pelo sistema. ${falhas.length} não foram: ${falhas.filter(r => r.link).length ? 'abri o WhatsApp com o texto pronto para esses.' : ''}${falhas.some(r => !r.link) ? ' Alguns clientes estão sem telefone — ligue.' : ''}`);
+    } catch (err) {
+      console.error('Erro ao pedir confirmação', err);
+      alert('Não foi possível mandar os pedidos de confirmação. Tente de novo.');
+    }
+    setPedindoConfirmacao(false);
+  };
+
 
   const marcarEntregue = async (id: string) => {
     setLoadingCompleto(id);
@@ -3470,6 +3532,44 @@ export default function OrcamentoApp() {  // Auth state
 
 
 
+
+  // Lista do dia para revisar e conferir (fechamento: imprimir as entregas de
+  // amanha). Separada por periodo, com itens, o que cobrar e a confirmacao.
+  // Nao gera rota nem muda status.
+  const imprimirListaDia = () => {
+    if (!entregasDia.length) return;
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+    const d = dataEntregasAlvo();
+    const dt = new Date(d + 'T12:00:00');
+    const diasSemana = ['Domingo', 'Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado'];
+    const dataStr = dt.toLocaleDateString('pt-BR') + ' - ' + diasSemana[dt.getDay()];
+    const conf = (c?: string | null) => c ? '📲 Confirmação enviada' : '☐ Enviar confirmação';
+    const grupos: Array<[string, EntregaRota[]]> = [
+      ['Manhã (8h–12h)', entregasDia.filter(e => e.periodo_entrega === 'manha')],
+      ['Tarde (13h–17h)', entregasDia.filter(e => e.periodo_entrega === 'tarde')],
+      ['Sem período', entregasDia.filter(e => e.periodo_entrega !== 'manha' && e.periodo_entrega !== 'tarde')],
+    ];
+    let html = `<!DOCTYPE html><html><head><title>Entregas ${dataStr}</title><style>body{font-family:Arial,sans-serif;max-width:760px;margin:0 auto;padding:15px;color:#222;font-size:12.5px}h1{font-size:18px;margin:0 0 2px}h2{font-size:15px;margin:16px 0 6px;padding:4px 8px;background:#0C1B2A;color:#fff}.e{border:1px solid #bbb;border-radius:4px;padding:6px 8px;margin-bottom:6px;page-break-inside:avoid}.l{display:flex;justify-content:space-between;gap:8px}.ok{font-size:11.5px;color:#444}.cobrar{color:#b91c1c;font-weight:bold}.rev{margin-top:4px;font-size:11.5px;color:#444}@media print{button{display:none}}</style></head><body>`;
+    html += `<h1>Entregas do dia ${dataStr}</h1><p style="margin:0;color:#555">${entregasDia.length} entrega(s) · Revisar cada uma: itens, endereço, período, valor a cobrar e observações.</p>`;
+    for (const [titulo, lista] of grupos) {
+      if (!lista.length) continue;
+      html += `<h2>${titulo} — ${lista.length}</h2>`;
+      lista.forEach((e, i) => {
+        const end = [[e.endereco, e.numero].filter(Boolean).join(', '), e.bairro, e.cidade].filter(Boolean).join(' - ');
+        html += `<div class="e"><div class="l"><strong>${i + 1}. ${e.cliente_nome}</strong><span>${e.codigo}</span></div>`;
+        html += `<div>${end || '<em>sem endereço</em>'}${e.cliente_telefone ? ' · ' + e.cliente_telefone : ''}${e.recebedor ? ' · Recebe: ' + e.recebedor : ''}</div>`;
+        html += `<div>📦 ${e.itens_resumo || '<em>sem itens</em>'}</div>`;
+        html += (e.a_cobrar ?? 0) > 0.01 ? `<div class="cobrar">💰 COBRAR R$ ${(e.a_cobrar || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}${e.forma_pagamento ? ' (' + e.forma_pagamento + ')' : ''}</div>` : `<div style="color:#15803d">✅ Já pago</div>`;
+        if (e.observacoes) html += `<div style="font-style:italic;color:#555">Obs: ${e.observacoes}</div>`;
+        html += `<div class="rev">${conf(e.confirmacao_status)} &nbsp; ☐ Itens conferidos &nbsp; ☐ Endereço ok &nbsp; ☐ Valor ok</div></div>`;
+      });
+    }
+    html += `</body></html>`;
+    printWindow.document.write(html);
+    printWindow.document.close();
+    setTimeout(() => printWindow.print(), 250);
+  };
 
   // ===== Estoque Management Functions =====
   const registrarEntrada = async () => {
@@ -4430,6 +4530,7 @@ export default function OrcamentoApp() {  // Auth state
                         <label className="block text-sm font-medium text-gray-700 mb-1">Data de entrega</label>
                         <input type="date" value={dataEntrega} min={todayStr} onChange={e => setDataEntrega(e.target.value)}
                           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+                        <SeletorPeriodo data={dataEntrega} valor={periodoEntrega} onChange={setPeriodoEntrega} ignorarId={editandoId} />
                       </div>
                     </div>
                   )}
@@ -5214,7 +5315,23 @@ export default function OrcamentoApp() {  // Auth state
 
             {/* === SECTION 1: PENDENTES === */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-4">
-              <h2 className="font-bold text-gray-700 mb-4">Entregas Pendentes do Dia</h2>
+              <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+                <h2 className="font-bold text-gray-700">Entregas Pendentes do Dia</h2>
+                {papelUsuario === 'admin' && capacidadePeriodo != null && (
+                  <label className="flex items-center gap-1.5 text-xs text-gray-600">
+                    Teto por período
+                    <input type="number" inputMode="numeric" min={1} max={40} defaultValue={capacidadePeriodo} key={capacidadePeriodo}
+                      onBlur={async ev => {
+                        const v = Math.round(Number(ev.target.value));
+                        if (!Number.isFinite(v) || v === capacidadePeriodo) return;
+                        const r = await fetch('/api/configuracoes', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chave: 'entregas_capacidade_periodo', valor: v }) });
+                        if (r.ok) setCapacidadePeriodo(v); else { alert('Valor inválido (1 a 40).'); ev.target.value = String(capacidadePeriodo); }
+                      }}
+                      className="w-14 border border-gray-300 rounded-lg px-2 py-1 text-sm text-right" />
+                    <span className="text-gray-400">entregas</span>
+                  </label>
+                )}
+              </div>
 
               <div className="flex flex-col sm:flex-row gap-3 mb-4">
                 <input
@@ -5232,20 +5349,50 @@ export default function OrcamentoApp() {  // Auth state
                 </button>
               </div>
 
+              {entregasDia.length > 0 && (() => {
+                // Confirmacao do dia: uma mensagem so, no inicio do dia, para
+                // todos. Sem confirmacao e sem atender a ligacao, nao carrega.
+                const semEnvio = entregasDia.filter(e => !e.confirmacao_status && telefoneWhatsApp(e.cliente_telefone)).length;
+                const nPer = (p: 'manha' | 'tarde' | 'sem') => entregasDia.filter(e => p === 'sem' ? e.periodo_entrega !== 'manha' && e.periodo_entrega !== 'tarde' : e.periodo_entrega === p).length;
+                return (
+                  <div className="mb-3 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button onClick={pedirConfirmacaoDia} disabled={pedindoConfirmacao || semEnvio === 0}
+                        className={`px-4 py-2 rounded-lg text-sm font-bold min-h-[44px] disabled:cursor-not-allowed ${semEnvio === 0 ? 'bg-green-100 text-green-800 border border-green-300' : 'bg-[#25D366] text-white hover:bg-[#1EBE57] disabled:opacity-50'}`}>
+                        {pedindoConfirmacao ? 'Enviando…' : semEnvio === 0 ? '✓ Confirmação enviada a todos' : `📲 Enviar Confirmação (${semEnvio})`}
+                      </button>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {([['todos', 'Todos', entregasDia.length], ['manha', 'Manhã', nPer('manha')], ['tarde', 'Tarde', nPer('tarde')], ['sem', 'Sem período', nPer('sem')]] as const)
+                        .filter(([k, , n]) => k === 'todos' || n > 0)
+                        .map(([k, rotulo, n]) => (
+                          <button key={k} onClick={() => { setFiltroPeriodoDia(k); setSelecionadas([]); }}
+                            className={`text-xs px-3 py-1.5 rounded-full border min-h-[36px] ${filtroPeriodoDia === k ? 'bg-orange-500 text-white border-orange-500' : 'bg-white text-gray-700 border-gray-300 hover:bg-gray-50'}`}>
+                            {rotulo} ({n})
+                          </button>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })()}
+
               {entregasDia.length > 0 && (
                 <div className="mb-3 flex gap-3 items-center">
                   <button onClick={selecionarTodas} className="text-xs text-orange-600 hover:underline">
-                    Selecionar todas ({entregasDia.length})
+                    Selecionar todas ({entregasDiaFiltradas.length})
                   </button>
                   {selecionadas.length > 0 && (
                     <span className="text-xs text-gray-500">{selecionadas.length} selecionada(s)</span>
                   )}
+                  <button onClick={imprimirListaDia} className="ml-auto text-xs text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 min-h-[36px]">
+                    🖨️ Imprimir lista do dia
+                  </button>
                 </div>
               )}
 
               {entregasDia.length > 0 && (
                 <div className="space-y-2 mb-4">
-                  {entregasDia.map((e, idx) => (
+                  {entregasDiaFiltradas.map((e, idx) => (
                     <div
                       key={e.id}
                       className={`rounded-lg text-sm overflow-hidden ${
@@ -5277,6 +5424,15 @@ export default function OrcamentoApp() {  // Auth state
                               {e.carga_tipo === 'programada' ? `📦 ${e.codigo} · Entrega #${e.viagem_numero ?? ''} — levar só: ` : '⚠️ PARCIAL — levar só o que falta: '}{e.itens_resumo}
                             </p>
                           )}
+                          {/* Periodo e se o pedido de confirmacao ja foi enviado. */}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-1">
+                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${e.periodo_entrega === 'manha' ? 'bg-amber-100 text-amber-800' : e.periodo_entrega === 'tarde' ? 'bg-sky-100 text-sky-800' : 'bg-gray-100 text-gray-500'}`}>
+                              {e.periodo_entrega === 'manha' || e.periodo_entrega === 'tarde' ? PERIODO_LABEL[e.periodo_entrega] : 'Sem período'}
+                            </span>
+                            <span className={`text-[11px] font-semibold px-2 py-0.5 rounded ${e.confirmacao_status ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-500'}`}>
+                              {e.confirmacao_status ? '📲 Confirmação enviada' : 'Confirmação não enviada'}
+                            </span>
+                          </div>
                         </div>
                         {/* No celular os botoes descem pra linha de baixo: lado a lado
                             eles espremiam nome e endereco numa coluna de 3 letras. */}
@@ -5927,7 +6083,7 @@ export default function OrcamentoApp() {  // Auth state
                       </>
                     );
                   })()}
-                  {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
+                  {orcamentoDetalhe.data_entrega && <p className="text-sm text-gray-600 mt-1">📅 Data de entrega: {new Date(orcamentoDetalhe.data_entrega + 'T12:00:00').toLocaleDateString('pt-BR')}{orcamentoDetalhe.periodo_entrega === 'manha' || orcamentoDetalhe.periodo_entrega === 'tarde' ? ' · ' + PERIODO_LABEL[orcamentoDetalhe.periodo_entrega] : ''}</p>}
                   {(orcamentoDetalhe as any).data_retirada && <p className="text-sm text-gray-600 mt-1">📅 Data de retirada: {new Date((orcamentoDetalhe as any).data_retirada + 'T12:00:00').toLocaleDateString('pt-BR')}</p>}
                   {orcamentoDetalhe.reagendamentos > 0 && <p className="text-xs text-orange-600 mt-1">⚠️ Reagendado {orcamentoDetalhe.reagendamentos}x</p>}
                 </div>
@@ -6152,6 +6308,11 @@ export default function OrcamentoApp() {  // Auth state
                                   value={semDataConfirmacao ? '' : (dataConfirmacao || orcamentoDetalhe.data_entrega || '')}
                                   onChange={e => setDataConfirmacao(e.target.value)}
                                   className="mt-0.5 w-full text-sm border border-gray-300 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:ring-1 focus:ring-[#F7941D] disabled:bg-gray-100 disabled:text-gray-400" />
+                                {!semDataConfirmacao && (
+                                  <SeletorPeriodo data={dataConfirmacao || orcamentoDetalhe.data_entrega || ''} ignorarId={orcamentoDetalhe.id}
+                                    valor={periodoConfirmacao || (orcamentoDetalhe.periodo_entrega === 'manha' || orcamentoDetalhe.periodo_entrega === 'tarde' ? orcamentoDetalhe.periodo_entrega : '')}
+                                    onChange={setPeriodoConfirmacao} />
+                                )}
                                 <span className="mt-1.5 flex items-center gap-1.5 text-xs text-gray-600">
                                   <input type="checkbox" checked={semDataConfirmacao} onChange={e => setSemDataConfirmacao(e.target.checked)} className="accent-[#F7941D]" />
                                   Sem data ainda (cliente vai confirmar)
@@ -6215,7 +6376,7 @@ export default function OrcamentoApp() {  // Auth state
                   {/* Feature 9 - Reschedule button */}
                   {!['completo', 'cancelado', 'ocorrencia'].includes(orcamentoDetalhe.status) && orcamentoDetalhe.tipo_entrega === 'entrega'
                     && !entregasParciais.some(ep => ep.status === 'programada') && (
-                    <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setMostrarReagendar(true); }}
+                    <button onClick={() => { setReagendandoId(orcamentoDetalhe.id); setNovoPeriodoEntrega(orcamentoDetalhe.periodo_entrega === 'manha' || orcamentoDetalhe.periodo_entrega === 'tarde' ? orcamentoDetalhe.periodo_entrega : ''); setMostrarReagendar(true); }}
                       className="w-full bg-yellow-500 text-white py-2 rounded-xl font-bold hover:bg-yellow-600 transition text-sm">📅 Reagendar Entrega</button>
                   )}
                   {orcamentoDetalhe.status === 'orcamento' && (
@@ -6428,12 +6589,15 @@ export default function OrcamentoApp() {  // Auth state
           <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6" onClick={e => e.stopPropagation()}>
             <h2 className="text-lg font-bold text-gray-800 mb-4">📅 Reagendar Entrega</h2>
             <input type="date" value={novaDataEntrega} min={todayStr} onChange={e => setNovaDataEntrega(e.target.value)}
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D] mb-4" />
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#F7941D]" />
+            <div className="mb-4">
+              <SeletorPeriodo data={novaDataEntrega} valor={novoPeriodoEntrega} onChange={setNovoPeriodoEntrega} ignorarId={reagendandoId} />
+            </div>
             <div className="flex gap-3">
               <button onClick={() => { setMostrarReagendar(false); setReagendandoId(null); }}
                 className="flex-1 bg-gray-200 text-gray-700 py-2 rounded-lg font-medium hover:bg-gray-300 transition">Cancelar</button>
               <button onClick={() => { if (novaDataEntrega && reagendandoId) reagendarEntrega(reagendandoId, novaDataEntrega); }}
-                disabled={!novaDataEntrega}
+                disabled={!novaDataEntrega || !novoPeriodoEntrega}
                 className="flex-1 bg-[#F7941D] text-white py-2 rounded-lg font-bold hover:bg-[#E8850A] transition disabled:opacity-50">Confirmar</button>
             </div>
           </div>
