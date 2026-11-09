@@ -204,14 +204,17 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     const tipo = tipoConta.get(String(l.conta_id));
     const doExtrato = (tipo === 'banco' || tipo === 'adquirente') && ehExtrato(l.origem_lancamento);
     const doCaixa = tipo === 'caixa' && l.origem_lancamento === 'manual';
-    if (!doExtrato && !doCaixa) continue;
+    // Carteira (Vloz): cimento pago com o saldo e compra de verdade que nunca
+    // passa pelo banco. Entra no realizado/CMV, mas fica fora do caixa do mes.
+    const doCarteira = tipo === 'carteira' && ehExtrato(l.origem_lancamento);
+    if (!doExtrato && !doCaixa && !doCarteira) continue;
     const abs = arred2(-valor);
     // Salario pago por PIX so e descartado quando o mesmo pagamento esta
     // registrado em Funcionarios (ai ele ja entrou pela folha). Sem registro,
     // a linha do extrato E a folha realizada.
     if (ehFolha(cat?.nome) && doExtrato && (coincide(refsFolha, String(l.data), abs) || dentroDeFolhaRegistrada(l))) { folhaJaContada++; continue; }
-    if (doExtrato && (coincide(refsContas, String(l.data), abs) || coincide(refsFolha, String(l.data), abs))) { duplicidades++; continue; }
-    if (doExtrato) saidasExtrato.push({ valor: abs, conta_id: String(l.conta_id) }); else saidasCaixa.push(abs);
+    if ((doExtrato || doCarteira) && (coincide(refsContas, String(l.data), abs) || coincide(refsFolha, String(l.data), abs))) { duplicidades++; continue; }
+    if (doExtrato) saidasExtrato.push({ valor: abs, conta_id: String(l.conta_id) }); else if (doCaixa) saidasCaixa.push(abs);
     // Categoria com grupo_gestao NULL (nao operacional) fica fora; sem categoria cai em 'outro'.
     const g: GrupoGestao | null = cat ? ((cat.grupo_gestao as GrupoGestao | null) ?? null) : 'outro';
     if (!g) continue;

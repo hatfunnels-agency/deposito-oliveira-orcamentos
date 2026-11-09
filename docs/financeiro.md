@@ -133,7 +133,7 @@ Consequências práticas:
 
 ## 7. OFX: como exportar
 
-O importador aceita `.xlsx`/`.csv` (layouts atuais) e `.ofx` (detectado pelo conteúdo, `OFXHEADER` ou `<OFX>`, com prioridade sobre o layout da conta). OFX traz `FITID` (identificador único por transação), o que torna a reimportação exata, e `LEDGERBAL` (saldo final), que alimenta `saldos_conta` sozinho.
+O importador aceita `.xlsx`/`.csv` (layouts atuais) e `.ofx` (detectado pelo conteúdo, `OFXHEADER` ou `<OFX>`, com prioridade sobre o layout da conta). OFX traz `FITID` (identificador único por transação), o que torna a reimportação exata, e `LEDGERBAL` (saldo final), que alimenta `saldos_conta` sozinho. O OFX do Itaú traz uma pseudo-transação por dia ("SALDO TOTAL DISPONÍVEL DIA") que o parser ignora, e vem sem `NAME`: a contraparte e o documento são extraídos do `MEMO` ("PIX ENVIADO FULANO 000.000.000-00").
 
 **Itaú Empresas (internet banking PJ):** Conta corrente › Extrato › escolha o período (o banco limita a janela; para períodos maiores, exporte em partes) › **Salvar em outros formatos › OFX**. Suba o arquivo em `/financeiro` › Extratos escolhendo a conta do banco.
 
@@ -194,8 +194,8 @@ Para adicionar uma despesa fixa ou um fornecedor depois, use a tela (ou `POST /a
 Descoberto em out/2026: a Stone divide cada venda no **cartão** em 85% para a conta Stone e 15% para a carteira **Vloz** da Votorantim. O cashback da Votoran (a taxa reembolsada) também cai na Vloz. Esse crédito só serve para comprar cimento da Votorantim; quando o saldo cobre o boleto, ele é pago inteiro com a Vloz. Pix não tem divisão.
 
 - Conta `Vloz (Votorantim)`, tipo `carteira`, layout `vloz_csv`. Saldo = soma dos lançamentos; fica **fora** do "total disponível".
-- Importação: o CSV "vendasvloz_<data>.csv" (Extratos › conta Vloz). Cada venda vira "Vloz 15% — …" (categoria venda no cartão) e "Cashback Votoran — …" (categoria reembolso de taxa). O código da transação dá idempotência. O CSV usa `;` com vírgula decimal.
-- Cimento pago com saldo Vloz: "Paguei" na conta a pagar escolhendo a conta Vloz; o lançamento sai da carteira, como no caixa.
+- Importação: dois CSVs, os dois com `;` e vírgula decimal, reconhecidos pelo cabeçalho (Extratos › conta Vloz). **Preferir o extrato da carteira** "movimentacoes_saldo_vloz_<data>.csv": cada dia vira "Vloz 15% — …" (venda no cartão, com a taxa total das vendas do dia em `tarifa`), o crédito mensal vira "Cashback Votoran" (reembolso de taxa) e cada pedido pago com o saldo vira "Cimento Votoran pago com saldo Vloz — …" (CMV - Cimento, negativo), com o saldo final do arquivo em `saldos_conta`. O arquivo de vendas "vendasvloz_<data>.csv" (uma linha por venda, cashback por venda) continua aceito, mas não misture os dois no mesmo período: o Fechamento somaria o cashback duas vezes.
+- Cimento pago com saldo Vloz: entra sozinho pelo extrato da carteira (linha negativa, CMV). Se a conta a pagar do pedido existir, vincule-a à linha; sem extrato, "Paguei" escolhendo a conta Vloz cria a linha. No Fechamento essas saídas contam no realizado e nas compras, mas ficam fora do "Caixa do mês" (não é dinheiro de banco).
 - O cashback da carteira conta como **reembolso recebido** na Maquininha e no Fechamento.
 - A conferência do cartão Stone compara a liquidação só com os 85% (`configuracoes.financeiro_split_carteira_pct`).
 - No bloco "Caixa do mês", as entradas vêm do extrato; os 15% da Vloz nunca entram no banco.
