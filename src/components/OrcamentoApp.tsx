@@ -3533,44 +3533,6 @@ export default function OrcamentoApp() {  // Auth state
 
 
 
-  // Lista do dia para revisar e conferir (fechamento: imprimir as entregas de
-  // amanha). Separada por periodo, com itens, o que cobrar e a confirmacao.
-  // Nao gera rota nem muda status.
-  const imprimirListaDia = () => {
-    if (!entregasDia.length) return;
-    const printWindow = window.open('', '_blank');
-    if (!printWindow) return;
-    const d = dataEntregasAlvo();
-    const dt = new Date(d + 'T12:00:00');
-    const diasSemana = ['Domingo', 'Segunda-Feira', 'Terça-Feira', 'Quarta-Feira', 'Quinta-Feira', 'Sexta-Feira', 'Sábado'];
-    const dataStr = dt.toLocaleDateString('pt-BR') + ' - ' + diasSemana[dt.getDay()];
-    const conf = (c?: string | null) => c ? '📲 Confirmação enviada' : '☐ Enviar confirmação';
-    const grupos: Array<[string, EntregaRota[]]> = [
-      ['Manhã (8h–12h)', entregasDia.filter(e => e.periodo_entrega === 'manha')],
-      ['Tarde (13h–17h)', entregasDia.filter(e => e.periodo_entrega === 'tarde')],
-      ['Sem período', entregasDia.filter(e => e.periodo_entrega !== 'manha' && e.periodo_entrega !== 'tarde')],
-    ];
-    let html = `<!DOCTYPE html><html><head><title>Entregas ${dataStr}</title><style>body{font-family:Arial,sans-serif;max-width:760px;margin:0 auto;padding:15px;color:#222;font-size:12.5px}h1{font-size:18px;margin:0 0 2px}h2{font-size:15px;margin:16px 0 6px;padding:4px 8px;background:#0C1B2A;color:#fff}.e{border:1px solid #bbb;border-radius:4px;padding:6px 8px;margin-bottom:6px;page-break-inside:avoid}.l{display:flex;justify-content:space-between;gap:8px}.ok{font-size:11.5px;color:#444}.cobrar{color:#b91c1c;font-weight:bold}.rev{margin-top:4px;font-size:11.5px;color:#444}@media print{button{display:none}}</style></head><body>`;
-    html += `<h1>Entregas do dia ${dataStr}</h1><p style="margin:0;color:#555">${entregasDia.length} entrega(s) · Revisar cada uma: itens, endereço, período, valor a cobrar e observações.</p>`;
-    for (const [titulo, lista] of grupos) {
-      if (!lista.length) continue;
-      html += `<h2>${titulo} — ${lista.length}</h2>`;
-      lista.forEach((e, i) => {
-        const end = [[e.endereco, e.numero].filter(Boolean).join(', '), e.bairro, e.cidade].filter(Boolean).join(' - ');
-        html += `<div class="e"><div class="l"><strong>${i + 1}. ${e.cliente_nome}</strong><span>${e.codigo}</span></div>`;
-        html += `<div>${end || '<em>sem endereço</em>'}${e.cliente_telefone ? ' · ' + e.cliente_telefone : ''}${e.recebedor ? ' · Recebe: ' + e.recebedor : ''}</div>`;
-        html += `<div>📦 ${e.itens_resumo || '<em>sem itens</em>'}</div>`;
-        html += (e.a_cobrar ?? 0) > 0.01 ? `<div class="cobrar">💰 COBRAR R$ ${(e.a_cobrar || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}${e.forma_pagamento ? ' (' + e.forma_pagamento + ')' : ''}</div>` : `<div style="color:#15803d">✅ Já pago</div>`;
-        if (e.observacoes) html += `<div style="font-style:italic;color:#555">Obs: ${e.observacoes}</div>`;
-        html += `<div class="rev">${conf(e.confirmacao_status)} &nbsp; ☐ Itens conferidos &nbsp; ☐ Endereço ok &nbsp; ☐ Valor ok</div></div>`;
-      });
-    }
-    html += `</body></html>`;
-    printWindow.document.write(html);
-    printWindow.document.close();
-    setTimeout(() => printWindow.print(), 250);
-  };
-
   // ===== Estoque Management Functions =====
   const registrarEntrada = async () => {
     if (!produtoSelecionado || !entradaQtd) return;
@@ -5384,9 +5346,6 @@ export default function OrcamentoApp() {  // Auth state
                   {selecionadas.length > 0 && (
                     <span className="text-xs text-gray-500">{selecionadas.length} selecionada(s)</span>
                   )}
-                  <button onClick={imprimirListaDia} className="ml-auto text-xs text-gray-700 px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 min-h-[36px]">
-                    🖨️ Imprimir lista do dia
-                  </button>
                 </div>
               )}
 
