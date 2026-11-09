@@ -204,9 +204,10 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     const tipo = tipoConta.get(String(l.conta_id));
     const doExtrato = (tipo === 'banco' || tipo === 'adquirente') && ehExtrato(l.origem_lancamento);
     const doCaixa = tipo === 'caixa' && l.origem_lancamento === 'manual';
-    // Carteira (Vloz): cimento pago com o saldo e compra de verdade que nunca
-    // passa pelo banco. Entra no realizado/CMV, mas fica fora do caixa do mes.
-    const doCarteira = tipo === 'carteira' && ehExtrato(l.origem_lancamento);
+    // Carteira (Vloz) e cartao de credito importados: cimento pago com o
+    // saldo e compra da fatura sao despesa de verdade que nao passa pelo banco
+    // (a fatura paga e transferencia). Entram no realizado/CMV, fora do caixa.
+    const doCarteira = (tipo === 'carteira' || tipo === 'cartao_credito') && ehExtrato(l.origem_lancamento);
     if (!doExtrato && !doCaixa && !doCarteira) continue;
     const abs = arred2(-valor);
     // Salario pago por PIX so e descartado quando o mesmo pagamento esta
@@ -220,7 +221,7 @@ async function calcular(mes: string, comComparativo: boolean): Promise<Fechament
     if (!g) continue;
     if (g === 'cmv_compras') comprasPagas += abs;
     grupo(g).realizado += abs;
-    grupo(g).itens.push({ descricao: String(l.descricao || ''), valor: abs, data: String(l.data), origem: doExtrato ? 'extrato' : 'caixa', fornecedor: (l.contraparte as string | null) ?? null });
+    grupo(g).itens.push({ descricao: String(l.descricao || ''), valor: abs, data: String(l.data), origem: doCaixa ? 'caixa' : 'extrato', fornecedor: (l.contraparte as string | null) ?? null });
   }
   grupo('taxas').realizado += taxasRealizadas;
   grupo('taxas').itens.push({ descricao: 'Taxas da maquininha e tarifa Pix (realizado)', valor: taxasRealizadas, data: null, origem: 'extrato', fornecedor: 'Stone' });
