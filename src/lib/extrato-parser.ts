@@ -464,6 +464,12 @@ function parseOfx(buffer: Buffer, contaId: string): ResultadoParse {
       ignoradas.push({ linha: i + 1, motivo: 'valor ilegivel ou zero', conteudo: resumo });
       return;
     }
+    // O OFX do Itau traz uma pseudo-transacao por dia com o saldo ("SALDO TOTAL
+    // DISPONIVEL DIA"): nao e movimento, e entraria como entrada gigante.
+    if (/^SALDO (TOTAL )?DISPON|^SALDO ANTERIOR|^SALDO DO DIA/i.test(memo) || /^SALDO (TOTAL )?DISPON/i.test(nome)) {
+      ignoradas.push({ linha: i + 1, motivo: 'linha de saldo, nao e movimento', conteudo: resumo });
+      return;
+    }
 
     // NAME e MEMO costumam repetir o mesmo texto; junta so o que e diferente.
     const partes = [nome, memo].filter((p, idx, arr) => p && arr.indexOf(p) === idx);
@@ -471,7 +477,18 @@ function parseOfx(buffer: Buffer, contaId: string): ResultadoParse {
     // Sem NAME (caso da Stone), o nome vem no MEMO antes do " - ":
     // "FULANO DE TAL - Pix | Maquininha", "L & J DEPOSITO OLIVEIRA LTDA - Transferência | Pix".
     const doMemo = !nome && memo.includes(' - ') ? limpar(memo.split(' - ')[0]) : '';
-    const contraparte = nome || (doMemo && !/^RECEBIMENTO|^MENSALIDADE/i.test(doMemo) ? doMemo : '') || null;
+    // Itau (OFX do internet banking) tambem vem sem NAME: o MEMO e
+    // "PIX ENVIADO FULANO DE TAL 123.456.789-00" / "BOLETO PAGO EMPRESA 00.000.000/0001-00".
+    const doItau = !nome && !doMemo
+      ? limpar(memo
+          .replace(/^(PIX (ENVIADO|RECEBIDO|TRANSF)|BOLETO PAGO|PAGAMENTOS?|TED (RECEBIDA|ENVIADA)|DOC (RECEBIDO|ENVIADO)|SISPAG PIX QR-CODE)\s+/i, '')
+          .replace(/\s*(\d{2}\.?\d{3}\.?\d{3}\/?\d{4}-?\d{2}|\d{3}\.?\d{3}\.?\d{3}-?\d{2})\s*$/, ''))
+      : '';
+    const prefixoItau = /^(PIX (ENVIADO|RECEBIDO|TRANSF)|BOLETO PAGO|PAGAMENTOS?|TED |DOC |SISPAG)/i.test(memo);
+    const contraparte = nome
+      || (doMemo && !/^RECEBIMENTO|^MENSALIDADE/i.test(doMemo) ? doMemo : '')
+      || (prefixoItau && doItau && doItau !== memo ? doItau : '')
+      || null;
     const fitid = limpar(c.FITID);
 
     let hash: string;
@@ -539,6 +556,84 @@ function montarResultado(
 export function ehVlozCsv(texto: string): boolean {
   const cabeca = texto.replace(/^\uFEFF/, '').slice(0, 400).toLowerCase();
   return cabeca.includes('vloz bruto') && cabeca.includes('cashback');
+}
+
+// ------------------------------------------------------------
+// Vloz (Votorantim) \u2014 .csv "movimentacoes_saldo_vloz_<data>.csv": o extrato
+// da carteira. CNPJ;Data;Tipo;Descri\u00E7\u00E3o;Valor do Split Bruto;Taxas;Valor
+// L\u00EDquido do Split;N\u00BA do Pedido;N\u00BA NF;Condi\u00E7\u00E3o Pagamento;Valor Total Pedido;
+// Valor Complementar Boletos;Saldo VLoz Utilizado;Valor;Saldo Final
+//
+// Entrada "Percentual do plano Vloz" = os 15% do dia (liquido), com a taxa
+// total das vendas do dia na coluna Taxas. Entrada "Cashback" = a taxa
+// devolvida (credito mensal). Saida = pedido de cimento pago com o saldo;
+// a parte paga por boleto ("Valor Complementar") sai do banco e ja vem no
+// extrato do Itau, entao aqui entra so o "Saldo VLoz Utilizado".
+// ------------------------------------------------------------
+export function ehVlozSaldoCsv(texto: string): boolean {
+  const cabeca = texto.replace(/^\uFEFF/, '').slice(0, 400).toLowerCase();
+  return cabeca.includes('saldo vloz utilizado') && cabeca.includes('split');
+}
+
+function parseVlozSaldoCsv(texto: string, contaId: string): ResultadoParse {
+  const linhas = parseCsv(texto, ';');
+  if (linhas.length < 2) throw new Error('Extrato da Vloz vazio ou sem cabecalho');
+  const titulo = linhas[0].map(t => limpar(t).toLowerCase());
+  const col = (re: RegExp) => titulo.findIndex(t => re.test(t));
+  const cData = col(/^data$/), cTipo = col(/^tipo$/), cDesc = col(/descri/), cTaxas = col(/^taxas$/);
+  const cSplitLiq = col(/l[i\u00ED]quido do split/), cPedido = col(/pedido$/), cNf = col(/n[\u00BAo\u00B0]? ?nf|^nf$/), cCond = col(/condi/);
+  const cTotal = col(/valor total/), cCompl = col(/complementar/), cUsado = col(/utilizado/), cValor = col(/^valor$/), cSaldo = col(/saldo final/);
+  if (cData < 0 || cTipo < 0 || cSplitLiq < 0 || cUsado < 0) {
+    throw new Error('Extrato da Vloz sem as colunas Data, Tipo, Valor L\u00EDquido do Split ou Saldo VLoz Utilizado');
+  }
+  const lancamentos: LancamentoBruto[] = [];
+  const ignoradas: ResultadoParse['ignoradas'] = [];
+  const brl = (n: number) => n.toFixed(2).replace('.', ',');
+  let saldoFinal: ResultadoParse['saldo_final'] = null;
+  for (let i = 1; i < linhas.length; i++) {
+    const l = linhas[i];
+    const get = (idx: number) => (idx >= 0 ? limpar(l[idx]) : '');
+    const data = paraDataIso(get(cData).split(' ')[0]);
+    const tipo = get(cTipo).toLowerCase();
+    const desc = get(cDesc);
+    if (!data || !tipo) { ignoradas.push({ linha: i + 1, motivo: 'data ou tipo ilegivel', conteudo: l.join(' | ').slice(0, 90) }); continue; }
+    const saldo = paraNumero(get(cSaldo));
+    // O arquivo vem do mais novo pro mais velho: o primeiro saldo legivel e o final.
+    if (!saldoFinal && !Number.isNaN(saldo)) saldoFinal = { data, saldo };
+    const hash = (chave: string) => createHash('sha256').update([contaId, 'vloz_saldo', data, chave].join('|')).digest('hex').slice(0, 32);
+    if (tipo.startsWith('entrada')) {
+      const ehCashback = /cashback/i.test(desc);
+      const valor = ehCashback ? paraNumero(get(cValor)) : paraNumero(get(cSplitLiq));
+      if (Number.isNaN(valor) || valor <= 0) { ignoradas.push({ linha: i + 1, motivo: 'entrada sem valor', conteudo: l.join(' | ').slice(0, 90) }); continue; }
+      const taxas = paraNumero(get(cTaxas));
+      lancamentos.push({
+        data,
+        descricao: ehCashback ? `Cashback Votoran \u2014 ${desc}` : `Vloz 15% \u2014 ${desc} (taxas do dia R$ ${Number.isNaN(taxas) ? '0,00' : brl(taxas)})`,
+        contraparte: 'Votorantim (Vloz)', documento: null, valor, saldo: Number.isNaN(saldo) ? null : saldo,
+        tarifa: ehCashback || Number.isNaN(taxas) ? 0 : Math.abs(taxas),
+        hash_linha: hash(ehCashback ? `cashback|${brl(valor)}` : `split|${brl(valor)}`),
+      });
+      continue;
+    }
+    if (tipo.startsWith('saida') || tipo.startsWith('sa\u00EDda')) {
+      const usado = paraNumero(get(cUsado));
+      if (Number.isNaN(usado) || usado <= 0) { ignoradas.push({ linha: i + 1, motivo: 'saida sem saldo utilizado', conteudo: l.join(' | ').slice(0, 90) }); continue; }
+      const total = paraNumero(get(cTotal)), compl = paraNumero(get(cCompl));
+      const partes = [
+        get(cPedido) ? `pedido ${get(cPedido)}` : '', get(cNf) ? `NF ${get(cNf)}` : '', get(cCond) || desc,
+        !Number.isNaN(total) && total > 0 ? `total R$ ${brl(total)}` : '', !Number.isNaN(compl) && compl > 0 ? `boleto R$ ${brl(compl)}` : '',
+      ].filter(Boolean).join(', ');
+      lancamentos.push({
+        data, descricao: `Cimento Votoran pago com saldo Vloz \u2014 ${partes}`,
+        contraparte: 'Votorantim Cimentos (Votoran)', documento: null, valor: -usado,
+        saldo: Number.isNaN(saldo) ? null : saldo, tarifa: 0,
+        hash_linha: hash(`saida|${get(cPedido)}|${get(cNf)}|${brl(usado)}`),
+      });
+      continue;
+    }
+    ignoradas.push({ linha: i + 1, motivo: `tipo desconhecido: ${tipo}`, conteudo: l.join(' | ').slice(0, 90) });
+  }
+  return montarResultado(lancamentos, ignoradas, saldoFinal);
 }
 
 function parseVlozCsv(texto: string, contaId: string): ResultadoParse {
@@ -614,8 +709,9 @@ export function parseExtrato(
   }
   const texto = buffer.toString('utf8');
   // Vloz pelo conteudo: o arquivo tem cabecalho proprio e so serve pra conta Vloz.
+  if (ehVlozSaldoCsv(texto)) return parseVlozSaldoCsv(texto, contaId);
   if (ehVlozCsv(texto)) return parseVlozCsv(texto, contaId);
-  if (layout === 'vloz_csv') throw new Error('O arquivo não parece o CSV de vendas da Vloz (sem as colunas Vloz Bruto e Cashback).');
+  if (layout === 'vloz_csv') throw new Error('O arquivo não parece CSV da Vloz: nem o de vendas (Vloz Bruto e Cashback) nem o extrato de saldo (Saldo VLoz Utilizado).');
   if (layout === 'stone_csv') return parseStoneCsv(texto, contaId);
   return parseGenericoCsv(texto, contaId);
 }

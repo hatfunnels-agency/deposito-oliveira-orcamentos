@@ -28,8 +28,8 @@ export async function importarLancamentos(e: EntradaImportacao): Promise<Resulta
   // 1. Dedup por hash (reimportacao do mesmo arquivo/periodo).
   const existentes = new Set<string>();
   const hashes = lancs.map(l => l.hash_linha);
-  for (let i = 0; i < hashes.length; i += 500) {
-    const { data, error } = await supabaseAdmin.from('lancamentos_bancarios').select('hash_linha').in('hash_linha', hashes.slice(i, i + 500));
+  for (let i = 0; i < hashes.length; i += 150) {
+    const { data, error } = await supabaseAdmin.from('lancamentos_bancarios').select('hash_linha').in('hash_linha', hashes.slice(i, i + 150));
     if (error) throw new Error(error.message);
     for (const r of (data || [])) existentes.add(String(r.hash_linha));
   }
