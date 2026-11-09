@@ -64,6 +64,9 @@ interface EntregaItem {
   motorista_id: string | null;
   leva_id: string | null;
   leva_numero: number | null;
+  periodo_entrega: string | null;
+  confirmacao_status: string | null;
+  confirmacao_enviada_em: string | null;
 }
 
 // GET - carrega entregas do dia (pendentes, em rota e completas)
@@ -80,7 +83,7 @@ export async function GET(request: NextRequest) {
       .from('orcamentos')
       .select(`
         id, codigo, tipo_entrega, status, total, valor_pago, forma_pagamento, aviso_rota_em,
-        data_entrega, observacoes, motorista_id, leva_id,
+        data_entrega, periodo_entrega, confirmacao_status, confirmacao_enviada_em, observacoes, motorista_id, leva_id,
         levas_entrega ( numero_leva ),
         clientes!inner (
           nome, telefone, recebedor
@@ -107,9 +110,12 @@ export async function GET(request: NextRequest) {
       .from('entregas_parciais').select('orcamento_id')
       .eq('status', 'programada').eq('data_entrega', dia);
     const idsComViagem = Array.from(new Set((viagensDoDia || []).map(v => String(v.orcamento_id))));
+    // Em rota entra SEMPRE, de qualquer dia: pedido que saiu e ninguem deu
+    // baixa sumia da tela no dia seguinte e ficava "em rota" para sempre
+    // (29 pedidos assim em 08/11/2026, o mais antigo de 15/10).
     query = idsComViagem.length
-      ? query.or(`data_entrega.eq.${dia},id.in.(${idsComViagem.join(',')})`)
-      : query.eq('data_entrega', dia);
+      ? query.or(`data_entrega.eq.${dia},status.eq.em_rota,id.in.(${idsComViagem.join(',')})`)
+      : query.or(`data_entrega.eq.${dia},status.eq.em_rota`);
 
     const { data: entregas, error } = await query;
     if (error) {
@@ -191,6 +197,9 @@ export async function GET(request: NextRequest) {
           lng,
           motorista_id: e.motorista_id ? String(e.motorista_id) : null,
           leva_id: e.leva_id ? String(e.leva_id) : null,
+          periodo_entrega: e.periodo_entrega ? String(e.periodo_entrega) : null,
+          confirmacao_status: e.confirmacao_status ? String(e.confirmacao_status) : null,
+          confirmacao_enviada_em: e.confirmacao_enviada_em ? String(e.confirmacao_enviada_em) : null,
           leva_numero: (() => {
             const lRaw = e.levas_entrega;
             const l = (Array.isArray(lRaw) ? lRaw[0] : lRaw) as Record<string, unknown> | null;
